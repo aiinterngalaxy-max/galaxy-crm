@@ -34,18 +34,9 @@ export function ProjectsPage() {
 
   useEffect(() => {
     if (!user || !role) return
-    const unsub = role === 'project_manager'
-      ? onSnapshot(
-          query(collection(db, 'projects'), where('assignedPM', '==', user.id), orderBy('createdAt', 'desc')),
-          snap => { setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)); setLoading(false) },
-          err => { console.error(err); setLoading(false) }
-        )
-      : onSnapshot(
-          query(collection(db, 'projects'), orderBy('createdAt', 'desc')),
-      snap => {
-        setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project))
-        setLoading(false)
-      },
+    const unsub = onSnapshot(
+      query(collection(db, 'projects'), orderBy('createdAt', 'desc')),
+      snap => { setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)); setLoading(false) },
       err => { console.error(err); setLoading(false) }
     )
     return unsub

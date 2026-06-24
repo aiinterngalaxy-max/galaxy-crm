@@ -79,6 +79,14 @@ export function QuotationsPage() {
       const snap = await getDocs(collection(db, 'projects'))
       const seq = snap.size + 1
 
+      // Fetch customer details to pre-fill site info
+      let customerData: any = {}
+      if (q.customerId) {
+        const custSnap = await getDocs(collection(db, 'customers'))
+        const custDoc = custSnap.docs.find(d => d.id === q.customerId)
+        if (custDoc) customerData = custDoc.data()
+      }
+
       const projectRef = await addDoc(collection(db, 'projects'), {
         projectCode: generateProjectCode(seq),
         title: `${q.customerName} — Home Automation`,
@@ -91,9 +99,14 @@ export function QuotationsPage() {
         riskLevel: 'low',
         completionPercent: 0,
         milestones: [],
-        assignedPM: q.assignedPM,
-        assignedPMName: q.assignedPMName,
+        assignedPM: user?.id,
+        assignedPMName: user?.name,
         collectedAmount: 0,
+        // Auto-filled from customer record
+        clientContact: customerData.phone || '',
+        siteAddress: customerData.address || '',
+        city: customerData.city || '',
+        landmark: customerData.landmark || '',
         createdBy: user?.id,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
