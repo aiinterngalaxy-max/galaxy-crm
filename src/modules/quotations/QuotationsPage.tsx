@@ -250,37 +250,17 @@ export function QuotationsPage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-                  {isDraft && canCreate && (
-                    <Button size="sm" variant="secondary"
-                      icon={<Send className="w-3.5 h-3.5" />}
-                      onClick={e => sendToCustomer(q, e)}>
-                      Send
-                    </Button>
-                  )}
-                  {isPending && canApprove && (
+                  {!hasProject && !isDraft && canCreate && (
                     <Button size="sm" variant="success"
-                      icon={<CheckCircle2 className="w-3.5 h-3.5" />}
-                      onClick={e => approveQuotation(q, e)}>
-                      Approve
-                    </Button>
-                  )}
-                  {q.status === 'approved' && canApprove && (
-                    <Button size="sm" variant="secondary"
-                      icon={<ThumbsUp className="w-3.5 h-3.5" />}
-                      onClick={e => markClientAccepted(q, e)}>
-                      Client Accepted
-                    </Button>
-                  )}
-                  {(isApproved || isCustomerApproved) && !hasProject && (
-                    <Button size="sm" variant="secondary"
                       icon={<FolderPlus className="w-3.5 h-3.5" />}
                       loading={creatingProject === q.id}
                       onClick={e => createProjectFromQuotation(q, e)}>
-                      Create Project
+                      Convert to Project
                     </Button>
                   )}
-                  {(isApproved || isCustomerApproved) && hasProject && (
-                    <Button size="sm" variant="ghost"
+                  {hasProject && (
+                    <Button size="sm" variant="secondary"
+                      icon={<FolderPlus className="w-3.5 h-3.5" />}
                       onClick={e => { e.stopPropagation(); navigate(`/projects/${q.projectId}`) }}>
                       View Project
                     </Button>
