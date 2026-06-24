@@ -36,6 +36,20 @@ const CATEGORY_LABELS: Record<string, string> = {
   CONTROLLERS: 'Controllers / Hubs',
 }
 
+// Category display order matching the prototype
+const CATEGORY_ORDER = [
+  'ELYSIA_SWITCHES',
+  'VITRUM_SWITCHES',
+  'IR_CONTROLLERS',
+  'SENSORS',
+  'CONTROLLERS',
+  'LCD_PANELS',
+  'LOCKS',
+  'NETWORKING',
+  'VDP',
+  'CURTAINS',
+]
+
 const CATEGORY_COLORS: Record<string, string> = {
   ELYSIA_SWITCHES: 'text-amber-400 bg-amber-900/30',
   VITRUM_SWITCHES: 'text-emerald-400 bg-emerald-900/30',
@@ -257,7 +271,7 @@ export function ProductCatalogTab() {
   }
 
   const isSeeded = products.some(p => !!p.firestoreId)
-  const categories = ['ALL', ...Object.keys(CATEGORY_LABELS)]
+  const categories = ['ALL', ...CATEGORY_ORDER]
 
   const filtered = products.filter(p => {
     const matchCat = activeCategory === 'ALL' || p.category === activeCategory
@@ -266,6 +280,10 @@ export function ProductCatalogTab() {
       p.partCode.toLowerCase().includes(search.toLowerCase()) ||
       (p.brand || '').toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
+  }).sort((a, b) => {
+    const catDiff = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)
+    if (catDiff !== 0) return catDiff
+    return (a.id || '').localeCompare(b.id || '')
   })
 
   return (
