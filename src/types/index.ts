@@ -391,6 +391,10 @@ export interface DailyReportStats {
   followUpsCompleted?: number
   quotationsCreated?: number
   milestonesCompleted?: number
+  leadsCreated?: number
+  callsMade?: number
+  quotationsSent?: number
+  leadsProgressed?: number
   siteVisitsCompleted?: number
   photosUploaded?: number
   invoicesRaised?: number

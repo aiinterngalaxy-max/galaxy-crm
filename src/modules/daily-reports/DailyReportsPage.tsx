@@ -99,7 +99,7 @@ export function DailyReportsPage() {
           ).then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
         )
         const allActivities = (await Promise.all(activityPromises)).flat()
-        const callsMade = allActivities.filter(a => a.type === 'call' || a.type === 'visit')
+        const callsMade = allActivities.filter(a => a.type === 'call' || a.type === 'meeting')
 
         // Quotations created today
         const quotSnap = await getDocs(
