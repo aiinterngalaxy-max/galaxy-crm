@@ -26,14 +26,14 @@ interface CatalogProduct {
 const CATEGORY_LABELS: Record<string, string> = {
   ELYSIA_SWITCHES: 'Elysia Switches',
   VITRUM_SWITCHES: 'Vitrum Switches',
-  LCD_PANELS: 'LCD Panels',
-  CURTAINS: 'Curtains',
+  LCD_PANELS: 'LCD Smart Panels',
+  CURTAINS: 'Curtain Motors',
   LOCKS: 'Smart Locks',
   NETWORKING: 'Networking',
   IR_CONTROLLERS: 'IR Controllers',
   SENSORS: 'Sensors',
   VDP: 'Video Door Phone',
-  CONTROLLERS: 'Controllers',
+  CONTROLLERS: 'Controllers / Hubs',
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -112,112 +112,75 @@ function EditProductModal({ product, onClose, onSave }: {
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div className="flex min-h-full items-start justify-center p-4 sm:p-6">
         <div className="relative w-full max-w-lg bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl my-4">
-          {/* Header */}
           <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-800">
             <h2 className="text-base font-semibold text-gray-100">Edit Product</h2>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
-              <X className="w-5 h-5" />
-            </button>
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
           </div>
 
           <div className="px-6 py-5 space-y-4">
-            {/* Image */}
             <div>
               <label className="form-label mb-2">Product Image</label>
               <div className="flex gap-3 items-start">
                 <div className="w-24 h-24 bg-gray-800 rounded-xl flex items-center justify-center shrink-0 overflow-hidden border border-gray-700">
-                  {imagePreview ? (
-                    <img src={imagePreview} alt="" className="w-full h-full object-contain p-1"
-                      onError={e => { (e.target as HTMLImageElement).src = ''; setImagePreview('') }} />
-                  ) : (
-                    <ImagePlus className="w-8 h-8 text-gray-600" />
-                  )}
+                  {imagePreview
+                    ? <img src={imagePreview} alt="" className="w-full h-full object-contain p-1" onError={() => setImagePreview('')} />
+                    : <ImagePlus className="w-8 h-8 text-gray-600" />}
                 </div>
                 <div className="flex-1 space-y-2">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleImageFile(f) }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon={<Upload className="w-3.5 h-3.5" />}
-                    loading={uploading}
-                    onClick={() => fileRef.current?.click()}
-                  >
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleImageFile(f) }} />
+                  <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />}
+                    loading={uploading} onClick={() => fileRef.current?.click()}>
                     Upload Image
                   </Button>
                   <p className="text-xs text-gray-500">or paste URL below</p>
-                  <input
-                    className="form-input text-xs py-1.5 w-full"
+                  <input className="form-input text-xs py-1.5 w-full"
                     placeholder="https://… or /images/products/…"
                     value={form.image}
-                    onChange={e => { set('image', e.target.value); setImagePreview(e.target.value) }}
-                  />
+                    onChange={e => { set('image', e.target.value); setImagePreview(e.target.value) }} />
                 </div>
               </div>
             </div>
 
-            {/* Name */}
             <div>
               <label className="form-label">Product Name *</label>
-              <input className="form-input mt-1 w-full" value={form.name}
-                onChange={e => set('name', e.target.value)} />
+              <input className="form-input mt-1 w-full" value={form.name} onChange={e => set('name', e.target.value)} />
             </div>
 
-            {/* Category + Subcategory */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label">Category</label>
-                <select className="form-input mt-1 w-full text-sm"
-                  value={form.category}
-                  onChange={e => set('category', e.target.value)}>
-                  {Object.entries(CATEGORY_LABELS).map(([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  ))}
+                <select className="form-input mt-1 w-full text-sm" value={form.category} onChange={e => set('category', e.target.value)}>
+                  {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
               <div>
                 <label className="form-label">Subcategory</label>
-                <input className="form-input mt-1 w-full" value={form.subcategory || ''}
-                  onChange={e => set('subcategory', e.target.value)} />
+                <input className="form-input mt-1 w-full" value={form.subcategory || ''} onChange={e => set('subcategory', e.target.value)} />
               </div>
             </div>
 
-            {/* Brand + Part Code */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="form-label">Brand</label>
-                <input className="form-input mt-1 w-full" value={form.brand}
-                  onChange={e => set('brand', e.target.value)} />
+                <input className="form-input mt-1 w-full" value={form.brand} onChange={e => set('brand', e.target.value)} />
               </div>
               <div>
                 <label className="form-label">Part Code</label>
-                <input className="form-input mt-1 w-full" value={form.partCode}
-                  onChange={e => set('partCode', e.target.value)} />
+                <input className="form-input mt-1 w-full" value={form.partCode} onChange={e => set('partCode', e.target.value)} />
               </div>
             </div>
 
-            {/* Price */}
             <div>
-              <label className="form-label">GSP / Price (₹)</label>
-              <input type="number" className="form-input mt-1 w-full"
-                value={form.gsp}
-                onChange={e => set('gsp', Number(e.target.value))} />
+              <label className="form-label">Rate / GSP (₹)</label>
+              <input type="number" className="form-input mt-1 w-full" value={form.gsp} onChange={e => set('gsp', Number(e.target.value))} />
             </div>
 
-            {/* Description */}
             <div>
               <label className="form-label">Description</label>
-              <textarea className="form-input mt-1 w-full" rows={3}
-                value={form.description}
-                onChange={e => set('description', e.target.value)} />
+              <textarea className="form-input mt-1 w-full" rows={3} value={form.description} onChange={e => set('description', e.target.value)} />
             </div>
 
-            {/* Active toggle */}
             <div className="flex items-center justify-between py-2 border-t border-gray-800">
               <span className="text-sm text-gray-300">Active in catalog</span>
               <button onClick={() => set('active', !form.active)}>
@@ -228,12 +191,9 @@ function EditProductModal({ product, onClose, onSave }: {
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex justify-end gap-3 px-6 pb-5">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button icon={<Save className="w-4 h-4" />} loading={saving} onClick={handleSave}>
-              Save Changes
-            </Button>
+            <Button icon={<Save className="w-4 h-4" />} loading={saving} onClick={handleSave}>Save Changes</Button>
           </div>
         </div>
       </div>
@@ -246,7 +206,7 @@ export function ProductCatalogTab() {
   const [loading, setLoading] = useState(true)
   const [seeding, setSeeding] = useState(false)
   const [search, setSearch] = useState('')
-  const [activeCategory, setActiveCategory] = useState<string>('ALL')
+  const [activeCategory, setActiveCategory] = useState('ALL')
   const [editing, setEditing] = useState<CatalogProduct | null>(null)
 
   useEffect(() => { loadProducts() }, [])
@@ -310,7 +270,6 @@ export function ProductCatalogTab() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-400">{products.length} products · {products.filter(p => p.active).length} active</p>
         {!isSeeded && (
@@ -322,26 +281,25 @@ export function ProductCatalogTab() {
 
       {!isSeeded && (
         <div className="bg-yellow-900/20 border border-yellow-800/40 rounded-xl px-4 py-3 text-sm text-yellow-300">
-          Products shown from local data. Click <strong>Seed Products</strong> to save them to the database so edits persist.
+          Products shown from local data. Click <strong>Seed Products</strong> to save them to the database.
         </div>
       )}
 
       <Input placeholder="Search by name, part code, brand…" value={search}
         onChange={e => setSearch(e.target.value)} leftIcon={<Search className="w-4 h-4" />} />
 
-      {/* Category tabs */}
       <div className="flex gap-1.5 flex-wrap">
         {categories.map(cat => (
           <button key={cat} onClick={() => setActiveCategory(cat)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               activeCategory === cat ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
             }`}>
-            {cat === 'ALL' ? 'All' : CATEGORY_LABELS[cat]} ({cat === 'ALL' ? products.length : products.filter(p => p.category === cat).length})
+            {cat === 'ALL' ? 'All' : CATEGORY_LABELS[cat]}
+            {' '}({cat === 'ALL' ? products.length : products.filter(p => p.category === cat).length})
           </button>
         ))}
       </div>
 
-      {/* Grid */}
       {loading ? (
         <div className="text-center py-12 text-sm text-gray-600">Loading…</div>
       ) : (
@@ -356,16 +314,13 @@ export function ProductCatalogTab() {
                 {/* Image */}
                 <div className="relative bg-gray-800 aspect-square flex items-center justify-center p-3">
                   <img src={p.image} alt={p.name} className="w-full h-full object-contain"
-                    onError={e => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).onerror = null }} />
-                  {/* Active toggle */}
-                  <button onClick={() => toggleActive(p)}
-                    className="absolute top-2 right-2 transition-colors"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  <button onClick={() => toggleActive(p)} className="absolute top-2 right-2 transition-colors"
                     title={p.active ? 'Deactivate' : 'Activate'}>
                     {p.active
                       ? <ToggleRight className="w-5 h-5 text-green-400" />
                       : <ToggleLeft className="w-5 h-5 text-gray-600" />}
                   </button>
-                  {/* Edit button */}
                   <button onClick={() => setEditing(p)}
                     className="absolute top-2 left-2 w-6 h-6 bg-gray-900/80 rounded-md flex items-center justify-center text-gray-400 hover:text-white hover:bg-indigo-600 transition-all">
                     <Edit2 className="w-3 h-3" />
@@ -373,12 +328,13 @@ export function ProductCatalogTab() {
                 </div>
 
                 {/* Info */}
-                <div className="p-3 flex flex-col gap-1.5 flex-1">
+                <div className="p-3 flex flex-col gap-1 flex-1">
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded w-fit ${colorClass}`}>
                     {CATEGORY_LABELS[p.category] || p.category}
                   </span>
-                  <p className="text-xs font-semibold text-gray-200 leading-snug line-clamp-2">{p.name}</p>
-                  <p className="text-[10px] text-gray-500">{p.partCode}</p>
+                  <p className="text-xs font-semibold text-gray-200 leading-snug line-clamp-2 mt-0.5">{p.name}</p>
+                  <p className="text-[10px] text-gray-500">{p.brand}</p>
+                  <p className="text-[10px] text-gray-600 font-mono">{p.partCode}</p>
                   <div className="mt-auto pt-2 border-t border-gray-800 flex items-center justify-between">
                     <span className="text-sm font-bold text-indigo-400">{formatCurrency(p.gsp)}</span>
                     <button onClick={() => setEditing(p)} className="text-gray-600 hover:text-gray-300 transition-colors">
@@ -400,11 +356,7 @@ export function ProductCatalogTab() {
       )}
 
       {editing && (
-        <EditProductModal
-          product={editing}
-          onClose={() => setEditing(null)}
-          onSave={handleSaved}
-        />
+        <EditProductModal product={editing} onClose={() => setEditing(null)} onSave={handleSaved} />
       )}
     </div>
   )
