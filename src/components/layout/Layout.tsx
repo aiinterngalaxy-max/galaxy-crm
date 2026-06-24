@@ -6,19 +6,36 @@ import { Toaster } from 'react-hot-toast'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
-      {/* Sidebar — hidden on mobile */}
+      {/* Sidebar — desktop only */}
       <div className="hidden md:block shrink-0">
         <Sidebar collapsed={collapsed} />
       </div>
+
+      {/* Mobile sidebar drawer */}
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="fixed inset-y-0 left-0 z-50 md:hidden">
+            <Sidebar onNavClick={() => setMobileOpen(false)} />
+          </div>
+        </>
+      )}
 
       {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header
           collapsed={collapsed}
-          onToggle={() => setCollapsed((c) => !c)}
+          onToggle={() => {
+            if (window.innerWidth < 768) setMobileOpen(o => !o)
+            else setCollapsed(c => !c)
+          }}
           notificationCount={0}
         />
         <main className="flex-1 overflow-y-auto">

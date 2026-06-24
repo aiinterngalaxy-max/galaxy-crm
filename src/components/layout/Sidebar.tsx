@@ -34,9 +34,10 @@ const NAV_ITEMS: NavItem[] = [
 interface SidebarProps {
   collapsed?: boolean
   onToggle?: () => void
+  onNavClick?: () => void
 }
 
-export function Sidebar({ collapsed = false }: SidebarProps) {
+export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   const { user, role } = useAuth()
   const location = useLocation()
 
@@ -90,6 +91,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               key={item.path}
               to={item.path}
               title={collapsed ? item.label : undefined}
+              onClick={onNavClick}
               className={cn(
                 'sidebar-item',
                 isActive ? 'sidebar-item-active' : 'sidebar-item-inactive',
