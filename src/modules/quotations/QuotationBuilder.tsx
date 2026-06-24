@@ -32,6 +32,7 @@ interface QuoteState {
 }
 
 const PAYMENT_TERMS_OPTIONS = [
+  { value: '40% on booking, 30% mid-installation, 20% near completion, 10% post-completion', label: '40-30-20-10 Milestone' },
   { value: '30% advance, 40% on Phase 1, 30% on completion', label: '30-40-30 Milestone' },
   { value: '50% advance, 50% on completion',                  label: '50-50 Advance' },
   { value: '100% advance',                                    label: '100% Advance' },
@@ -249,78 +250,37 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
 
 // ── Step: Rooms & Products ─────────────────────────────────────────────────────
 function RoomsStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
-  const [confirmKey, setConfirmKey] = useState<string | null>(null)
   const rooms = quote.rooms || []
 
-  const applyPreset = (key: string) => {
-    const preset = PRESETS[key]
-    if (!preset) return
-    onChange({ ...quote, rooms: preset.rooms.map(makeRoom), bhkType: key, sectionDiscounts: preset.sectionDiscounts })
-    setConfirmKey(null)
+  if (rooms.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto px-6 py-20 text-center">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 bg-gray-800 border border-gray-700">
+          <FileImage className="w-7 h-7 text-gray-500" />
+        </div>
+        <p className="text-base font-semibold text-gray-300 mb-2">No zones drawn yet</p>
+        <p className="text-sm text-gray-500 mb-6">Go back to the Floor Plan step, draw zones around each room, and drag products into them. Zones will appear here automatically.</p>
+        <button onClick={() => {}}
+          className="text-xs text-indigo-400 border border-indigo-800/40 bg-indigo-900/20 px-4 py-2 rounded-xl hover:bg-indigo-900/30 transition-colors">
+          ← Go back to Floor Plan
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
-      {/* Preset selector */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">Select Property Type</p>
-        <div className="grid grid-cols-3 gap-3">
-          {ACTIVE_PRESETS.map(({ key, label, description }) => {
-            const isActive = quote.bhkType === key
-            return (
-              <button key={key} onClick={() => rooms.length > 0 && quote.bhkType !== key ? setConfirmKey(key) : applyPreset(key)}
-                className="relative p-4 rounded-2xl text-left transition-all border-2"
-                style={isActive ? { background: 'rgba(79,70,229,0.1)', borderColor: '#4f46e5' } : { background: '#111827', borderColor: '#1f2937' }}>
-                {isActive && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-indigo-500" />}
-                <p className="text-base font-bold mb-1" style={{ color: isActive ? '#818CF8' : '#e5e7eb' }}>{label}</p>
-                <p className="text-[10px] leading-relaxed text-gray-500">{description}</p>
-                <p className="text-[10px] mt-2 font-semibold" style={{ color: isActive ? '#818CF8' : '#6b7280' }}>
-                  {PRESETS[key]?.rooms.length} rooms
-                </p>
-              </button>
-            )
-          })}
-        </div>
+    <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Zones / Rooms · {rooms.length}</p>
+        <p className="text-xs text-gray-600">Rooms are synced from your floor plan zones</p>
       </div>
-
-      {confirmKey && (
-        <div className="rounded-2xl p-4 bg-gray-900 border border-yellow-800/30">
-          <p className="text-sm font-semibold text-gray-200 mb-1">Replace existing rooms?</p>
-          <p className="text-xs text-gray-500 mb-3">This will remove your {rooms.length} current rooms and load the {PRESETS[confirmKey]?.label} template.</p>
-          <div className="flex gap-2">
-            <button onClick={() => applyPreset(confirmKey)} className="px-4 py-1.5 text-xs rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Replace</button>
-            <button onClick={() => setConfirmKey(null)} className="px-4 py-1.5 text-xs rounded-xl bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700 transition-colors">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {rooms.length > 0 ? (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Rooms · {rooms.length}</p>
-            <button onClick={() => onChange({ ...quote, rooms: [...rooms, makeRoom({ name: 'New Room', type: 'other', products: [] })] })}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl text-indigo-400 border border-indigo-700/30 bg-indigo-900/20 hover:bg-indigo-900/30 transition-colors">
-              <Plus className="w-3.5 h-3.5" /> Add Room
-            </button>
-          </div>
-          <div className="space-y-2">
-            {rooms.map((room, idx) => (
-              <RoomCard key={room.id} room={room} index={idx} products={products}
-                onChange={updated => onChange({ ...quote, rooms: rooms.map(r => r.id === room.id ? updated : r) })}
-                onDelete={() => onChange({ ...quote, rooms: rooms.filter(r => r.id !== room.id) })} />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="text-center py-16 rounded-2xl border-2 border-dashed border-gray-800">
-          <p className="text-sm font-medium text-gray-400 mb-1">Select a property type above to get started</p>
-          <p className="text-xs text-gray-600">Or add rooms one by one using the button below</p>
-          <button onClick={() => onChange({ ...quote, rooms: [makeRoom({ name: 'New Room', type: 'other', products: [] })] })}
-            className="mt-4 flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl text-indigo-400 border border-indigo-700/30 bg-indigo-900/20 hover:bg-indigo-900/30 transition-colors mx-auto">
-            <Plus className="w-3.5 h-3.5" /> Add First Room
-          </button>
-        </div>
-      )}
+      <div className="space-y-2">
+        {rooms.map((room, idx) => (
+          <RoomCard key={room.id} room={room} index={idx} products={products}
+            onChange={updated => onChange({ ...quote, rooms: rooms.map(r => r.id === room.id ? updated : r) })}
+            onDelete={() => onChange({ ...quote, rooms: rooms.filter(r => r.id !== room.id) })} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -460,9 +420,54 @@ function BOQStep({ quote, onChange, products, pricing }: {
   )
 }
 
+// ── Floor Plan Print ──────────────────────────────────────────────────────────
+function printFloorPlan(quote: QuoteState, products: CRMProduct[]) {
+  if (!quote.floorPlan?.data) { toast.error('No floor plan uploaded'); return }
+  const zones = quote.floorPlanZones || []
+  const COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#84cc16']
+
+  const zonesSVG = zones.map((z, zi) => {
+    const pts = (z.points || []).map((p: {x:number;y:number}) => `${p.x},${p.y}`).join(' ')
+    const color = COLORS[zi % COLORS.length]
+    const cx = (z.points || []).reduce((s: number, p: {x:number;y:number}) => s + p.x, 0) / Math.max(z.points?.length || 1, 1)
+    const cy = (z.points || []).reduce((s: number, p: {x:number;y:number}) => s + p.y, 0) / Math.max(z.points?.length || 1, 1)
+    const devMap: Record<string, number> = {}
+    ;(z.devices || []).forEach((d: {productId:string;qty:number}) => { devMap[d.productId] = (devMap[d.productId] || 0) + d.qty })
+    const devLines = Object.entries(devMap).map(([pid, qty]) => {
+      const prod = products.find(p => p.id === pid || p.partCode === pid)
+      return prod ? `${prod.name} ×${qty}` : `${pid} ×${qty}`
+    })
+    return `
+      <polygon points="${pts}" fill="${color}22" stroke="${color}" stroke-width="0.5"/>
+      <text x="${cx}" y="${cy - (devLines.length * 1.2)}" text-anchor="middle" font-size="2.5" font-weight="bold" fill="${color}">${z.name}</text>
+      ${devLines.map((line, li) => `<text x="${cx}" y="${cy + li * 2.8}" text-anchor="middle" font-size="2" fill="#374151">${line}</text>`).join('')}
+    `
+  }).join('')
+
+  const html = `<!DOCTYPE html><html><head><title>Floor Plan — ${quote.customerName}</title>
+  <style>body{margin:0;font-family:sans-serif;background:#fff} @page{margin:10mm;size:A4 landscape} @media print{.no-print{display:none}}</style></head>
+  <body>
+    <div class="no-print" style="padding:12px;background:#1e293b;display:flex;gap:12px;align-items:center">
+      <span style="color:#e2e8f0;font-weight:bold;flex:1">Floor Plan — ${quote.customerName}</span>
+      <button onclick="window.print()" style="padding:8px 20px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600">Download PDF</button>
+    </div>
+    <div style="padding:16px">
+      <h2 style="margin:0 0 4px;color:#0f172a">Floor Plan · ${quote.customerName}</h2>
+      <p style="margin:0 0 12px;color:#64748b;font-size:13px">${zones.length} zone(s) · ${quote.floorPlan?.fileName || ''}</p>
+      <svg viewBox="0 0 100 100" style="width:100%;max-height:calc(100vh - 140px);border:1px solid #e2e8f0;border-radius:8px" preserveAspectRatio="xMidYMid meet">
+        <image href="${quote.floorPlan.data}" x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
+        ${zonesSVG}
+      </svg>
+    </div>
+  </body></html>`
+
+  const win = window.open('', '_blank')
+  if (win) { win.document.write(html); win.document.close() }
+}
+
 // ── Step: Summary ──────────────────────────────────────────────────────────────
-function SummaryStep({ quote, pricing, saving, onSave, customers }: {
-  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void; customers: Customer[]
+function SummaryStep({ quote, pricing, saving, onSave, customers, products }: {
+  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void; customers: Customer[]; products: CRMProduct[]
 }) {
   const customer = customers.find(c => c.id === quote.customerId)
   const checks = [
@@ -515,12 +520,18 @@ function SummaryStep({ quote, pricing, saving, onSave, customers }: {
       {/* Pricing summary read-only */}
       <PricingSummary pricing={pricing} sectionDiscounts={quote.sectionDiscounts || {}} editable={false} />
 
-      <div className="flex items-center gap-3 pt-2">
+      <div className="flex items-center gap-3 pt-2 flex-wrap">
         <button onClick={onSave} disabled={!canSave || saving}
           className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           <Check className="w-4 h-4" />
           {saving ? 'Saving…' : 'Save Quotation'}
         </button>
+        {quote.floorPlan?.data && (
+          <button onClick={() => printFloorPlan(quote, products)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors text-sm font-medium">
+            🗺 Download Floor Plan PDF
+          </button>
+        )}
         {pricing.grandSubtotal >= 200000 && (
           <p className="text-xs text-yellow-400">⚠ Value ≥ ₹2L — will require management approval</p>
         )}
@@ -685,7 +696,7 @@ export function QuotationBuilder() {
         {step === 1 && <FloorPlanStep quote={quote} onChange={setQuote} products={products} />}
         {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} />}
         {step === 3 && <BOQStep quote={quote} onChange={setQuote} products={products} pricing={pricing} />}
-        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} />}
+        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} products={products} />}
       </div>
 
       {/* Footer nav */}

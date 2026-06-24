@@ -63,7 +63,7 @@ export function BOQPreview() {
         </div>
         <button onClick={handlePrint}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition-colors">
-          <Printer className="w-4 h-4" /> Print / Save PDF
+          <Printer className="w-4 h-4" /> Download BOQ PDF
         </button>
       </div>
 
