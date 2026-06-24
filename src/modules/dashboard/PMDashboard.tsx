@@ -5,7 +5,7 @@ import { StatCard, Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, where, orderBy, getDocs } from '../../lib/firebase'
+import { db, collection, query, orderBy, getDocs } from '../../lib/firebase'
 import { PROJECT_STATUS_CONFIG, RISK_CONFIG, formatCurrency } from '../../lib/utils'
 import type { Project } from '../../types'
 
@@ -17,7 +17,7 @@ export function PMDashboard() {
 
   useEffect(() => {
     if (!user) return
-    getDocs(query(collection(db, 'projects'), where('assignedPM', '==', user.id), orderBy('updatedAt', 'desc')))
+    getDocs(query(collection(db, 'projects'), orderBy('updatedAt', 'desc')))
       .then(snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)))
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -29,15 +29,15 @@ export function PMDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="page-title">Project Overview</h1>
           <p className="text-sm text-gray-500 mt-0.5">{user?.name} — Project Manager</p>
         </div>
-        <Button onClick={() => navigate('/quotations')} icon={<Plus className="w-4 h-4" />}>New Quotation</Button>
+        <Button onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>New Quotation</Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <StatCard label="Active Projects" value={active.length} icon={<FolderKanban className="w-5 h-5 text-indigo-400" />} iconBg="bg-indigo-900/40" onClick={() => navigate('/projects')} />
         <StatCard label="At Risk" value={atRisk.length} icon={<AlertTriangle className="w-5 h-5 text-red-400" />} iconBg="bg-red-900/40" trend={atRisk.length > 0 ? { value: 'Needs attention', up: false } : undefined} />
         <StatCard label="Pending Quotes" value={0} icon={<FileText className="w-5 h-5 text-yellow-400" />} iconBg="bg-yellow-900/40" onClick={() => navigate('/quotations')} />
@@ -72,7 +72,7 @@ export function PMDashboard() {
             </div>
           ))}
           {!loading && projects.length === 0 && (
-            <p className="p-5 text-sm text-gray-600 text-center">No projects assigned yet</p>
+            <p className="p-5 text-sm text-gray-600 text-center">No projects yet</p>
           )}
         </div>
       </Card>
