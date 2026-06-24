@@ -21,7 +21,6 @@ export function QuotationsPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [showForm, setShowForm] = useState(false)
   const [creatingProject, setCreatingProject] = useState<string | null>(null)
 
   const canCreate = ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'].includes(role || '')
@@ -163,7 +162,7 @@ export function QuotationsPage() {
             icon={<FileText className="w-6 h-6" />}
             title="No quotations yet"
             description="Create your first quotation from a customer."
-            action={canCreate ? { label: 'New Quotation', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
+            action={canCreate ? { label: 'New Quotation', onClick: () => navigate('/quotations/new'), icon: <Plus className="w-4 h-4" /> } : undefined}
           />
         )}
         <div className="divide-y divide-gray-800">
@@ -241,10 +240,6 @@ export function QuotationsPage() {
         </div>
       </Card>
 
-      <Modal open={showForm} onClose={() => setShowForm(false)}
-        title="New Quotation" description="Build a quotation for a customer." size="2xl">
-        <QuotationForm onSuccess={() => setShowForm(false)} onCancel={() => setShowForm(false)} />
-      </Modal>
     </div>
   )
 }
