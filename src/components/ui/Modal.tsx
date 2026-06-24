@@ -41,13 +41,13 @@ export function Modal({ open, onClose, title, description, size = 'md', children
       {/* Panel */}
       <div
         className={cn(
-          'relative w-full bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl animate-fade-in',
+          'relative w-full bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl animate-fade-in flex flex-col max-h-[90vh]',
           sizeClasses[size]
         )}
       >
         {/* Header */}
         {title && (
-          <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-800">
+          <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-800 shrink-0">
             <div>
               <h2 className="text-lg font-semibold text-gray-50">{title}</h2>
               {description && (
@@ -64,7 +64,7 @@ export function Modal({ open, onClose, title, description, size = 'md', children
         )}
 
         {/* Body */}
-        <div className={cn('px-6 py-5', !title && 'pt-6')}>
+        <div className={cn('px-6 py-5 overflow-y-auto', !title && 'pt-6')}>
           {!title && (
             <button
               onClick={onClose}
