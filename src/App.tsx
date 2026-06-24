@@ -9,6 +9,8 @@ import { LeadDetail } from './modules/leads/LeadDetail'
 import { CustomersPage } from './modules/customers/CustomersPage'
 import { CustomerDetail } from './modules/customers/CustomerDetail'
 import { QuotationsPage } from './modules/quotations/QuotationsPage'
+import { QuotationBuilder } from './modules/quotations/QuotationBuilder'
+import { BOQPreview } from './modules/quotations/BOQPreview'
 import { ProjectsPage } from './modules/projects/ProjectsPage'
 import { ProjectDetail } from './modules/projects/ProjectDetail'
 import { SiteOpsPage } from './modules/site-ops/SiteOpsPage'
@@ -79,6 +81,8 @@ function AppRoutes() {
 
         {/* Quotations */}
         <Route path="quotations" element={<RequireRole module="quotations"><QuotationsPage /></RequireRole>} />
+        <Route path="quotations/new" element={<RequireRole module="quotations"><QuotationBuilder /></RequireRole>} />
+        <Route path="quotations/:id/boq" element={<RequireRole module="quotations"><BOQPreview /></RequireRole>} />
 
         {/* Projects */}
         <Route path="projects" element={<RequireRole module="projects"><ProjectsPage /></RequireRole>} />

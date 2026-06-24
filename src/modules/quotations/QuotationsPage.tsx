@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, ChevronRight, FolderPlus, CheckCircle2 } from 'lucide-react'
+import { Plus, Search, FileText, FolderPlus, CheckCircle2, LayoutTemplate, Eye } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -130,7 +130,7 @@ export function QuotationsPage() {
           </p>
         </div>
         {canCreate && (
-          <Button onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
+          <Button onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>
             New Quotation
           </Button>
         )}
@@ -229,6 +229,11 @@ export function QuotationsPage() {
                       View Project
                     </Button>
                   )}
+                  <Button size="sm" variant="ghost"
+                    icon={<Eye className="w-3.5 h-3.5" />}
+                    onClick={e => { e.stopPropagation(); navigate(`/quotations/${q.id}/boq`) }}>
+                    BOQ
+                  </Button>
                 </div>
               </div>
             )
