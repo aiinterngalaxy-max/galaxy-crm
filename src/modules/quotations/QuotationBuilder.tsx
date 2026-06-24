@@ -7,7 +7,7 @@ import { PricingSummary } from './builder/PricingSummary'
 import { computePricing } from '../../lib/pricingEngine'
 import { PRESETS, ACTIVE_PRESETS } from '../../data/presets'
 import { formatCurrency } from '../../lib/utils'
-import { db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode, doc, getDoc, updateDoc } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode, doc, getDoc, updateDoc, uploadBase64 } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import type { Customer } from '../../types'
@@ -591,7 +591,9 @@ export function QuotationBuilder() {
           notes:            data.notes || '',
           bhkType:          data.bhkType || '',
           sectionDiscounts: data.sectionDiscounts || {},
-          floorPlan:        data.floorPlan || null,
+          floorPlan:        data.floorPlanUrl
+            ? { data: data.floorPlanUrl, mimeType: 'image/jpeg', fileName: data.floorPlanFileName || 'floor-plan.jpg' }
+            : null,
           floorPlanZones:   data.floorPlanZones || [],
           rooms:            data.rooms || [],
         })
@@ -611,6 +613,19 @@ export function QuotationBuilder() {
     try {
       const validUntil = new Date()
       validUntil.setDate(validUntil.getDate() + quote.validDays)
+
+      // Upload floor plan to Storage if it's a new base64 (not already a URL)
+      let floorPlanUrl: string | null = null
+      if (quote.floorPlan?.data?.startsWith('data:')) {
+        const quotePath = isEditMode ? editId! : `tmp_${Date.now()}`
+        floorPlanUrl = await uploadBase64(
+          `floor-plans/${quotePath}.${quote.floorPlan.mimeType.split('/')[1] || 'jpg'}`,
+          quote.floorPlan.data,
+          quote.floorPlan.mimeType
+        )
+      } else if (quote.floorPlan?.data) {
+        floorPlanUrl = quote.floorPlan.data // already a URL
+      }
 
       const lineItems = pricing.lineItems.map((item, idx) => ({
         id:          `li_${idx + 1}`,
@@ -635,6 +650,8 @@ export function QuotationBuilder() {
         bhkType:            quote.bhkType || null,
         rooms:              quote.rooms,
         floorPlanZones:     quote.floorPlanZones,
+        floorPlanUrl:       floorPlanUrl || null,
+        floorPlanFileName:  quote.floorPlan?.fileName || null,
         sectionDiscounts:   quote.sectionDiscounts,
         subtotal:           pricing.productSubtotal,
         discountAmount:     pricing.discountAmount,
@@ -649,8 +666,11 @@ export function QuotationBuilder() {
       }
 
       if (isEditMode && editId) {
-        await updateDoc(doc(db, 'quotations', editId), payload)
-        toast.success('Quotation updated')
+        // Get current version to increment
+        const existing = await getDoc(doc(db, 'quotations', editId))
+        const currentVersion = existing.exists() ? (existing.data().version || 1) : 1
+        await updateDoc(doc(db, 'quotations', editId), { ...payload, version: currentVersion + 1 })
+        toast.success(`Quotation updated (V${currentVersion + 1})`)
       } else {
         const snap = await getDocs(collection(db, 'quotations'))
         const quotationRef = await addDoc(collection(db, 'quotations'), {

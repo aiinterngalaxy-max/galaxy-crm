@@ -140,6 +140,17 @@ export async function uploadFile(
   return getDownloadURL(storageRef)
 }
 
+export async function uploadBase64(path: string, base64: string, mimeType: string): Promise<string> {
+  const byteString = atob(base64.split(',')[1])
+  const ab = new ArrayBuffer(byteString.length)
+  const ia = new Uint8Array(ab)
+  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+  const blob = new Blob([ab], { type: mimeType })
+  const storageRef = ref(storage, path)
+  await uploadBytes(storageRef, blob)
+  return getDownloadURL(storageRef)
+}
+
 // ─── Code Generators ───────────────────────────────────────────────────────────
 
 export function generateLeadCode(seq: number): string {

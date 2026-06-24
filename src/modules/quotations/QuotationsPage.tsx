@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, FolderPlus, CheckCircle2, LayoutTemplate, Eye } from 'lucide-react'
+import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -109,6 +109,20 @@ export function QuotationsPage() {
     }
   }
 
+  const sendToCustomer = async (q: Quotation, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await updateDoc(doc(db, 'quotations', q.id), {
+        status: 'sent_to_customer',
+        sentAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Marked as sent to customer')
+    } catch {
+      toast.error('Failed to update status')
+    }
+  }
+
   const filtered = quotations.filter(q =>
     !search ||
     q.quotationCode.toLowerCase().includes(search.toLowerCase()) ||
@@ -170,6 +184,7 @@ export function QuotationsPage() {
             const cfg = QUOTATION_STATUS_CONFIG[q.status]
             const isApproved = q.status === 'approved' || q.status === 'customer_approved'
             const isPending = q.status === 'pending_approval'
+            const isDraft = q.status === 'draft'
             const hasProject = !!q.projectId
             return (
               <div
@@ -207,6 +222,13 @@ export function QuotationsPage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                  {isDraft && canCreate && (
+                    <Button size="sm" variant="secondary"
+                      icon={<Send className="w-3.5 h-3.5" />}
+                      onClick={e => sendToCustomer(q, e)}>
+                      Send
+                    </Button>
+                  )}
                   {isPending && canApprove && (
                     <Button size="sm" variant="success"
                       icon={<CheckCircle2 className="w-3.5 h-3.5" />}

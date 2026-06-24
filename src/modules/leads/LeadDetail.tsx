@@ -310,7 +310,7 @@ export function LeadDetail() {
               <p className="text-xs text-indigo-700">This lead has been converted. Quotations and projects are managed from the customer profile.</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button size="sm" variant="secondary" icon={<ExternalLink className="w-3.5 h-3.5" />}
               onClick={() => navigate(`/customers/${lead.convertedToCustomerId}`)}>
               Customer Profile
@@ -318,6 +318,10 @@ export function LeadDetail() {
             <Button size="sm" variant="secondary" icon={<QuoteIcon className="w-3.5 h-3.5" />}
               onClick={() => navigate(`/quotations?customerId=${lead.convertedToCustomerId}`)}>
               Quotations
+            </Button>
+            <Button size="sm" variant="primary" icon={<Plus className="w-3.5 h-3.5" />}
+              onClick={() => navigate(`/quotations/new?customerId=${lead.convertedToCustomerId}&leadId=${id}`)}>
+              New Quotation
             </Button>
           </div>
         </div>
@@ -463,12 +467,6 @@ export function LeadDetail() {
           <Card padding="none">
             <div className="p-5 border-b border-gray-800 flex items-center justify-between">
               <h3 className="section-header">Activity Timeline</h3>
-              {canEdit && (
-                <Button size="sm" variant="secondary" icon={<Plus className="w-3.5 h-3.5" />}
-                  onClick={() => setShowActivityForm(true)}>
-                  Log
-                </Button>
-              )}
             </div>
             <ActivityLog activities={activities} />
           </Card>
