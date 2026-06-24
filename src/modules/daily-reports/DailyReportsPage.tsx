@@ -68,16 +68,16 @@ export function DailyReportsPage() {
         const leadsSnap = await getDocs(
           query(
             collection(db, 'leads'),
-            where('assignedTo', '==', user!.id),
+            where('createdBy', '==', user!.id),
             where('createdAt', '>=', todayStart),
             where('createdAt', '<=', todayEnd)
           )
         )
         const leadsCreated = leadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
 
-        // All leads assigned to user — check for status changes today
+        // All leads created by or assigned to user — check for status changes today
         const allLeadsSnap = await getDocs(
-          query(collection(db, 'leads'), where('assignedTo', '==', user!.id))
+          query(collection(db, 'leads'), where('createdBy', '==', user!.id))
         )
         const allLeads = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
 
