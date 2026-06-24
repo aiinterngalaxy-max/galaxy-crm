@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, UserPlus, X } from 'lucide-react'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
@@ -26,11 +26,84 @@ const PAYMENT_TERMS = [
   { value: 'Custom terms', label: 'Custom' },
 ]
 
+function QuickAddCustomer({ onCreated, onCancel }: {
+  onCreated: (customer: Customer) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [address, setAddress] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleCreate = async () => {
+    if (!name || !phone) { toast.error('Name and phone are required'); return }
+    setSaving(true)
+    try {
+      const ref = await addDoc(collection(db, 'customers'), {
+        name,
+        phone,
+        email: email || null,
+        address: address || '',
+        type: 'residential',
+        tags: [],
+        totalProjectValue: 0,
+        totalPaid: 0,
+        quotationIds: [],
+        projectIds: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      const newCustomer: Customer = {
+        id: ref.id,
+        name,
+        phone,
+        email,
+        address,
+        type: 'residential',
+        tags: [],
+        totalProjectValue: 0,
+        totalPaid: 0,
+        createdAt: null as never,
+        updatedAt: null as never,
+      }
+      toast.success(`Customer "${name}" created`)
+      onCreated(newCustomer)
+    } catch {
+      toast.error('Failed to create customer')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-gray-800/60 border border-indigo-800/50 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-sm font-semibold text-indigo-300 flex items-center gap-2">
+          <UserPlus className="w-4 h-4" /> New Customer
+        </p>
+        <button onClick={onCancel} className="text-gray-500 hover:text-gray-300"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Input label="Full Name *" placeholder="Raj Sharma" value={name} onChange={e => setName(e.target.value)} />
+        <Input label="Phone *" placeholder="9876543210" value={phone} onChange={e => setPhone(e.target.value)} />
+        <Input label="Email" placeholder="raj@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+        <Input label="Address" placeholder="Andheri West, Mumbai" value={address} onChange={e => setAddress(e.target.value)} />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button size="sm" variant="secondary" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" loading={saving} onClick={handleCreate}>Create & Select</Button>
+      </div>
+    </div>
+  )
+}
+
 export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: QuotationFormProps) {
   const { user } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState(customerId || '')
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [paymentTerms, setPaymentTerms] = useState(PAYMENT_TERMS[0].value)
   const [notes, setNotes] = useState('')
   const [validDays, setValidDays] = useState('30')
@@ -52,12 +125,18 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
     }).catch(console.error)
   }, [])
 
+  const handleCustomerCreated = (customer: Customer) => {
+    setCustomers(prev => [customer, ...prev])
+    setSelectedCustomerId(customer.id)
+    setShowQuickAdd(false)
+  }
+
   const updateLineItem = (idx: number, field: string, value: string | number) => {
     setLineItems(prev => {
       const updated = [...prev]
       updated[idx] = { ...updated[idx], [field]: value }
       if (field === 'quantity' || field === 'unitPrice') {
-        updated[idx].lineTotal = (Number(updated[idx].quantity)) * (Number(updated[idx].unitPrice))
+        updated[idx].lineTotal = Number(updated[idx].quantity) * Number(updated[idx].unitPrice)
       }
       return updated
     })
@@ -121,7 +200,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         status: total >= 200000 ? 'pending_approval' : 'draft',
         assignedPM: user?.id,
         assignedPMName: user?.name,
-        validUntil: validUntil,
+        validUntil,
         paymentTerms,
         notes,
         subtotal,
@@ -135,7 +214,6 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         updatedAt: serverTimestamp(),
       })
 
-      // Link quotation back to customer
       if (selectedCustomerId) {
         const { doc: d, updateDoc: upd, arrayUnion } = await import('firebase/firestore')
         await upd(d(db, 'customers', selectedCustomerId), {
@@ -158,7 +236,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
     }
   }
 
-  const customerOptions = customers.map(c => ({ value: c.id, label: c.name }))
+  const selectedCustomer = customers.find(c => c.id === selectedCustomerId)
   const productOptions = [
     { value: '', label: 'Select product or type manually' },
     ...products.filter(p => p.isActive).map(p => ({ value: p.id, label: `${p.name} — ₹${p.gsp.toLocaleString('en-IN')}` }))
@@ -166,21 +244,48 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
 
   return (
     <div className="space-y-5">
-      {/* Customer + Meta */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Select
-          label="Customer *"
-          options={customerOptions}
-          placeholder="Select customer"
-          value={selectedCustomerId}
-          onChange={e => setSelectedCustomerId(e.target.value)}
-        />
-        <Input
-          label="Valid for (days)"
-          type="number"
-          value={validDays}
-          onChange={e => setValidDays(e.target.value)}
-        />
+      {/* Customer */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="form-label mb-1">Customer *</label>
+            <div className="flex gap-2">
+              <select
+                className="form-input flex-1"
+                value={selectedCustomerId}
+                onChange={e => setSelectedCustomerId(e.target.value)}
+              >
+                <option value="">Select customer…</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowQuickAdd(v => !v)}
+                className="shrink-0 px-3 py-2 rounded-lg bg-indigo-600/20 border border-indigo-700/50 text-indigo-400 hover:bg-indigo-600/30 transition-colors"
+                title="Add new customer"
+              >
+                <UserPlus className="w-4 h-4" />
+              </button>
+            </div>
+            {selectedCustomer && (
+              <p className="text-xs text-gray-500 mt-1">{selectedCustomer.phone} · {selectedCustomer.address}</p>
+            )}
+          </div>
+          <Input
+            label="Valid for (days)"
+            type="number"
+            value={validDays}
+            onChange={e => setValidDays(e.target.value)}
+          />
+        </div>
+
+        {/* Quick Add Customer */}
+        {showQuickAdd && (
+          <QuickAddCustomer
+            onCreated={handleCustomerCreated}
+            onCancel={() => setShowQuickAdd(false)}
+          />
+        )}
       </div>
 
       {/* Line Items */}
@@ -193,7 +298,6 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         </div>
 
         <div className="space-y-2">
-          {/* Header */}
           <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 px-1">
             <div className="col-span-4">Item</div>
             <div className="col-span-3">Spec / Description</div>
@@ -229,27 +333,17 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
                 />
               </div>
               <div className="col-span-1">
-                <input
-                  type="number"
-                  min={1}
-                  className="form-input text-xs py-1.5 text-right"
+                <input type="number" min={1} className="form-input text-xs py-1.5 text-right"
                   value={item.quantity}
-                  onChange={e => updateLineItem(idx, 'quantity', Number(e.target.value))}
-                />
+                  onChange={e => updateLineItem(idx, 'quantity', Number(e.target.value))} />
               </div>
               <div className="col-span-2">
-                <input
-                  type="number"
-                  className="form-input text-xs py-1.5 text-right"
-                  placeholder="0"
-                  value={item.unitPrice || ''}
-                  onChange={e => updateLineItem(idx, 'unitPrice', Number(e.target.value))}
-                />
+                <input type="number" className="form-input text-xs py-1.5 text-right"
+                  placeholder="0" value={item.unitPrice || ''}
+                  onChange={e => updateLineItem(idx, 'unitPrice', Number(e.target.value))} />
               </div>
               <div className="col-span-1 text-right pt-2">
-                <span className="text-xs font-medium text-gray-200">
-                  {formatCurrency(item.lineTotal)}
-                </span>
+                <span className="text-xs font-medium text-gray-200">{formatCurrency(item.lineTotal)}</span>
               </div>
               <div className="col-span-1 flex justify-center pt-1.5">
                 {lineItems.length > 1 && (
@@ -267,21 +361,15 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
       <div className="flex justify-end">
         <div className="w-64 space-y-2 text-sm">
           <div className="flex justify-between text-gray-400">
-            <span>Subtotal</span>
-            <span>{formatCurrency(subtotal)}</span>
+            <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
           </div>
           <div className="flex justify-between items-center text-gray-400">
             <span>Discount</span>
-            <input
-              type="number"
-              className="form-input w-24 py-1 text-xs text-right"
-              value={discount}
-              onChange={e => setDiscount(Number(e.target.value))}
-            />
+            <input type="number" className="form-input w-24 py-1 text-xs text-right"
+              value={discount} onChange={e => setDiscount(Number(e.target.value))} />
           </div>
           <div className="flex justify-between items-center text-gray-400">
-            <span>Tax ({taxRate}%)</span>
-            <span>{formatCurrency(taxAmount)}</span>
+            <span>Tax ({taxRate}%)</span><span>{formatCurrency(taxAmount)}</span>
           </div>
           <div className="flex justify-between font-bold text-base text-gray-100 border-t border-gray-700 pt-2">
             <span>Total</span>
@@ -295,14 +383,11 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
 
       {/* Payment Terms + Notes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Select
-          label="Payment Terms"
-          options={PAYMENT_TERMS}
-          value={paymentTerms}
-          onChange={e => setPaymentTerms(e.target.value)}
-        />
+        <Select label="Payment Terms" options={PAYMENT_TERMS} value={paymentTerms}
+          onChange={e => setPaymentTerms(e.target.value)} />
       </div>
-      <Textarea label="Notes / Scope" placeholder="Scope of work, inclusions, exclusions…" value={notes} onChange={e => setNotes(e.target.value)} />
+      <Textarea label="Notes / Scope" placeholder="Scope of work, inclusions, exclusions…"
+        value={notes} onChange={e => setNotes(e.target.value)} />
 
       <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-800">
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
