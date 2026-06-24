@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isManagement() {
+      return getRole() in ['super_admin', 'management'];
+    }
+
+    function isSuperAdmin() {
+      return getRole() == 'super_admin';
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuth() && (request.auth.uid == userId || isManagement());
+      allow create: if isSuperAdmin();
+      allow update: if isAuth() && (request.auth.uid == userId || isManagement());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Leads
+    match /leads/{leadId} {
+      allow read: if isAuth() && (
+        isManagement() ||
+        getRole() in ['dept_head', 'bd_exec', 'project_manager']
+      );
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec'];
+      allow delete: if isManagement();
+
+      match /activities/{actId} {
+        allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec'];
+      }
+      match /documents/{docId} {
+        allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec'];
+      }
+    }
+
+    // Customers
+    match /customers/{customerId} {
+      allow read: if isAuth() && getRole() != 'site_worker';
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager', 'accounts'];
+      allow delete: if isManagement();
+    }
+
+    // Quotations
+    match /quotations/{quoteId} {
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager', 'accounts'];
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      allow delete: if isManagement();
+
+      match /lineItems/{itemId} {
+        allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      }
+    }
+
+    // Products
+    match /products/{productId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head'];
+    }
+
+    // Projects
+    match /projects/{projectId} {
+      allow read: if isAuth() && getRole() != 'marketing';
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      allow delete: if isManagement();
+
+      match /milestones/{milestoneId} {
+        allow read: if isAuth() && getRole() != 'marketing';
+        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isAuth() && getRole() != 'marketing';
+        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'site_worker'];
+      }
+
+      match /siteReports/{reportId} {
+        allow read: if isAuth() && getRole() != 'marketing';
+        allow create: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'site_worker'];
+        allow update, delete: if isManagement();
+      }
+
+      match /issues/{issueId} {
+        allow read: if isAuth() && getRole() != 'marketing';
+        allow create: if isAuth() && getRole() != 'marketing';
+        allow update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      }
+    }
+
+    // Invoices
+    match /invoices/{invoiceId} {
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'accounts'];
+      allow write: if isAuth() && getRole() in ['super_admin', 'management', 'accounts'];
+
+      match /payments/{paymentId} {
+        allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'accounts'];
+        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'accounts'];
+      }
+    }
+
+    // Daily Reports
+    match /dailyReports/{reportId} {
+      allow read: if isAuth() && (
+        isManagement() ||
+        getRole() == 'dept_head' ||
+        resource.data.employeeId == request.auth.uid
+      );
+      allow create: if isAuth() && request.resource.data.employeeId == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.employeeId == request.auth.uid ||
+        isManagement()
+      );
+    }
+
+    // AI Digests — read only for management
+    match /aiDigests/{digestId} {
+      allow read: if isAuth() && isManagement();
+      allow write: if false; // Cloud Functions only
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read: if isAuth() && resource.data.recipientId == request.auth.uid;
+      allow update: if isAuth() && resource.data.recipientId == request.auth.uid;
+      allow create: if isAuth();
+      allow delete: if isAuth() && resource.data.recipientId == request.auth.uid;
+    }
+
+    // Content Studio
+    match /contentStudio/{contentId} {
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'marketing', 'ai_team'];
+      allow write: if isAuth() && getRole() in ['super_admin', 'management', 'marketing', 'ai_team'];
+    }
+
+    // Audit Logs — read management only, no client writes
+    match /auditLogs/{logId} {
+      allow read: if isAuth() && isManagement();
+      allow write: if false;
+    }
+  }
+}

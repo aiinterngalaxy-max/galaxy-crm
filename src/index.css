@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-gray-950 text-gray-100 font-sans;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-600;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150;
+  }
+
+  .sidebar-item-active {
+    @apply bg-indigo-600 text-white;
+  }
+
+  .sidebar-item-inactive {
+    @apply text-gray-400 hover:text-gray-100 hover:bg-gray-800;
+  }
+
+  .stat-card {
+    @apply glass-card p-5;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-gray-300 mb-1.5;
+  }
+
+  .form-input {
+    @apply w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100
+    placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+    transition-colors;
+  }
+
+  .form-input:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+    focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-950 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-indigo-600 hover:bg-indigo-500 text-white focus:ring-indigo-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 focus:ring-gray-600;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 hover:bg-red-500 text-white focus:ring-red-500;
+  }
+
+  .btn-success {
+    @apply btn bg-green-600 hover:bg-green-500 text-white focus:ring-green-500;
+  }
+
+  .btn-ghost {
+    @apply btn hover:bg-gray-800 text-gray-400 hover:text-gray-100 focus:ring-gray-600;
+  }
+
+  .pipeline-card {
+    @apply glass-card p-4 cursor-pointer hover:border-indigo-500/50 transition-all duration-150;
+  }
+
+  .section-header {
+    @apply text-lg font-semibold text-gray-100 flex items-center gap-2;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-gray-50;
+  }
+}
+
+/* Kanban column */
+.kanban-col {
+  min-height: 200px;
+}
+
+/* Recharts overrides */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Mobile specific */
+@media (max-width: 768px) {
+  .mobile-fab {
+    @apply fixed bottom-6 right-6 z-50 btn-primary rounded-full w-14 h-14 flex items-center justify-center shadow-lg shadow-indigo-900/50;
+  }
+}
