@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send } from 'lucide-react'
+import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send, ThumbsUp } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -11,6 +11,7 @@ import { QuotationForm } from './QuotationForm'
 import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs } from '../../lib/firebase'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { generateProjectCode } from '../../lib/firebase'
+import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
 import type { Quotation } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -37,6 +38,19 @@ export function QuotationsPage() {
     )
     return unsub
   }, [])
+
+  const markClientAccepted = async (q: Quotation, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await updateDoc(doc(db, 'quotations', q.id), {
+        status: 'customer_approved',
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Marked as client accepted')
+    } catch {
+      toast.error('Failed to update status')
+    }
+  }
 
   const approveQuotation = async (q: Quotation, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -84,6 +98,19 @@ export function QuotationsPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
+
+      // Create default workflow stages
+      const totalValue = q.total || 0
+      await Promise.all(
+        DEFAULT_WORKFLOW_STAGES.map(stage =>
+          addDoc(collection(db, 'projects', projectRef.id, 'workflow'), {
+            ...stage,
+            paymentAmount: Math.round((totalValue * stage.paymentPercent) / 100),
+            status: stage.orderIndex === 0 ? 'in_progress' : 'locked',
+            createdAt: serverTimestamp(),
+          })
+        )
+      )
 
       // Link project back to quotation and customer
       await updateDoc(doc(db, 'quotations', q.id), {
@@ -186,6 +213,7 @@ export function QuotationsPage() {
             const isPending = q.status === 'pending_approval'
             const isDraft = q.status === 'draft'
             const hasProject = !!q.projectId
+            const isCustomerApproved = q.status === 'customer_approved'
             return (
               <div
                 key={q.id}
@@ -236,7 +264,14 @@ export function QuotationsPage() {
                       Approve
                     </Button>
                   )}
-                  {isApproved && !hasProject && (
+                  {q.status === 'approved' && canApprove && (
+                    <Button size="sm" variant="secondary"
+                      icon={<ThumbsUp className="w-3.5 h-3.5" />}
+                      onClick={e => markClientAccepted(q, e)}>
+                      Client Accepted
+                    </Button>
+                  )}
+                  {(isApproved || isCustomerApproved) && !hasProject && (
                     <Button size="sm" variant="secondary"
                       icon={<FolderPlus className="w-3.5 h-3.5" />}
                       loading={creatingProject === q.id}
@@ -244,7 +279,7 @@ export function QuotationsPage() {
                       Create Project
                     </Button>
                   )}
-                  {isApproved && hasProject && (
+                  {(isApproved || isCustomerApproved) && hasProject && (
                     <Button size="sm" variant="ghost"
                       onClick={e => { e.stopPropagation(); navigate(`/projects/${q.projectId}`) }}>
                       View Project
