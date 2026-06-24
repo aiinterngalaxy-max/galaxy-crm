@@ -64,18 +64,19 @@ export function DailyReportsPage() {
 
     async function fetchTodayActivity() {
       try {
-        // Leads created today by this user
+        // Leads created today — filter by createdBy client-side to avoid composite index
         const leadsSnap = await getDocs(
           query(
             collection(db, 'leads'),
-            where('createdBy', '==', user!.id),
             where('createdAt', '>=', todayStart),
             where('createdAt', '<=', todayEnd)
           )
         )
-        const leadsCreated = leadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        const leadsCreated = leadsSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }) as Lead)
+          .filter(l => l.createdBy === user!.id)
 
-        // All leads created by or assigned to user — check for status changes today
+        // All leads created by this user — for progress tracking
         const allLeadsSnap = await getDocs(
           query(collection(db, 'leads'), where('createdBy', '==', user!.id))
         )
