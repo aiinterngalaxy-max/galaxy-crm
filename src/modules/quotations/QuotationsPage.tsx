@@ -175,7 +175,7 @@ export function QuotationsPage() {
               <div
                 key={q.id}
                 className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/50 cursor-pointer transition-colors"
-                onClick={() => {}}
+                onClick={() => navigate(`/quotations/${q.id}/edit`)}
               >
                 <div className="w-9 h-9 bg-yellow-900/30 rounded-lg flex items-center justify-center shrink-0">
                   <FileText className="w-4 h-4 text-yellow-400" />

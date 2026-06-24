@@ -82,6 +82,7 @@ function AppRoutes() {
         {/* Quotations */}
         <Route path="quotations" element={<RequireRole module="quotations"><QuotationsPage /></RequireRole>} />
         <Route path="quotations/new" element={<RequireRole module="quotations"><QuotationBuilder /></RequireRole>} />
+        <Route path="quotations/:id/edit" element={<RequireRole module="quotations"><QuotationBuilder /></RequireRole>} />
         <Route path="quotations/:id/boq" element={<RequireRole module="quotations"><BOQPreview /></RequireRole>} />
 
         {/* Projects */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Plus, UserPlus, X, Upload, FileImage, Trash2 } from 'lucide-react'
 import { RoomCard } from './builder/RoomCard'
 import { FloorPlanEditor, type FPZone } from './builder/FloorPlanEditor'
@@ -7,7 +7,7 @@ import { PricingSummary } from './builder/PricingSummary'
 import { computePricing } from '../../lib/pricingEngine'
 import { PRESETS, ACTIVE_PRESETS } from '../../data/presets'
 import { formatCurrency } from '../../lib/utils'
-import { db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode, doc, getDoc, updateDoc } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import type { Customer } from '../../types'
@@ -466,8 +466,8 @@ function printFloorPlan(quote: QuoteState, products: CRMProduct[]) {
 }
 
 // ── Step: Summary ──────────────────────────────────────────────────────────────
-function SummaryStep({ quote, pricing, saving, onSave, customers, products }: {
-  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void; customers: Customer[]; products: CRMProduct[]
+function SummaryStep({ quote, pricing, saving, onSave, customers, products, isEdit }: {
+  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void; customers: Customer[]; products: CRMProduct[]; isEdit: boolean
 }) {
   const customer = customers.find(c => c.id === quote.customerId)
   const checks = [
@@ -524,7 +524,7 @@ function SummaryStep({ quote, pricing, saving, onSave, customers, products }: {
         <button onClick={onSave} disabled={!canSave || saving}
           className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
           <Check className="w-4 h-4" />
-          {saving ? 'Saving…' : 'Save Quotation'}
+          {saving ? 'Saving…' : isEdit ? 'Update Quotation' : 'Save Quotation'}
         </button>
         {quote.floorPlan?.data && (
           <button onClick={() => printFloorPlan(quote, products)}
@@ -545,11 +545,14 @@ function SummaryStep({ quote, pricing, saving, onSave, customers, products }: {
 export function QuotationBuilder() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { id: editId } = useParams<{ id: string }>()
+  const isEditMode = !!editId
   const { user } = useAuth()
   const [step, setStep] = useState(0)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<CRMProduct[]>([])
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(isEditMode)
 
   const [quote, setQuote] = useState<QuoteState>({
     customerId:      searchParams.get('customerId') || '',
@@ -566,17 +569,37 @@ export function QuotationBuilder() {
   })
 
   useEffect(() => {
-    Promise.all([
+    const fetches: Promise<any>[] = [
       getDocs(collection(db, 'customers')),
       getDocs(collection(db, 'products')),
-    ]).then(([custSnap, prodSnap]) => {
-      const loadedCustomers = custSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Customer)
+    ]
+    if (isEditMode && editId) fetches.push(getDoc(doc(db, 'quotations', editId)))
+
+    Promise.all(fetches).then(([custSnap, prodSnap, quotSnap]) => {
+      const loadedCustomers = custSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }) as Customer)
       setCustomers(loadedCustomers)
-      setProducts(prodSnap.docs.map(d => ({ id: d.id, ...d.data() }) as CRMProduct))
-      if (searchParams.get('customerId')) {
-        const c = loadedCustomers.find(x => x.id === searchParams.get('customerId'))
+      setProducts(prodSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }) as CRMProduct))
+
+      if (quotSnap?.exists()) {
+        const data = quotSnap.data() as any
+        setQuote({
+          customerId:       data.customerId || '',
+          customerName:     data.customerName || '',
+          leadId:           data.leadId || '',
+          validDays:        data.validDays || 30,
+          paymentTerms:     data.paymentTerms || PAYMENT_TERMS_OPTIONS[0].value,
+          notes:            data.notes || '',
+          bhkType:          data.bhkType || '',
+          sectionDiscounts: data.sectionDiscounts || {},
+          floorPlan:        data.floorPlan || null,
+          floorPlanZones:   data.floorPlanZones || [],
+          rooms:            data.rooms || [],
+        })
+      } else if (searchParams.get('customerId')) {
+        const c = loadedCustomers.find((x: Customer) => x.id === searchParams.get('customerId'))
         if (c) setQuote(q => ({ ...q, customerName: c.name }))
       }
+      setLoading(false)
     }).catch(console.error)
   }, [])
 
@@ -586,8 +609,6 @@ export function QuotationBuilder() {
     if (!quote.customerId || pricing.lineItems.length === 0) { toast.error('Complete required fields'); return }
     setSaving(true)
     try {
-      const snap = await getDocs(collection(db, 'quotations'))
-      const seq  = snap.size + 1
       const validUntil = new Date()
       validUntil.setDate(validUntil.getDate() + quote.validDays)
 
@@ -603,45 +624,54 @@ export function QuotationBuilder() {
 
       const status = pricing.grandSubtotal >= 200000 ? 'pending_approval' : 'draft'
 
-      const quotationRef = await addDoc(collection(db, 'quotations'), {
-        quotationCode: generateQuotationCode(seq),
-        customerId:    quote.customerId,
-        customerName:  quote.customerName,
-        leadId:        quote.leadId || null,
-        version:       1,
+      const payload = {
+        customerId:         quote.customerId,
+        customerName:       quote.customerName,
+        leadId:             quote.leadId || null,
         status,
-        assignedPM:    user?.id,
-        assignedPMName: user?.name,
         validUntil,
-        paymentTerms:  quote.paymentTerms,
-        notes:         quote.notes,
-        bhkType:       quote.bhkType || null,
-        rooms:         quote.rooms,
-        floorPlanZones: quote.floorPlanZones,
-        sectionDiscounts: quote.sectionDiscounts,
-        subtotal:      pricing.productSubtotal,
-        discountAmount: pricing.discountAmount,
+        paymentTerms:       quote.paymentTerms,
+        notes:              quote.notes,
+        bhkType:            quote.bhkType || null,
+        rooms:              quote.rooms,
+        floorPlanZones:     quote.floorPlanZones,
+        sectionDiscounts:   quote.sectionDiscounts,
+        subtotal:           pricing.productSubtotal,
+        discountAmount:     pricing.discountAmount,
         discountedSubtotal: pricing.discountedSubtotal,
-        installationTotal: pricing.totalInstallation,
-        total:         pricing.grandSubtotal,
-        taxRate:       18,
-        taxAmount:     0,
-        discount:      pricing.discountAmount,
+        installationTotal:  pricing.totalInstallation,
+        total:              pricing.grandSubtotal,
+        taxRate:            18,
+        taxAmount:          0,
+        discount:           pricing.discountAmount,
         lineItems,
-        createdBy:     user?.id,
-        createdAt:     serverTimestamp(),
-        updatedAt:     serverTimestamp(),
-      })
-
-      if (quote.customerId) {
-        const { doc: d, updateDoc: upd, arrayUnion } = await import('firebase/firestore')
-        await upd(d(db, 'customers', quote.customerId), { quotationIds: arrayUnion(quotationRef.id), updatedAt: serverTimestamp() })
+        updatedAt:          serverTimestamp(),
       }
 
-      toast.success(status === 'pending_approval' ? 'Quotation sent for management approval (value > ₹2L)' : 'Quotation saved as draft')
+      if (isEditMode && editId) {
+        await updateDoc(doc(db, 'quotations', editId), payload)
+        toast.success('Quotation updated')
+      } else {
+        const snap = await getDocs(collection(db, 'quotations'))
+        const quotationRef = await addDoc(collection(db, 'quotations'), {
+          ...payload,
+          quotationCode:  generateQuotationCode(snap.size + 1),
+          version:        1,
+          assignedPM:     user?.id,
+          assignedPMName: user?.name,
+          createdBy:      user?.id,
+          createdAt:      serverTimestamp(),
+        })
+        if (quote.customerId) {
+          const { doc: d, updateDoc: upd, arrayUnion } = await import('firebase/firestore')
+          await upd(d(db, 'customers', quote.customerId), { quotationIds: arrayUnion(quotationRef.id), updatedAt: serverTimestamp() })
+        }
+        toast.success(status === 'pending_approval' ? 'Quotation sent for management approval (value > ₹2L)' : 'Quotation saved as draft')
+      }
+
       navigate('/quotations')
     } catch (err) {
-      toast.error('Failed to save quotation')
+      toast.error(isEditMode ? 'Failed to update quotation' : 'Failed to save quotation')
       console.error(err)
     } finally {
       setSaving(false)
@@ -653,6 +683,12 @@ export function QuotationBuilder() {
     return true
   }
 
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-gray-500">Loading quotation…</p>
+    </div>
+  )
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-950">
       {/* Header */}
@@ -661,7 +697,7 @@ export function QuotationBuilder() {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-base font-bold text-gray-100">New Quotation Builder</h1>
+          <h1 className="text-base font-bold text-gray-100">{isEditMode ? 'Edit Quotation' : 'New Quotation Builder'}</h1>
           {quote.customerName && <p className="text-xs text-gray-500">{quote.customerName}</p>}
         </div>
         {pricing.lineItems.length > 0 && (
@@ -696,7 +732,7 @@ export function QuotationBuilder() {
         {step === 1 && <FloorPlanStep quote={quote} onChange={setQuote} products={products} />}
         {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} />}
         {step === 3 && <BOQStep quote={quote} onChange={setQuote} products={products} pricing={pricing} />}
-        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} products={products} />}
+        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} products={products} isEdit={isEditMode} />}
       </div>
 
       {/* Footer nav */}
@@ -717,7 +753,7 @@ export function QuotationBuilder() {
           <button onClick={handleSave} disabled={saving || !quote.customerId || pricing.lineItems.length === 0}
             className="flex items-center gap-2 px-6 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 transition-colors text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
             <Check className="w-4 h-4" />
-            {saving ? 'Saving…' : 'Save Quotation'}
+            {saving ? 'Saving…' : isEditMode ? 'Update Quotation' : 'Save Quotation'}
           </button>
         )}
       </div>
