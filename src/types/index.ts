@@ -175,6 +175,7 @@ export interface Product {
 export type QuotationStatus =
   | 'draft'
   | 'pending_approval'
+  | 'approved'
   | 'management_approved'
   | 'sent_to_customer'
   | 'customer_approved'
@@ -213,7 +214,9 @@ export interface Quotation {
   total: number
   lineItems: QuotationLineItem[]
   approvedBy?: string
+  approvedByName?: string
   approvedAt?: Timestamp
+  projectId?: string
   pdfUrl?: string
   createdBy: string
   createdAt: Timestamp

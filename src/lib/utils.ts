@@ -70,7 +70,8 @@ export const LEAD_STATUS_CONFIG: Record<LeadStatus, { label: string; color: stri
 export const QUOTATION_STATUS_CONFIG: Record<QuotationStatus, { label: string; color: string; bg: string }> = {
   draft:               { label: 'Draft',              color: 'text-gray-400',   bg: 'bg-gray-800' },
   pending_approval:    { label: 'Pending Approval',   color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
-  management_approved: { label: 'Approved',           color: 'text-green-400',  bg: 'bg-green-900/30' },
+  approved:            { label: 'Approved',           color: 'text-green-400',  bg: 'bg-green-900/30' },
+  management_approved: { label: 'Mgmt Approved',      color: 'text-green-400',  bg: 'bg-green-900/30' },
   sent_to_customer:    { label: 'Sent to Customer',   color: 'text-blue-400',   bg: 'bg-blue-900/30' },
   customer_approved:   { label: 'Customer Approved',  color: 'text-emerald-400',bg: 'bg-emerald-900/30' },
   rejected:            { label: 'Rejected',           color: 'text-red-400',    bg: 'bg-red-900/30' },

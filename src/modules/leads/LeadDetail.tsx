@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, MapPin, Edit2, Calendar, FileText,
-  CheckCircle2, XCircle, Upload, Plus, Clock
+  CheckCircle2, XCircle, Upload, Plus, Clock, UserCheck, ExternalLink,
+  FileText as QuoteIcon, FolderOpen
 } from 'lucide-react'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -14,14 +15,14 @@ import { Input } from '../../components/ui/Input'
 import { ActivityLog } from './ActivityLog'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, doc, getDoc, updateDoc, addDoc, collection,
+  db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
   serverTimestamp, Timestamp
 } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
   formatCurrency, canManageLeads
 } from '../../lib/utils'
-import type { Lead, LeadStatus, LeadActivity, ActivityType, CallOutcome } from '../../types'
+import type { Lead, LeadStatus, LeadActivity, ActivityType, CallOutcome, Quotation } from '../../types'
 import toast from 'react-hot-toast'
 
 const STATUS_OPTIONS = Object.entries(LEAD_STATUS_CONFIG).map(([v, c]) => ({
@@ -52,8 +53,11 @@ export function LeadDetail() {
   const { user, role } = useAuth()
   const [lead, setLead] = useState<Lead | null>(null)
   const [activities, setActivities] = useState<LeadActivity[]>([])
+  const [quotations, setQuotations] = useState<Quotation[]>([])
   const [loading, setLoading] = useState(true)
   const [showActivityForm, setShowActivityForm] = useState(false)
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [converting, setConverting] = useState(false)
   const [updating, setUpdating] = useState(false)
 
   // Activity form state
@@ -64,6 +68,8 @@ export function LeadDetail() {
   const [actSubmitting, setActSubmitting] = useState(false)
 
   const canEdit = role ? canManageLeads(role) : false
+  const isWon = lead?.status === 'won'
+  const isConverted = !!lead?.convertedToCustomerId
 
   useEffect(() => {
     if (!id) return
@@ -90,6 +96,14 @@ export function LeadDetail() {
     load()
   }, [id])
 
+  // Load linked quotations
+  useEffect(() => {
+    if (!id) return
+    getDocs(query(collection(db, 'quotations'), where('leadId', '==', id)))
+      .then(snap => setQuotations(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Quotation)))
+      .catch(console.error)
+  }, [id])
+
   const updateStatus = async (newStatus: LeadStatus) => {
     if (!lead || !id) return
     setUpdating(true)
@@ -98,7 +112,6 @@ export function LeadDetail() {
         status: newStatus,
         updatedAt: serverTimestamp(),
       })
-      // Log activity
       await addDoc(collection(db, 'leads', id, 'activities'), {
         leadId: id,
         type: 'status_change',
@@ -113,6 +126,60 @@ export function LeadDetail() {
       toast.error('Update failed')
     } finally {
       setUpdating(false)
+    }
+  }
+
+  const convertToCustomer = async () => {
+    if (!lead || !id) return
+    setConverting(true)
+    try {
+      // 1. Create customer document from lead data
+      const customerRef = await addDoc(collection(db, 'customers'), {
+        name: lead.name,
+        email: lead.email || '',
+        phone: lead.phone,
+        address: lead.address || '',
+        customerType: 'residential',
+        tags: [],
+        leadId: id,
+        projectIds: [],
+        quotationIds: [],
+        invoiceIds: [],
+        totalRevenue: 0,
+        outstandingAmount: 0,
+        isActive: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+
+      // 2. Update lead with customer reference
+      await updateDoc(doc(db, 'leads', id), {
+        convertedToCustomerId: customerRef.id,
+        status: 'won',
+        updatedAt: serverTimestamp(),
+      })
+
+      // 3. Log activity
+      await addDoc(collection(db, 'leads', id, 'activities'), {
+        leadId: id,
+        type: 'status_change',
+        description: `Lead converted to customer. Customer profile created.`,
+        performedBy: user?.id,
+        performedByName: user?.name,
+        createdAt: serverTimestamp(),
+      })
+
+      setLead(prev => prev ? { ...prev, convertedToCustomerId: customerRef.id, status: 'won' } : null)
+      toast.success('Lead converted to customer!')
+      setShowConvertModal(false)
+
+      // Navigate to customer
+      navigate(`/customers/${customerRef.id}`)
+    } catch (err) {
+      toast.error('Conversion failed')
+      console.error(err)
+    } finally {
+      setConverting(false)
     }
   }
 
@@ -133,7 +200,6 @@ export function LeadDetail() {
 
       const ref = await addDoc(collection(db, 'leads', id, 'activities'), data)
 
-      // If follow-up set, update lead's nextFollowUp
       if (actFollowUp) {
         await updateDoc(doc(db, 'leads', id), {
           nextFollowUp: Timestamp.fromDate(new Date(actFollowUp)),
@@ -142,11 +208,7 @@ export function LeadDetail() {
         setLead(prev => prev ? { ...prev, nextFollowUp: Timestamp.fromDate(new Date(actFollowUp)) } : null)
       }
 
-      setActivities(prev => [{
-        id: ref.id,
-        ...data,
-      } as LeadActivity, ...prev])
-
+      setActivities(prev => [{ id: ref.id, ...data } as LeadActivity, ...prev])
       toast.success('Activity logged')
       setShowActivityForm(false)
       setActNote('')
@@ -161,11 +223,7 @@ export function LeadDetail() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-sm text-gray-600">Loading lead…</div>
-      </div>
-    )
+    return <div className="flex items-center justify-center h-64"><div className="text-sm text-gray-600">Loading lead…</div></div>
   }
 
   if (!lead) {
@@ -183,10 +241,7 @@ export function LeadDetail() {
     <div className="space-y-5 max-w-5xl">
       {/* Back + Header */}
       <div className="flex items-start gap-4">
-        <button
-          onClick={() => navigate('/leads')}
-          className="text-gray-500 hover:text-gray-300 mt-1"
-        >
+        <button onClick={() => navigate('/leads')} className="text-gray-500 hover:text-gray-300 mt-1">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1">
@@ -198,22 +253,75 @@ export function LeadDetail() {
             <span className={`text-sm font-bold px-2.5 py-1 rounded-lg ${getScoreBg(lead.aiScore)} ${getScoreColor(lead.aiScore)}`}>
               Score: {lead.aiScore}/100
             </span>
+            {isConverted && (
+              <Badge color="text-green-400" bg="bg-green-900/30" dot dotColor="bg-green-500">Converted</Badge>
+            )}
           </div>
           <p className="text-xs text-gray-500 mt-1">{lead.leadCode}</p>
         </div>
-        {canEdit && (
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Plus className="w-3.5 h-3.5" />}
-              onClick={() => setShowActivityForm(true)}
-            >
+        <div className="flex gap-2 flex-wrap">
+          {canEdit && (
+            <Button variant="secondary" size="sm" icon={<Plus className="w-3.5 h-3.5" />}
+              onClick={() => setShowActivityForm(true)}>
               Log Activity
             </Button>
-          </div>
-        )}
+          )}
+          {isWon && !isConverted && canEdit && (
+            <Button size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
+              onClick={() => setShowConvertModal(true)}>
+              Convert to Customer
+            </Button>
+          )}
+          {isConverted && (
+            <Button size="sm" variant="secondary" icon={<ExternalLink className="w-3.5 h-3.5" />}
+              onClick={() => navigate(`/customers/${lead.convertedToCustomerId}`)}>
+              View Customer
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Won Banner */}
+      {isWon && !isConverted && (
+        <div className="bg-green-900/20 border border-green-800/50 rounded-xl p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-green-300">Lead marked as Won!</p>
+              <p className="text-xs text-green-700">Convert this lead to a customer to start creating quotations and projects.</p>
+            </div>
+          </div>
+          {canEdit && (
+            <Button size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
+              onClick={() => setShowConvertModal(true)}>
+              Convert Now
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Converted Banner */}
+      {isConverted && (
+        <div className="bg-indigo-900/20 border border-indigo-800/50 rounded-xl p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <UserCheck className="w-5 h-5 text-indigo-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-indigo-300">Converted to Customer</p>
+              <p className="text-xs text-indigo-700">This lead has been converted. Quotations and projects are managed from the customer profile.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" icon={<ExternalLink className="w-3.5 h-3.5" />}
+              onClick={() => navigate(`/customers/${lead.convertedToCustomerId}`)}>
+              Customer Profile
+            </Button>
+            <Button size="sm" variant="secondary" icon={<QuoteIcon className="w-3.5 h-3.5" />}
+              onClick={() => navigate(`/quotations?customerId=${lead.convertedToCustomerId}`)}>
+              Quotations
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: Details */}
@@ -282,6 +390,33 @@ export function LeadDetail() {
             </div>
           </Card>
 
+          {/* Linked Quotations */}
+          {quotations.length > 0 && (
+            <Card>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quotations</h3>
+              <div className="space-y-2">
+                {quotations.map(q => (
+                  <button
+                    key={q.id}
+                    onClick={() => navigate('/quotations')}
+                    className="w-full text-left flex items-center justify-between p-2 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition-colors"
+                  >
+                    <div>
+                      <p className="text-xs font-mono text-indigo-400">{q.quotationCode}</p>
+                      <p className="text-xs text-gray-500">{formatCurrency(q.total)}</p>
+                    </div>
+                    <Badge
+                      color={q.status === 'approved' ? 'text-green-400' : q.status === 'pending_approval' ? 'text-yellow-400' : 'text-gray-400'}
+                      bg="bg-gray-800"
+                    >
+                      {q.status}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {/* Status Change */}
           {canEdit && (
             <Card>
@@ -311,16 +446,13 @@ export function LeadDetail() {
             {lead.floorPlanUrl ? (
               <a href={lead.floorPlanUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300">
-                <FileText className="w-4 h-4" />
-                Floor Plan ↗
+                <FileText className="w-4 h-4" />Floor Plan ↗
               </a>
             ) : (
               <div className="text-center py-4">
                 <Upload className="w-6 h-6 text-gray-700 mx-auto mb-2" />
                 <p className="text-xs text-gray-600">No floor plan uploaded</p>
-                {canEdit && (
-                  <Button variant="ghost" size="sm" className="mt-2">Upload Floor Plan</Button>
-                )}
+                {canEdit && <Button variant="ghost" size="sm" className="mt-2">Upload Floor Plan</Button>}
               </div>
             )}
           </Card>
@@ -343,6 +475,34 @@ export function LeadDetail() {
         </div>
       </div>
 
+      {/* Convert to Customer Modal */}
+      <Modal
+        open={showConvertModal}
+        onClose={() => setShowConvertModal(false)}
+        title="Convert Lead to Customer"
+        description="This will create a customer profile from this lead's data. You can then create quotations and projects for them."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowConvertModal(false)}>Cancel</Button>
+            <Button variant="success" onClick={convertToCustomer} loading={converting}
+              icon={<UserCheck className="w-4 h-4" />}>
+              Convert to Customer
+            </Button>
+          </>
+        }
+      >
+        <div className="bg-gray-800/60 rounded-xl p-4 space-y-2 text-sm">
+          <p className="text-gray-400">A customer profile will be created with:</p>
+          <div className="space-y-1 mt-2">
+            <p className="text-gray-200 font-medium">{lead.name}</p>
+            <p className="text-gray-500">{lead.phone}</p>
+            {lead.email && <p className="text-gray-500">{lead.email}</p>}
+            {lead.address && <p className="text-gray-500">{lead.address}</p>}
+          </div>
+        </div>
+      </Modal>
+
       {/* Log Activity Modal */}
       <Modal
         open={showActivityForm}
@@ -357,34 +517,16 @@ export function LeadDetail() {
         }
       >
         <div className="space-y-4">
-          <Select
-            label="Activity Type"
-            options={ACTIVITY_TYPE_OPTIONS}
-            value={actType}
-            onChange={e => setActType(e.target.value as ActivityType)}
-          />
+          <Select label="Activity Type" options={ACTIVITY_TYPE_OPTIONS} value={actType}
+            onChange={e => setActType(e.target.value as ActivityType)} />
           {actType === 'call' && (
-            <Select
-              label="Call Outcome"
-              options={CALL_OUTCOME_OPTIONS}
-              placeholder="Select outcome"
-              value={actOutcome}
-              onChange={e => setActOutcome(e.target.value as CallOutcome)}
-            />
+            <Select label="Call Outcome" options={CALL_OUTCOME_OPTIONS} placeholder="Select outcome"
+              value={actOutcome} onChange={e => setActOutcome(e.target.value as CallOutcome)} />
           )}
-          <Textarea
-            label="Notes *"
-            placeholder="What happened? Key points discussed…"
-            value={actNote}
-            onChange={e => setActNote(e.target.value)}
-            rows={3}
-          />
-          <Input
-            label="Schedule Follow-up"
-            type="datetime-local"
-            value={actFollowUp}
-            onChange={e => setActFollowUp(e.target.value)}
-          />
+          <Textarea label="Notes *" placeholder="What happened? Key points discussed…"
+            value={actNote} onChange={e => setActNote(e.target.value)} rows={3} />
+          <Input label="Schedule Follow-up" type="datetime-local"
+            value={actFollowUp} onChange={e => setActFollowUp(e.target.value)} />
         </div>
       </Modal>
     </div>

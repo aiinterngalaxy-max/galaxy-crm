@@ -16,6 +16,7 @@ interface QuotationFormProps {
   onSuccess: () => void
   onCancel: () => void
   customerId?: string
+  leadId?: string
 }
 
 const PAYMENT_TERMS = [
@@ -25,7 +26,7 @@ const PAYMENT_TERMS = [
   { value: 'Custom terms', label: 'Custom' },
 ]
 
-export function QuotationForm({ onSuccess, onCancel, customerId }: QuotationFormProps) {
+export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: QuotationFormProps) {
   const { user } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -111,10 +112,11 @@ export function QuotationForm({ onSuccess, onCancel, customerId }: QuotationForm
         .filter(l => l.productName)
         .map((l, idx) => ({ ...l, id: `li_${idx + 1}` }))
 
-      await addDoc(collection(db, 'quotations'), {
+      const quotationRef = await addDoc(collection(db, 'quotations'), {
         quotationCode: generateQuotationCode(seq),
         customerId: selectedCustomerId,
         customerName: customer?.name || '',
+        leadId: leadId || null,
         version: 1,
         status: total >= 200000 ? 'pending_approval' : 'draft',
         assignedPM: user?.id,
@@ -132,6 +134,15 @@ export function QuotationForm({ onSuccess, onCancel, customerId }: QuotationForm
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
+
+      // Link quotation back to customer
+      if (selectedCustomerId) {
+        const { doc: d, updateDoc: upd, arrayUnion } = await import('firebase/firestore')
+        await upd(d(db, 'customers', selectedCustomerId), {
+          quotationIds: arrayUnion(quotationRef.id),
+          updatedAt: serverTimestamp(),
+        })
+      }
 
       toast.success(
         total >= 200000
