@@ -77,20 +77,6 @@ export function DailyReportsPage() {
         const todayStart = startOfDay(new Date())
         const todayEnd = endOfDay(new Date())
 
-        // DEBUG v2
-        const uid = user!.id
-        const debugInfo = allLeadsData.map(l => ({
-          name: (l as any).name,
-          createdBy: (l as any).createdBy,
-          assignedTo: (l as any).assignedTo,
-          createdAt: toDate((l as any).createdAt).toISOString(),
-          updatedAt: toDate((l as any).updatedAt).toISOString(),
-          myLead: (l as any).createdBy === uid || (l as any).assignedTo === uid,
-          todayUpdated: toDate((l as any).updatedAt) >= todayStart,
-        }))
-        console.table(debugInfo)
-        toast(`v2: uid=${uid.slice(0,8)}, myLeads=${debugInfo.filter(x=>x.myLead).length}, todayUpdated=${debugInfo.filter(x=>x.myLead&&x.todayUpdated).length}`, { duration: 20000 })
-
         // All leads created by this user
         const allLeads = allLeadsData.filter(l => l.createdBy === user!.id)
 
@@ -113,33 +99,28 @@ export function DailyReportsPage() {
           return touchedToday && !createdToday
         })
 
-        // Calls/activities logged today across all leads
+        // Calls/activities logged today across all leads (client-side filter)
         const activityPromises = allLeads.slice(0, 20).map(lead =>
-          getDocs(
-            query(
-              collection(db, 'leads', lead.id, 'activities'),
-              where('createdAt', '>=', todayStart),
-              where('createdAt', '<=', todayEnd)
-            )
-          ).then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
+          getDocs(collection(db, 'leads', lead.id, 'activities'))
+            .then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
         )
         const allActivities = (await Promise.all(activityPromises)).flat()
-        const callsMade = allActivities.filter(a => a.type === 'call' || a.type === 'meeting')
+        const callsMade = allActivities.filter(a => {
+          const d = toDate((a as any).createdAt)
+          return (a.type === 'call' || a.type === 'meeting') && d >= todayStart && d <= todayEnd
+        })
 
-        // Quotations created today
-        const quotSnap = await getDocs(
-          query(
-            collection(db, 'quotations'),
-            where('createdBy', '==', user!.id),
-            where('createdAt', '>=', todayStart),
-            where('createdAt', '<=', todayEnd)
-          )
-        )
+        // Quotations created today — client-side filter, no composite index needed
+        const quotSnap = await getDocs(collection(db, 'quotations'))
+        const quotToday = quotSnap.docs.filter(d => {
+          const data = d.data()
+          return data.createdBy === user!.id && toDate(data.createdAt) >= todayStart && toDate(data.createdAt) <= todayEnd
+        })
 
         setTodayStats({
           leadsCreated,
           callsMade,
-          quotationsSent: quotSnap.size,
+          quotationsSent: quotToday.length,
           leadsProgressed: progressed,
         })
       } catch (err) {
