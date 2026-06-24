@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { ProductCatalogTab } from './ProductCatalogTab'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -139,7 +140,7 @@ export function SettingsPage() {
   ]
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className={`space-y-5 ${tab === 'products' ? '' : 'max-w-4xl'}`}>
       <div>
         <h1 className="page-title flex items-center gap-2"><Settings className="w-6 h-6" /> Settings</h1>
         <p className="text-sm text-gray-500 mt-0.5">Manage team, roles, and system configuration</p>
@@ -303,18 +304,7 @@ export function SettingsPage() {
       )}
 
       {/* Products Tab */}
-      {tab === 'products' && (
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <Package className="w-5 h-5 text-indigo-400" />
-            <h3 className="text-sm font-semibold text-gray-200">Product Catalog</h3>
-          </div>
-          <p className="text-sm text-gray-500">
-            Product catalog management coming soon. You'll be able to add products here and they'll
-            appear in the Quotation Builder automatically.
-          </p>
-        </Card>
-      )}
+      {tab === 'products' && <ProductCatalogTab />}
 
       {/* System Tab */}
       {tab === 'system' && (
