@@ -81,8 +81,8 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         productId,
         productName: product.name,
         productSpec: product.specs || '',
-        unitPrice: product.standardPrice,
-        lineTotal: product.standardPrice * updated[idx].quantity,
+        unitPrice: product.gsp,
+        lineTotal: product.gsp * updated[idx].quantity,
       }
       return updated
     })
@@ -161,7 +161,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
   const customerOptions = customers.map(c => ({ value: c.id, label: c.name }))
   const productOptions = [
     { value: '', label: 'Select product or type manually' },
-    ...products.filter(p => p.isActive).map(p => ({ value: p.id, label: `${p.name} — ₹${p.standardPrice.toLocaleString('en-IN')}` }))
+    ...products.filter(p => p.isActive).map(p => ({ value: p.id, label: `${p.name} — ₹${p.gsp.toLocaleString('en-IN')}` }))
   ]
 
   return (

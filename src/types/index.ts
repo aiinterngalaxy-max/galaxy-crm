@@ -163,8 +163,8 @@ export interface Product {
   category: ProductCategory
   description?: string
   specs?: string
-  standardPrice: number
-  minimumPrice: number
+  gsp: number
+  price: number
   isActive: boolean
   createdBy: string
   updatedAt: Timestamp
