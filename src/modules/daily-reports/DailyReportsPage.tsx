@@ -67,11 +67,6 @@ export function DailyReportsPage() {
         // Fetch all leads, filter entirely in JS — no index required
         const allLeadsSnap = await getDocs(collection(db, 'leads'))
         const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
-        // DEBUG — remove after fix confirmed
-        toast(`Debug: ${allLeadsData.length} leads total, uid=${user!.id.slice(0,8)}, createdBy values: ${[...new Set(allLeadsData.map(l => (l as any).createdBy?.slice(0,8)))].join(',')}`, { duration: 15000 })
-
-        const todayStartDate = startOfDay(new Date())
-        const todayEndDate = endOfDay(new Date())
 
         const toDate = (ts: any): Date => {
           if (!ts) return new Date(0)
@@ -79,21 +74,30 @@ export function DailyReportsPage() {
           return new Date(ts)
         }
 
-        // Leads created today by this user
-        const leadsCreated = allLeadsData.filter(l => {
-          if (l.createdBy !== user!.id) return false
-          const d = toDate(l.createdAt)
-          return d >= todayStartDate && d <= todayEndDate
-        })
+        const todayStart = startOfDay(new Date())
+        const todayEnd = endOfDay(new Date())
 
-        // All leads created by this user (for progress tracking)
+        // All leads created by this user
         const allLeads = allLeadsData.filter(l => l.createdBy === user!.id)
 
-        // Leads progressed today (updatedAt today, not newly created)
+        // Leads created by this user (all time) — show total assigned to them
+        // "Leads Added" = leads where this user is createdBy AND (created today OR assigned/updated today)
+        const leadsCreated = allLeadsData.filter(l => {
+          const isMyLead = l.createdBy === user!.id || l.assignedTo === user!.id
+          if (!isMyLead) return false
+          const created = toDate(l.createdAt)
+          const updated = toDate(l.updatedAt)
+          return (created >= todayStart && created <= todayEnd) ||
+                 (updated >= todayStart && updated <= todayEnd)
+        })
+
+        // Leads progressed today (status updated today, not newly created)
         const progressed = allLeads.filter(l => {
-          if (!l.updatedAt) return false
-          const updated = l.updatedAt instanceof Timestamp ? l.updatedAt.toDate() : new Date(l.updatedAt as string)
-          return updated >= startOfDay(new Date()) && !leadsCreated.find(lc => lc.id === l.id)
+          const updated = toDate(l.updatedAt)
+          const created = toDate(l.createdAt)
+          const touchedToday = updated >= todayStart && updated <= todayEnd
+          const createdToday = created >= todayStart && created <= todayEnd
+          return touchedToday && !createdToday
         })
 
         // Calls/activities logged today across all leads
