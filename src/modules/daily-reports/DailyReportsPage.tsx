@@ -64,23 +64,28 @@ export function DailyReportsPage() {
 
     async function fetchTodayActivity() {
       try {
-        // Leads created today — filter by createdBy client-side to avoid composite index
-        const leadsSnap = await getDocs(
-          query(
-            collection(db, 'leads'),
-            where('createdAt', '>=', todayStart),
-            where('createdAt', '<=', todayEnd)
-          )
-        )
-        const leadsCreated = leadsSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }) as Lead)
-          .filter(l => l.createdBy === user!.id)
+        // Fetch all leads, filter entirely in JS — no index required
+        const allLeadsSnap = await getDocs(collection(db, 'leads'))
+        const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
 
-        // All leads created by this user — for progress tracking
-        const allLeadsSnap = await getDocs(
-          query(collection(db, 'leads'), where('createdBy', '==', user!.id))
-        )
-        const allLeads = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        const todayStartDate = startOfDay(new Date())
+        const todayEndDate = endOfDay(new Date())
+
+        const toDate = (ts: any): Date => {
+          if (!ts) return new Date(0)
+          if (ts?.toDate) return ts.toDate()
+          return new Date(ts)
+        }
+
+        // Leads created today by this user
+        const leadsCreated = allLeadsData.filter(l => {
+          if (l.createdBy !== user!.id) return false
+          const d = toDate(l.createdAt)
+          return d >= todayStartDate && d <= todayEndDate
+        })
+
+        // All leads created by this user (for progress tracking)
+        const allLeads = allLeadsData.filter(l => l.createdBy === user!.id)
 
         // Leads progressed today (updatedAt today, not newly created)
         const progressed = allLeads.filter(l => {
