@@ -37,10 +37,6 @@ export function LeadsPage() {
     if (!user || !role) return
 
     const constraints = []
-    // BD execs see only their leads; management/dept_head see all
-    if (role === 'bd_exec') {
-      constraints.push(where('assignedTo', '==', user.id))
-    }
     constraints.push(orderBy('updatedAt', 'desc'))
 
     const q = query(collection(db, 'leads'), ...constraints)
