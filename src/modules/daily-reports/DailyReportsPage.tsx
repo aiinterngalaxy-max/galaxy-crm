@@ -77,10 +77,23 @@ export function DailyReportsPage() {
         const todayStart = startOfDay(new Date())
         const todayEnd = endOfDay(new Date())
 
+        // DEBUG v2
+        const uid = user!.id
+        const debugInfo = allLeadsData.map(l => ({
+          name: (l as any).name,
+          createdBy: (l as any).createdBy,
+          assignedTo: (l as any).assignedTo,
+          createdAt: toDate((l as any).createdAt).toISOString(),
+          updatedAt: toDate((l as any).updatedAt).toISOString(),
+          myLead: (l as any).createdBy === uid || (l as any).assignedTo === uid,
+          todayUpdated: toDate((l as any).updatedAt) >= todayStart,
+        }))
+        console.table(debugInfo)
+        toast(`v2: uid=${uid.slice(0,8)}, myLeads=${debugInfo.filter(x=>x.myLead).length}, todayUpdated=${debugInfo.filter(x=>x.myLead&&x.todayUpdated).length}`, { duration: 20000 })
+
         // All leads created by this user
         const allLeads = allLeadsData.filter(l => l.createdBy === user!.id)
 
-        // Leads created by this user (all time) — show total assigned to them
         // "Leads Added" = leads where this user is createdBy AND (created today OR assigned/updated today)
         const leadsCreated = allLeadsData.filter(l => {
           const isMyLead = l.createdBy === user!.id || l.assignedTo === user!.id
