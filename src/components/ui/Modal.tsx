@@ -25,63 +25,70 @@ export function Modal({ open, onClose, title, description, size = 'md', children
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    if (open) document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
+    if (open) {
+      document.addEventListener('keydown', handleKey)
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      document.body.style.overflow = ''
+    }
   }, [open, onClose])
 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto p-4 flex items-start justify-center">
+    <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      {/* Panel */}
-      <div
-        className={cn(
-          'relative w-full bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl animate-fade-in flex flex-col max-h-[90vh]',
-          sizeClasses[size]
-        )}
-      >
-        {/* Header */}
-        {title && (
-          <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-800 shrink-0">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-50">{title}</h2>
-              {description && (
-                <p className="mt-0.5 text-sm text-gray-400">{description}</p>
-              )}
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-300 transition-colors ml-4 mt-0.5"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-        {/* Body */}
-        <div className={cn('px-6 py-5 overflow-y-auto', !title && 'pt-6')}>
-          {!title && (
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      {/* Scroll container */}
+      <div className="flex min-h-full items-start justify-center p-4 sm:p-6">
+        {/* Panel */}
+        <div
+          className={cn(
+            'relative w-full bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl animate-fade-in my-4',
+            sizeClasses[size]
           )}
-          {children}
-        </div>
+        >
+          {/* Header */}
+          {title && (
+            <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-800">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-50">{title}</h2>
+                {description && (
+                  <p className="mt-0.5 text-sm text-gray-400">{description}</p>
+                )}
+              </div>
+              <button
+                onClick={onClose}
+                className="text-gray-500 hover:text-gray-300 transition-colors ml-4 mt-0.5"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          )}
 
-        {/* Footer */}
-        {footer && (
-          <div className="px-6 pb-6 flex items-center justify-end gap-3">
-            {footer}
+          {/* Body */}
+          <div className={cn('px-6 py-5', !title && 'pt-6')}>
+            {!title && (
+              <button
+                onClick={onClose}
+                className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+            {children}
           </div>
-        )}
+
+          {/* Footer */}
+          {footer && (
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
