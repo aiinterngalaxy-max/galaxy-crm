@@ -67,6 +67,8 @@ export function DailyReportsPage() {
         // Fetch all leads, filter entirely in JS — no index required
         const allLeadsSnap = await getDocs(collection(db, 'leads'))
         const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        // DEBUG — remove after fix confirmed
+        toast(`Debug: ${allLeadsData.length} leads total, uid=${user!.id.slice(0,8)}, createdBy values: ${[...new Set(allLeadsData.map(l => (l as any).createdBy?.slice(0,8)))].join(',')}`, { duration: 15000 })
 
         const todayStartDate = startOfDay(new Date())
         const todayEndDate = endOfDay(new Date())
