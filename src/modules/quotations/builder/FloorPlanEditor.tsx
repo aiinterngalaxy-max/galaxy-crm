@@ -299,8 +299,8 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
       {/* Suggestion popup */}
       {pendingSuggestion && (
         <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-96 rounded-2xl overflow-hidden shadow-2xl" style={{ background: '#111827', border: `2px solid ${pendingSuggestion.pendingZone.stroke}` }}>
-            <div className="px-5 py-4" style={{ background: `${pendingSuggestion.pendingZone.stroke}18`, borderBottom: `1px solid ${pendingSuggestion.pendingZone.stroke}33` }}>
+          <div className="w-96 rounded-2xl overflow-hidden shadow-2xl flex flex-col" style={{ background: '#111827', border: `2px solid ${pendingSuggestion.pendingZone.stroke}`, maxHeight: '85vh' }}>
+            <div className="px-5 py-4 shrink-0" style={{ background: `${pendingSuggestion.pendingZone.stroke}18`, borderBottom: `1px solid ${pendingSuggestion.pendingZone.stroke}33` }}>
               <div className="flex items-center gap-2 mb-1">
                 <Sparkles className="w-4 h-4" style={{ color: pendingSuggestion.pendingZone.stroke }} />
                 <p className="text-sm font-bold" style={{ color: pendingSuggestion.pendingZone.stroke }}>Smart Recommendations</p>
@@ -309,7 +309,7 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
                 For <strong className="text-gray-200">{pendingSuggestion.pendingZone.name}</strong> — {pendingSuggestion.rule.reason}
               </p>
             </div>
-            <div className="p-4 space-y-2">
+            <div className="p-4 space-y-2 overflow-y-auto flex-1">
               {pendingSuggestion.rule.suggestions.map(({ productId, qty }) => {
                 const product = products.find(p => p.id === productId || p.partCode === productId)
                 const checked = !!acceptedSuggestions[productId]
@@ -330,7 +330,7 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
                 )
               })}
             </div>
-            <div className="flex items-center gap-2 px-4 pb-4">
+            <div className="flex items-center gap-2 px-4 pb-4 shrink-0">
               <button onClick={confirmSuggestions} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold"
                 style={{ background: pendingSuggestion.pendingZone.stroke, color: '#0f172a' }}>
                 <Check className="w-4 h-4" /> Add to Plan

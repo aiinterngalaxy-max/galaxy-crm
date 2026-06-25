@@ -617,12 +617,20 @@ export function QuotationBuilder() {
       // Upload floor plan to Storage if it's a new base64 (not already a URL)
       let floorPlanUrl: string | null = null
       if (quote.floorPlan?.data?.startsWith('data:')) {
-        const quotePath = isEditMode ? editId! : `tmp_${Date.now()}`
-        floorPlanUrl = await uploadBase64(
-          `floor-plans/${quotePath}.${quote.floorPlan.mimeType.split('/')[1] || 'jpg'}`,
-          quote.floorPlan.data,
-          quote.floorPlan.mimeType
-        )
+        try {
+          const quotePath = isEditMode ? editId! : `tmp_${Date.now()}`
+          floorPlanUrl = await Promise.race([
+            uploadBase64(
+              `floor-plans/${quotePath}.${quote.floorPlan.mimeType.split('/')[1] || 'jpg'}`,
+              quote.floorPlan.data,
+              quote.floorPlan.mimeType
+            ),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Upload timeout')), 15000)),
+          ])
+        } catch (uploadErr) {
+          console.warn('Floor plan upload failed, saving without it:', uploadErr)
+          toast('Floor plan upload failed — quotation saved without floor plan image', { icon: '⚠️' })
+        }
       } else if (quote.floorPlan?.data) {
         floorPlanUrl = quote.floorPlan.data // already a URL
       }
