@@ -61,10 +61,15 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'h-screen flex flex-col border-r border-gray-800/60 transition-all duration-200',
+        'h-screen flex flex-col transition-all duration-200',
         collapsed ? 'w-16' : 'w-60'
       )}
-      style={{ background: '#0A0A0F' }}
+      style={{
+        background: 'rgba(10,10,15,0.7)',
+        backdropFilter: 'blur(24px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+      }}
     >
       {/* Logo */}
       <div className={cn('flex items-center gap-3 px-4 py-4 border-b border-gray-800', collapsed && 'justify-center px-0')}>

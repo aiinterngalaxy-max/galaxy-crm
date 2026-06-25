@@ -74,7 +74,14 @@ export function LoginPage() {
         )}
 
         {/* Login Card */}
-        <div className="rounded-2xl p-8 shadow-2xl" style={{ background: '#111113', border: '1px solid #C9A84030' }}>
+        <div className="rounded-2xl p-8" style={{
+          background: 'rgba(255,255,255,0.03)',
+          backdropFilter: 'blur(28px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+          border: '1px solid rgba(255,255,255,0.09)',
+          borderTopColor: 'rgba(255,255,255,0.15)',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(201,168,64,0.06), inset 0 1px 0 rgba(255,255,255,0.07)',
+        }}>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">
             <img src="/galaxy-logo.png" alt="Galaxy" className="w-12 h-12 object-contain shrink-0" />
