@@ -266,6 +266,28 @@ export function ProjectDetail() {
     return stages[idx].status === 'completed' ? 'completed' : 'in_progress'
   }
 
+  // ── Stage reorder ────────────────────────────────────────────────────────────
+
+  async function reorderStage(idx: number, direction: 'up' | 'down') {
+    if (!id) return
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= workflowStages.length) return
+
+    const a = workflowStages[idx]
+    const b = workflowStages[swapIdx]
+
+    const newStages = [...workflowStages]
+    newStages[idx] = { ...b, orderIndex: a.orderIndex }
+    newStages[swapIdx] = { ...a, orderIndex: b.orderIndex }
+    newStages.sort((x, y) => x.orderIndex - y.orderIndex)
+    setWorkflowStages(newStages)
+
+    await Promise.all([
+      updateDoc(doc(db, 'projects', id, 'workflow', a.id), { orderIndex: b.orderIndex }),
+      updateDoc(doc(db, 'projects', id, 'workflow', b.id), { orderIndex: a.orderIndex }),
+    ])
+  }
+
   // ── Task toggle ──────────────────────────────────────────────────────────────
 
   async function toggleTask(stage: WorkflowStage, taskId: string) {
@@ -836,6 +858,24 @@ export function ProjectDetail() {
                     </div>
                   </div>
 
+                  {canManage && (
+                    <div className="flex flex-col gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => reorderStage(idx, 'up')}
+                        className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        disabled={idx === workflowStages.length - 1}
+                        onClick={() => reorderStage(idx, 'down')}
+                        className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                   {!isLocked && (
                     isExpanded ? <ChevronUp className="w-4 h-4 text-gray-600 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-600 shrink-0" />
                   )}
