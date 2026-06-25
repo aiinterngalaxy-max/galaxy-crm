@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { Toaster } from 'react-hot-toast'
+import { useAuth } from '../../contexts/AuthContext'
+import { db, collection, query, where, onSnapshot } from '../../lib/firebase'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const { user } = useAuth()
+
+  useEffect(() => {
+    if (!user) return
+    const unsub = onSnapshot(
+      query(collection(db, 'notifications'), where('recipientId', '==', user.id), where('isRead', '==', false)),
+      snap => setUnreadCount(snap.size),
+      () => {}
+    )
+    return unsub
+  }, [user])
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
@@ -36,7 +50,7 @@ export function Layout() {
             if (window.innerWidth < 768) setMobileOpen(o => !o)
             else setCollapsed(c => !c)
           }}
-          notificationCount={0}
+          notificationCount={unreadCount}
         />
         <main className="flex-1 overflow-y-auto">
           <div className="p-5 md:p-6 max-w-screen-2xl mx-auto animate-fade-in">

@@ -694,7 +694,31 @@ export function QuotationBuilder() {
           const { doc: d, updateDoc: upd, arrayUnion } = await import('firebase/firestore')
           await upd(d(db, 'customers', quote.customerId), { quotationIds: arrayUnion(quotationRef.id), updatedAt: serverTimestamp() })
         }
-        toast.success(status === 'pending_approval' ? 'Quotation sent for management approval (value > ₹2L)' : 'Quotation saved as draft')
+
+        // Notify all super_admin + management users when approval is needed
+        if (status === 'pending_approval') {
+          try {
+            const usersSnap = await getDocs(collection(db, 'users'))
+            const managers = usersSnap.docs.filter(d => ['super_admin', 'management'].includes(d.data().role))
+            await Promise.all(managers.map(m =>
+              addDoc(collection(db, 'notifications'), {
+                recipientId:       m.id,
+                type:              'quotation_approval',
+                title:             'Quotation Needs Approval',
+                body:              `${user?.name || 'Someone'} submitted a quotation for ${quote.customerName} worth ₹${pricing.grandSubtotal.toLocaleString('en-IN')} — needs your approval.`,
+                relatedEntityType: 'quotation',
+                relatedEntityId:   quotationRef.id,
+                isRead:            false,
+                createdAt:         serverTimestamp(),
+              })
+            ))
+          } catch (notifErr) {
+            console.warn('Failed to send approval notification:', notifErr)
+          }
+          toast.success('Quotation sent for management approval (value > ₹2L)')
+        } else {
+          toast.success('Quotation saved as draft')
+        }
       }
 
       navigate('/quotations')

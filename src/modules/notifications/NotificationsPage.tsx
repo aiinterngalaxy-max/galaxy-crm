@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCheck, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Bell, CheckCheck, Trash2, ExternalLink } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
@@ -23,8 +24,17 @@ const TYPE_CONFIG: Record<NotificationType, { label: string; color: string; bg: 
   general:            { label: 'General',            color: 'text-gray-400',    bg: 'bg-gray-800' },
 }
 
+const ENTITY_PATH: Record<string, (id: string) => string> = {
+  quotation: id => `/quotations/${id}/edit`,
+  project:   id => `/projects/${id}`,
+  lead:      id => `/leads/${id}`,
+  invoice:   id => `/invoices/${id}`,
+  customer:  id => `/customers/${id}`,
+}
+
 export function NotificationsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -98,8 +108,14 @@ export function NotificationsPage() {
             return (
               <div
                 key={notif.id}
-                className={`flex items-start gap-3 px-5 py-4 transition-colors hover:bg-gray-800/30 ${!notif.isRead ? 'bg-indigo-950/20' : ''}`}
-                onClick={() => !notif.isRead && markRead(notif.id)}
+                className={`flex items-start gap-3 px-5 py-4 transition-colors hover:bg-gray-800/30 ${!notif.isRead ? 'bg-indigo-950/20' : ''} ${notif.relatedEntityType && notif.relatedEntityId ? 'cursor-pointer' : ''}`}
+                onClick={async () => {
+                  if (!notif.isRead) await markRead(notif.id)
+                  if (notif.relatedEntityType && notif.relatedEntityId) {
+                    const path = ENTITY_PATH[notif.relatedEntityType]?.(notif.relatedEntityId)
+                    if (path) navigate(path)
+                  }
+                }}
               >
                 {!notif.isRead && (
                   <span className="w-2 h-2 bg-indigo-500 rounded-full shrink-0 mt-1.5" />
@@ -109,6 +125,9 @@ export function NotificationsPage() {
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                     <Badge color={cfg.color} bg={cfg.bg}>{cfg.label}</Badge>
                     <span className="text-xs text-gray-600">{formatRelative(notif.createdAt)}</span>
+                    {notif.relatedEntityType && notif.relatedEntityId && (
+                      <ExternalLink className="w-3 h-3 text-gray-600" />
+                    )}
                   </div>
                   <p className="text-sm font-medium text-gray-200">{notif.title}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{notif.body}</p>
