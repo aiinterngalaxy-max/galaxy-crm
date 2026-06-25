@@ -43,11 +43,18 @@ export function NotificationsPage() {
     getDocs(
       query(
         collection(db, 'notifications'),
-        where('recipientId', '==', user.id),
-        orderBy('createdAt', 'desc')
+        where('recipientId', '==', user.id)
       )
     )
-      .then(snap => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AppNotification)))
+      .then(snap => {
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }) as AppNotification)
+        items.sort((a, b) => {
+          const ta = (a.createdAt as any)?.toMillis?.() ?? 0
+          const tb = (b.createdAt as any)?.toMillis?.() ?? 0
+          return tb - ta
+        })
+        setNotifications(items)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [user])

@@ -23,6 +23,7 @@ export function QuotationsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [creatingProject, setCreatingProject] = useState<string | null>(null)
+  const [notifying, setNotifying] = useState<string | null>(null)
 
   const canCreate = ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'].includes(role || '')
   const canApprove = isManagement
@@ -65,6 +66,32 @@ export function QuotationsPage() {
       toast.success('Quotation approved')
     } catch {
       toast.error('Approval failed')
+    }
+  }
+
+  const notifyApprovers = async (q: Quotation, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setNotifying(q.id)
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'))
+      const managers = usersSnap.docs.filter(d => ['super_admin', 'management'].includes(d.data().role))
+      await Promise.all(managers.map(m =>
+        addDoc(collection(db, 'notifications'), {
+          recipientId:       m.id,
+          type:              'quotation_approval',
+          title:             'Quotation Needs Approval',
+          body:              `${q.assignedPMName || 'Someone'} is requesting approval for quotation ${q.quotationCode} (${q.customerName}) worth ${formatCurrency(q.total)}.`,
+          relatedEntityType: 'quotation',
+          relatedEntityId:   q.id,
+          isRead:            false,
+          createdAt:         serverTimestamp(),
+        })
+      ))
+      toast.success('Approval request sent to management')
+    } catch {
+      toast.error('Failed to send notification')
+    } finally {
+      setNotifying(null)
     }
   }
 
@@ -263,6 +290,21 @@ export function QuotationsPage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                  {isPending && !canApprove && (
+                    <Button size="sm" variant="warning"
+                      icon={<Send className="w-3.5 h-3.5" />}
+                      loading={notifying === q.id}
+                      onClick={e => notifyApprovers(q, e)}>
+                      Remind
+                    </Button>
+                  )}
+                  {isPending && canApprove && (
+                    <Button size="sm" variant="success"
+                      icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                      onClick={e => approveQuotation(q, e)}>
+                      Approve
+                    </Button>
+                  )}
                   {!hasProject && !isDraft && canCreate && (
                     <Button size="sm" variant="success"
                       icon={<FolderPlus className="w-3.5 h-3.5" />}

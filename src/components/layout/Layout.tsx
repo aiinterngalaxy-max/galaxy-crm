@@ -15,8 +15,8 @@ export function Layout() {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(
-      query(collection(db, 'notifications'), where('recipientId', '==', user.id), where('isRead', '==', false)),
-      snap => setUnreadCount(snap.size),
+      query(collection(db, 'notifications'), where('recipientId', '==', user.id)),
+      snap => setUnreadCount(snap.docs.filter(d => !d.data().isRead).length),
       () => {}
     )
     return unsub
