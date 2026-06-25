@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, getDocs } from '../../lib/firebase'
 import { PROJECT_STATUS_CONFIG, RISK_CONFIG, formatCurrency } from '../../lib/utils'
 import type { Project } from '../../types'
+import { checkProjectOverdueNotifications } from '../../lib/notifyHelpers'
 
 export function PMDashboard() {
   const navigate = useNavigate()
@@ -18,7 +19,12 @@ export function PMDashboard() {
   useEffect(() => {
     if (!user) return
     getDocs(query(collection(db, 'projects'), orderBy('updatedAt', 'desc')))
-      .then(snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)))
+      .then(snap => {
+        const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)
+        setProjects(loaded)
+        // Fire overdue notifications in the background — don't block render
+        checkProjectOverdueNotifications(user!.id, loaded).catch(console.warn)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [user])

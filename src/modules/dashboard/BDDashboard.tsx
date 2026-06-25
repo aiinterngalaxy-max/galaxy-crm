@@ -5,10 +5,11 @@ import { StatCard, Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, where, orderBy, limit, getDocs, Timestamp } from '../../lib/firebase'
+import { db, collection, query, where, orderBy, getDocs } from '../../lib/firebase'
 import { formatRelative, LEAD_STATUS_CONFIG, getScoreColor } from '../../lib/utils'
 import type { Lead, LeadActivity } from '../../types'
 import { startOfDay, endOfDay } from 'date-fns'
+import { checkFollowUpNotifications } from '../../lib/notifyHelpers'
 
 export function BDDashboard() {
   const navigate = useNavigate()
@@ -21,15 +22,13 @@ export function BDDashboard() {
     if (!user) return
     async function fetchData() {
       try {
-        const leadsSnap = await getDocs(
-          query(
-            collection(db, 'leads'),
-            where('assignedTo', '==', user!.id),
-            orderBy('updatedAt', 'desc'),
-            limit(30)
-          )
-        )
-        setMyLeads(leadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
+        // Fetch all leads created by or assigned to this user (client-side filter — no composite index needed)
+        const leadsSnap = await getDocs(query(collection(db, 'leads'), orderBy('updatedAt', 'desc')))
+        const all = leadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        const mine = all.filter(l => l.assignedTo === user!.id || l.createdBy === user!.id)
+        setMyLeads(mine)
+        // Fire follow-up notifications in the background — don't block render
+        checkFollowUpNotifications(user!.id, mine).catch(console.warn)
       } catch (err) {
         console.error(err)
       } finally {
