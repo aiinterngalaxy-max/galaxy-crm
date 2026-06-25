@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2 } from 'lucide-react'
+import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -21,12 +21,23 @@ interface TodayStats {
   leadsProgressed: Lead[]
 }
 
+const DEPARTMENTS = ['All', 'business_development', 'project_management', 'accounts', 'management']
+const DEPT_LABELS: Record<string, string> = {
+  business_development: 'BD',
+  project_management: 'PM',
+  accounts: 'Accounts',
+  management: 'Management',
+}
+
 export function DailyReportsPage() {
   const { user, role, isManagement } = useAuth()
   const [reports, setReports] = useState<DailyReport[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null)
+  const [deptFilter, setDeptFilter] = useState('All')
+  const [empSearch, setEmpSearch] = useState('')
   const [todayStats, setTodayStats] = useState<TodayStats>({
     leadsCreated: [],
     callsMade: [],
@@ -277,7 +288,154 @@ export function DailyReportsPage() {
         </Card>
       )}
 
-      {/* Reports list */}
+      {/* ── MANAGEMENT VIEW ── */}
+      {isManagement ? (
+        <Card padding="none">
+          {/* Toolbar */}
+          <div className="p-4 border-b border-gray-800 flex flex-wrap gap-3 items-center">
+            <h2 className="section-header flex items-center gap-2 mr-auto">
+              <ClipboardList className="w-4 h-4 text-indigo-400" /> Team Reports
+            </h2>
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+              <input
+                className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none w-44"
+                placeholder="Search employee…"
+                value={empSearch}
+                onChange={e => setEmpSearch(e.target.value)}
+              />
+            </div>
+            {/* Department filter */}
+            <select
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none"
+              value={deptFilter}
+              onChange={e => setDeptFilter(e.target.value)}
+            >
+              {DEPARTMENTS.map(d => (
+                <option key={d} value={d}>{d === 'All' ? 'All Departments' : DEPT_LABELS[d] ?? d}</option>
+              ))}
+            </select>
+          </div>
+
+          {loading && <div className="p-8 text-center text-sm text-gray-600">Loading…</div>}
+
+          {/* Group by employee, show latest report per employee for today */}
+          {(() => {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            // Get all unique employees who submitted today
+            const todayReports = reports.filter(r => r.date === today)
+            // Also show history grouped by employee
+            const employeeIds = [...new Set(reports.map(r => r.employeeId))]
+
+            const filtered = employeeIds.filter(empId => {
+              const rep = reports.find(r => r.employeeId === empId)
+              if (!rep) return false
+              const nameMatch = !empSearch || (rep.employeeName || '').toLowerCase().includes(empSearch.toLowerCase())
+              const deptMatch = deptFilter === 'All' || (rep as any).department === deptFilter
+              return nameMatch && deptMatch
+            })
+
+            if (!loading && filtered.length === 0) return (
+              <div className="p-8 text-center text-sm text-gray-600">No reports found</div>
+            )
+
+            return (
+              <div className="divide-y divide-gray-800">
+                {filtered.map(empId => {
+                  const empReports = reports.filter(r => r.employeeId === empId).sort((a, b) => b.date.localeCompare(a.date))
+                  const latest = empReports[0]
+                  const submittedToday = todayReports.some(r => r.employeeId === empId)
+                  const isOpen = expandedEmployee === empId
+
+                  return (
+                    <div key={empId}>
+                      {/* Employee row */}
+                      <button
+                        className="w-full flex items-center gap-4 px-5 py-3.5 hover:bg-gray-800/40 transition-colors text-left"
+                        onClick={() => setExpandedEmployee(isOpen ? null : empId)}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-indigo-800 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                          {(latest.employeeName || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-200">{latest.employeeName}</p>
+                          <p className="text-xs text-gray-500">
+                            {DEPT_LABELS[(latest as any).department] ?? (latest as any).department ?? '—'} · {empReports.length} report{empReports.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <Badge
+                          color={submittedToday ? 'text-green-400' : 'text-gray-500'}
+                          bg={submittedToday ? 'bg-green-900/30' : 'bg-gray-800'}
+                        >
+                          {submittedToday ? 'Submitted today' : 'Not submitted'}
+                        </Badge>
+                        {isOpen ? <ChevronDown className="w-4 h-4 text-gray-600 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />}
+                      </button>
+
+                      {/* Expanded: show all their reports */}
+                      {isOpen && (
+                        <div className="bg-gray-900/60 border-t border-gray-800 divide-y divide-gray-800/60 px-5">
+                          {empReports.map(report => (
+                            <div key={report.id} className="py-4">
+                              <div className="flex items-center gap-3 mb-2">
+                                <p className="text-xs font-semibold text-gray-400">{formatDate(report.date, 'dd MMM yyyy')}</p>
+                                <Badge
+                                  color={report.status === 'submitted' ? 'text-green-400' : 'text-yellow-400'}
+                                  bg={report.status === 'submitted' ? 'bg-green-900/30' : 'bg-yellow-900/30'}
+                                >{report.status}</Badge>
+                                {report.systemStats && (
+                                  <div className="flex gap-3 ml-2">
+                                    {(report.systemStats.leadsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-indigo-400 font-semibold">{report.systemStats.leadsCreated}</span> leads</span>}
+                                    {(report.systemStats.callsMade ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.callsMade}</span> calls</span>}
+                                    {(report.systemStats.quotationsSent ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsSent}</span> quotes</span>}
+                                  </div>
+                                )}
+                                <span className="ml-auto text-xs text-gray-600">{formatDateTime(report.submittedAt)}</span>
+                              </div>
+                              {(report as any).tasks?.length > 0 ? (
+                                <div className="rounded-lg border border-gray-800 overflow-hidden">
+                                  <table className="w-full text-xs">
+                                    <thead className="bg-gray-800/60">
+                                      <tr>
+                                        <th className="text-left px-3 py-1.5 text-gray-500 w-8">#</th>
+                                        <th className="text-left px-3 py-1.5 text-gray-500">Task</th>
+                                        <th className="text-left px-3 py-1.5 text-gray-500 w-20">Status</th>
+                                        <th className="text-left px-3 py-1.5 text-gray-500 w-20">Duration</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800/60">
+                                      {(report as any).tasks.map((t: any) => (
+                                        <tr key={t.id}>
+                                          <td className="px-3 py-1.5 text-gray-600">{t.no}</td>
+                                          <td className="px-3 py-1.5 text-gray-300">{t.details}</td>
+                                          <td className="px-3 py-1.5">
+                                            <span className={t.status === 'done' ? 'text-green-400' : 'text-yellow-400'}>
+                                              {t.status === 'done' ? 'Done' : 'Pending'}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-gray-500">{t.duration || '—'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-600 italic">No task table in this report</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </Card>
+      ) : (
+      /* ── EMPLOYEE VIEW: own report history ── */
       <Card padding="none">
         <div className="p-5 border-b border-gray-800">
           <h2 className="section-header"><ClipboardList className="w-4 h-4 text-indigo-400" /> Report History</h2>
@@ -292,38 +450,20 @@ export function DailyReportsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-200">
-                      {isManagement ? report.employeeName : formatDate(report.date, 'dd MMM yyyy')}
-                    </p>
-                    {isManagement && (
-                      <span className="text-xs text-gray-500">{report.date}</span>
-                    )}
+                    <p className="text-sm font-semibold text-gray-200">{formatDate(report.date, 'dd MMM yyyy')}</p>
                     <Badge
-                      color={report.status === 'submitted' ? 'text-green-400' : report.status === 'late' ? 'text-yellow-400' : 'text-red-400'}
-                      bg={report.status === 'submitted' ? 'bg-green-900/30' : report.status === 'late' ? 'bg-yellow-900/30' : 'bg-red-900/30'}
-                    >
-                      {report.status}
-                    </Badge>
+                      color={report.status === 'submitted' ? 'text-green-400' : 'text-yellow-400'}
+                      bg={report.status === 'submitted' ? 'bg-green-900/30' : 'bg-yellow-900/30'}
+                    >{report.status}</Badge>
                   </div>
-
-                  {/* System stats snapshot */}
                   {report.systemStats && Object.values(report.systemStats).some(v => (v as number) > 0) && (
                     <div className="flex gap-4 mt-2">
-                      {(report.systemStats.leadsCreated ?? 0) > 0 && (
-                        <span className="text-xs text-gray-500"><span className="text-indigo-400 font-semibold">{report.systemStats.leadsCreated}</span> leads</span>
-                      )}
-                      {(report.systemStats.callsMade ?? 0) > 0 && (
-                        <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.callsMade}</span> calls</span>
-                      )}
-                      {(report.systemStats.quotationsSent ?? 0) > 0 && (
-                        <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsSent}</span> quotes</span>
-                      )}
-                      {(report.systemStats.leadsProgressed ?? 0) > 0 && (
-                        <span className="text-xs text-gray-500"><span className="text-purple-400 font-semibold">{report.systemStats.leadsProgressed}</span> advanced</span>
-                      )}
+                      {(report.systemStats.leadsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-indigo-400 font-semibold">{report.systemStats.leadsCreated}</span> leads</span>}
+                      {(report.systemStats.callsMade ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.callsMade}</span> calls</span>}
+                      {(report.systemStats.quotationsSent ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsSent}</span> quotes</span>}
+                      {(report.systemStats.leadsProgressed ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-purple-400 font-semibold">{report.systemStats.leadsProgressed}</span> advanced</span>}
                     </div>
                   )}
-
                   {(report as any).tasks?.length > 0 && (
                     <div className="mt-3 rounded-lg border border-gray-800 overflow-hidden">
                       <table className="w-full text-xs">
@@ -353,16 +493,13 @@ export function DailyReportsPage() {
                     </div>
                   )}
                 </div>
-                {report.submittedAt && (
-                  <p className="text-xs text-gray-600 shrink-0">
-                    {formatDateTime(report.submittedAt)}
-                  </p>
-                )}
+                {report.submittedAt && <p className="text-xs text-gray-600 shrink-0">{formatDateTime(report.submittedAt)}</p>}
               </div>
             </div>
           ))}
         </div>
       </Card>
+      )}
 
       {/* Submit Modal */}
       <Modal
