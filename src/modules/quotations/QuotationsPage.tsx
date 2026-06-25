@@ -305,7 +305,7 @@ export function QuotationsPage() {
                       Approve
                     </Button>
                   )}
-                  {!hasProject && !isDraft && canCreate && (
+                  {!hasProject && isApproved && canCreate && (
                     <Button size="sm" variant="success"
                       icon={<FolderPlus className="w-3.5 h-3.5" />}
                       loading={creatingProject === q.id}

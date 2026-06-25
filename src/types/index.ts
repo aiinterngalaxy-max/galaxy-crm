@@ -241,6 +241,7 @@ export interface Project {
   customerId: string
   customerName?: string
   quotationId: string
+  quotationCode?: string
   leadId?: string
   assignedPM: string
   assignedPMName?: string
@@ -248,11 +249,19 @@ export interface Project {
   startDate?: Timestamp
   expectedEndDate?: Timestamp
   actualEndDate?: Timestamp
-  projectValue: number
-  totalPaid: number
+  projectValue?: number
+  totalValue?: number
+  totalPaid?: number
+  collectedAmount?: number
   riskLevel: RiskLevel
-  riskFlags: string[]
+  riskFlags?: string[]
   completionPercent: number
+  // Site info
+  city?: string
+  siteAddress?: string
+  landmark?: string
+  clientContact?: string
+  accessCode?: string
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp

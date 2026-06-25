@@ -127,36 +127,18 @@ export function ManagementDashboard() {
 
       {/* Revenue Chart + Projects */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Revenue Chart */}
+        {/* Revenue Chart — Coming Soon */}
         <Card className="lg:col-span-2" padding="none">
           <div className="p-5 border-b border-gray-800 flex items-center justify-between">
             <h2 className="section-header">Revenue Overview</h2>
             <span className="text-xs text-gray-500">MTD 2026</span>
           </div>
-          <div className="p-4 h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MOCK_REVENUE_DATA} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="collected" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => `₹${(v/100000).toFixed(0)}L`} />
-                <Tooltip
-                  contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: '#d1d5db' }}
-                  formatter={(v: number) => [formatCurrency(v), '']}
-                />
-                <Area type="monotone" dataKey="projected" stroke="#4b5563" strokeWidth={1.5}
-                  fill="none" strokeDasharray="4 2" name="Projected" />
-                <Area type="monotone" dataKey="collected" stroke="#6366f1" strokeWidth={2}
-                  fill="url(#collected)" name="Collected" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="flex flex-col items-center justify-center h-56 gap-3 text-center px-6">
+            <div className="w-10 h-10 rounded-xl bg-indigo-900/20 border border-indigo-800/30 flex items-center justify-center">
+              <TrendingUp className="w-5 h-5 text-indigo-400" />
+            </div>
+            <p className="text-sm font-semibold text-gray-300">Revenue Analytics — Coming Soon</p>
+            <p className="text-xs text-gray-500">Live revenue tracking from invoices and payments will appear here once the Accounts module is live.</p>
           </div>
         </Card>
 

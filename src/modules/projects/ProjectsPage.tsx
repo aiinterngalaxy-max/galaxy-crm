@@ -4,7 +4,7 @@ import { Plus, Search, MapPin, Phone, FolderKanban } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, orderBy, onSnapshot } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, getDocs } from '../../lib/firebase'
 import { formatDate, canManageProjects } from '../../lib/utils'
 import type { Project, ProjectStatus } from '../../types'
 import { cn } from '../../lib/utils'
@@ -37,6 +37,7 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const { user, role } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
+  const [workflowCounts, setWorkflowCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
@@ -47,7 +48,20 @@ export function ProjectsPage() {
     if (!user || !role) return
     const unsub = onSnapshot(
       query(collection(db, 'projects'), orderBy('createdAt', 'desc')),
-      snap => { setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)); setLoading(false) },
+      async snap => {
+        const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)
+        setProjects(loaded)
+        setLoading(false)
+        // Fetch workflow stage counts for all projects
+        const counts: Record<string, number> = {}
+        await Promise.all(loaded.map(async p => {
+          try {
+            const wSnap = await getDocs(collection(db, 'projects', p.id, 'workflow'))
+            counts[p.id] = wSnap.size
+          } catch { counts[p.id] = 0 }
+        }))
+        setWorkflowCounts(counts)
+      },
       err => { console.error(err); setLoading(false) }
     )
     return unsub
@@ -60,8 +74,8 @@ export function ProjectsPage() {
       p.projectCode.toLowerCase().includes(q) ||
       (p.customerName || '').toLowerCase().includes(q) ||
       (p.assignedPMName || '').toLowerCase().includes(q) ||
-      ((p as any).city || '').toLowerCase().includes(q) ||
-      ((p as any).siteAddress || '').toLowerCase().includes(q)
+      (p.city || '').toLowerCase().includes(q) ||
+      (p.siteAddress || '').toLowerCase().includes(q)
     const matchStatus = statusFilter === 'all' || p.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -166,9 +180,10 @@ export function ProjectsPage() {
         {filtered.map(project => {
           const pct = project.completionPercent ?? 0
           const sd = startDate(project)
-          const city = (project as any).city || ''
-          const phone = (project as any).clientContact || ''
+          const city = project.city || ''
+          const phone = project.clientContact || ''
           const overdue = isOverdue(project)
+          const stageCount = workflowCounts[project.id]
 
           return (
             <div
@@ -202,7 +217,7 @@ export function ProjectsPage() {
                 {project.assignedPMName && <p>Site Manager: <span className="text-gray-300 font-medium">{project.assignedPMName}</span></p>}
                 <div className="flex items-center justify-between">
                   <p>{project.expectedEndDate ? `Deadline ${formatDate(project.expectedEndDate)}` : 'No deadline'}{overdue ? <span className="text-red-400 ml-1">· Overdue</span> : null}</p>
-                  <p className="text-gray-600">8 workflow items</p>
+                  {stageCount !== undefined && <p className="text-gray-600">{stageCount} workflow stage{stageCount !== 1 ? 's' : ''}</p>}
                 </div>
               </div>
 

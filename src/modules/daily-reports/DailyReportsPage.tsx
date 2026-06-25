@@ -40,7 +40,9 @@ export function DailyReportsPage() {
   const [showForm, setShowForm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null)
-  const [deptFilter, setDeptFilter] = useState('All')
+  const userDept = (user as any)?.department as string | undefined
+  const isDeptHead = role === 'dept_head'
+  const [deptFilter, setDeptFilter] = useState(isDeptHead && userDept ? userDept : 'All')
   const [empSearch, setEmpSearch] = useState('')
   const [todayStats, setTodayStats] = useState<TodayStats>({
     leadsCreated: [],
@@ -311,16 +313,23 @@ export function DailyReportsPage() {
                 onChange={e => setEmpSearch(e.target.value)}
               />
             </div>
-            {/* Department filter */}
-            <select
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none"
-              value={deptFilter}
-              onChange={e => setDeptFilter(e.target.value)}
-            >
-              {DEPARTMENTS.map(d => (
-                <option key={d} value={d}>{d === 'All' ? 'All Departments' : DEPT_LABELS[d] ?? d}</option>
-              ))}
-            </select>
+            {/* Department filter — only super admin / management can switch */}
+            {!isDeptHead && (
+              <select
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-300 outline-none"
+                value={deptFilter}
+                onChange={e => setDeptFilter(e.target.value)}
+              >
+                {DEPARTMENTS.map(d => (
+                  <option key={d} value={d}>{d === 'All' ? 'All Departments' : DEPT_LABELS[d] ?? d}</option>
+                ))}
+              </select>
+            )}
+            {isDeptHead && userDept && (
+              <span className="text-xs px-3 py-1.5 rounded-lg bg-indigo-900/30 border border-indigo-800/40 text-indigo-400">
+                {DEPT_LABELS[userDept] ?? userDept} only
+              </span>
+            )}
           </div>
 
           {loading && <div className="p-8 text-center text-sm text-gray-600">Loading…</div>}

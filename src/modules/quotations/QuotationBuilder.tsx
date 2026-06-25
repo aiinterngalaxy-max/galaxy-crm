@@ -249,7 +249,7 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
 }
 
 // ── Step: Rooms & Products ─────────────────────────────────────────────────────
-function RoomsStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
+function RoomsStep({ quote, onChange, products, onGoToFloorPlan }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[]; onGoToFloorPlan: () => void }) {
   const rooms = quote.rooms || []
 
   if (rooms.length === 0) {
@@ -260,7 +260,7 @@ function RoomsStep({ quote, onChange, products }: { quote: QuoteState; onChange:
         </div>
         <p className="text-base font-semibold text-gray-300 mb-2">No zones drawn yet</p>
         <p className="text-sm text-gray-500 mb-6">Go back to the Floor Plan step, draw zones around each room, and drag products into them. Zones will appear here automatically.</p>
-        <button onClick={() => {}}
+        <button onClick={onGoToFloorPlan}
           className="text-xs text-indigo-400 border border-indigo-800/40 bg-indigo-900/20 px-4 py-2 rounded-xl hover:bg-indigo-900/30 transition-colors">
           ← Go back to Floor Plan
         </button>
@@ -782,7 +782,7 @@ export function QuotationBuilder() {
       <div className="flex-1 overflow-y-auto">
         {step === 0 && <ClientStep quote={quote} onChange={setQuote} customers={customers} setCustomers={setCustomers} />}
         {step === 1 && <FloorPlanStep quote={quote} onChange={setQuote} products={products} />}
-        {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} />}
+        {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} onGoToFloorPlan={() => setStep(1)} />}
         {step === 3 && <BOQStep quote={quote} onChange={setQuote} products={products} pricing={pricing} />}
         {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} products={products} isEdit={isEditMode} />}
       </div>

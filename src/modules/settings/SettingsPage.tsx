@@ -40,7 +40,9 @@ const DEPT_OPTIONS: { value: Department; label: string }[] = [
 type Tab = 'users' | 'products' | 'system'
 
 export function SettingsPage() {
-  const { user: currentUser, isAdmin, isManagement } = useAuth()
+  const { user: currentUser, isAdmin, isManagement, role } = useAuth()
+  const isDeptHead = role === 'dept_head'
+  const canManageUsers = isManagement || isDeptHead
   const [tab, setTab] = useState<Tab>('users')
   const [users, setUsers] = useState<User[]>([])
   const [requests, setRequests] = useState<AccessRequest[]>([])
@@ -50,19 +52,28 @@ export function SettingsPage() {
   const [approving, setApproving] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isManagement) return
+    if (!canManageUsers) return
     Promise.all([
       getDocs(collection(db, 'users')).then(snap =>
         snap.docs.map(d => ({ id: d.id, ...d.data() }) as User)
       ),
-      getDocs(query(collection(db, 'accessRequests'), where('status', '==', 'pending'))).then(snap =>
-        snap.docs.map(d => ({ id: d.id, ...d.data() }) as AccessRequest)
-      ),
+      isManagement
+        ? getDocs(query(collection(db, 'accessRequests'), where('status', '==', 'pending'))).then(snap =>
+            snap.docs.map(d => ({ id: d.id, ...d.data() }) as AccessRequest)
+          )
+        : Promise.resolve([] as AccessRequest[]),
     ])
-      .then(([u, r]) => { setUsers(u); setRequests(r) })
+      .then(([u, r]) => {
+        // Dept heads only see users in their own department
+        const filtered = isDeptHead
+          ? u.filter(x => x.department === (currentUser as any)?.department)
+          : u
+        setUsers(filtered)
+        setRequests(r)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [isManagement])
+  }, [canManageUsers])
 
   const approveRequest = async (req: AccessRequest) => {
     const role = approveRoles[req.id] ?? 'bd_exec'
@@ -223,26 +234,31 @@ export function SettingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2 mt-3">
-                      <Button
-                        size="sm"
-                        variant="success"
-                        icon={<CheckCircle2 className="w-3.5 h-3.5" />}
-                        loading={approving === req.id}
-                        onClick={() => approveRequest(req)}
-                      >
-                        Approve & Grant Access
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        icon={<XCircle className="w-3.5 h-3.5" />}
-                        loading={approving === req.id}
-                        onClick={() => rejectRequest(req)}
-                      >
-                        Reject
-                      </Button>
-                    </div>
+                    {isManagement && (
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          variant="success"
+                          icon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                          loading={approving === req.id}
+                          onClick={() => approveRequest(req)}
+                        >
+                          Approve & Grant Access
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          icon={<XCircle className="w-3.5 h-3.5" />}
+                          loading={approving === req.id}
+                          onClick={() => rejectRequest(req)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                    {isDeptHead && (
+                      <p className="text-xs text-gray-600 mt-3">Contact a super admin to approve this request.</p>
+                    )}
                   </div>
                 ))}
               </div>

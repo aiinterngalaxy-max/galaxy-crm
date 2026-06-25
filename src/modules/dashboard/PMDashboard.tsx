@@ -25,7 +25,7 @@ export function PMDashboard() {
 
   const active = projects.filter(p => p.status === 'in_progress')
   const atRisk = projects.filter(p => p.riskLevel === 'high')
-  const totalValue = projects.filter(p => p.status === 'in_progress').reduce((s, p) => s + p.projectValue, 0)
+  const totalValue = projects.filter(p => p.status === 'in_progress').reduce((s, p) => s + (p.projectValue ?? p.totalValue ?? 0), 0)
 
   return (
     <div className="space-y-6">
