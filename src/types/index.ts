@@ -397,6 +397,8 @@ export interface DailyReportStats {
   leadsCreated?: number
   callsMade?: number
   quotationsSent?: number
+  quotationsSentToCustomer?: number
+  activeProjects?: number
   leadsProgressed?: number
   siteVisitsCompleted?: number
   photosUploaded?: number

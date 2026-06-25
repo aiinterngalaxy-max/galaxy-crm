@@ -15,10 +15,14 @@ import { Timestamp } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 
 interface TodayStats {
+  // BD
   leadsCreated: Lead[]
   callsMade: LeadActivity[]
-  quotationsSent: number
   leadsProgressed: Lead[]
+  // PM
+  quotationsCreated: number
+  quotationsSentToCustomer: number
+  activeProjects: number
 }
 
 const DEPARTMENTS = ['All', 'business_development', 'project_management', 'accounts', 'management']
@@ -41,8 +45,10 @@ export function DailyReportsPage() {
   const [todayStats, setTodayStats] = useState<TodayStats>({
     leadsCreated: [],
     callsMade: [],
-    quotationsSent: 0,
     leadsProgressed: [],
+    quotationsCreated: 0,
+    quotationsSentToCustomer: 0,
+    activeProjects: 0,
   })
 
   // Task table state
@@ -71,79 +77,71 @@ export function DailyReportsPage() {
       .finally(() => setLoading(false))
   }, [user, isManagement])
 
-  // Auto-fetch today's activity for BD/PM roles
+  // Auto-fetch today's activity — dept-aware
   useEffect(() => {
     if (!user || isManagement) return
-    const todayStart = Timestamp.fromDate(startOfDay(new Date()))
-    const todayEnd = Timestamp.fromDate(endOfDay(new Date()))
+    const dept = (user as any).department as string | undefined
+    const isBD = role === 'bd_exec' || role === 'dept_head' || dept === 'business_development'
+    const isPM = role === 'project_manager' || dept === 'project_management'
 
-    async function fetchTodayActivity() {
-      try {
-        // Fetch all leads, filter entirely in JS — no index required
-        const allLeadsSnap = await getDocs(collection(db, 'leads'))
-        const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+    const toDate = (ts: any): Date => {
+      if (!ts) return new Date(0)
+      if (ts?.toDate) return ts.toDate()
+      return new Date(ts)
+    }
+    const todayStart = startOfDay(new Date())
+    const todayEnd = endOfDay(new Date())
+    const inToday = (ts: any) => { const d = toDate(ts); return d >= todayStart && d <= todayEnd }
 
-        const toDate = (ts: any): Date => {
-          if (!ts) return new Date(0)
-          if (ts?.toDate) return ts.toDate()
-          return new Date(ts)
-        }
+    async function fetchBD() {
+      const allLeadsSnap = await getDocs(collection(db, 'leads'))
+      const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+      const myLeads = allLeadsData.filter(l => l.createdBy === user!.id)
 
-        const todayStart = startOfDay(new Date())
-        const todayEnd = endOfDay(new Date())
+      const leadsCreated = allLeadsData.filter(l => {
+        if (l.createdBy !== user!.id && l.assignedTo !== user!.id) return false
+        return inToday(l.createdAt) || inToday(l.updatedAt)
+      })
+      const leadsProgressed = myLeads.filter(l => inToday(l.updatedAt) && !inToday(l.createdAt))
 
-        // All leads created by this user
-        const allLeads = allLeadsData.filter(l => l.createdBy === user!.id)
-
-        // "Leads Added" = leads where this user is createdBy AND (created today OR assigned/updated today)
-        const leadsCreated = allLeadsData.filter(l => {
-          const isMyLead = l.createdBy === user!.id || l.assignedTo === user!.id
-          if (!isMyLead) return false
-          const created = toDate(l.createdAt)
-          const updated = toDate(l.updatedAt)
-          return (created >= todayStart && created <= todayEnd) ||
-                 (updated >= todayStart && updated <= todayEnd)
-        })
-
-        // Leads progressed today (status updated today, not newly created)
-        const progressed = allLeads.filter(l => {
-          const updated = toDate(l.updatedAt)
-          const created = toDate(l.createdAt)
-          const touchedToday = updated >= todayStart && updated <= todayEnd
-          const createdToday = created >= todayStart && created <= todayEnd
-          return touchedToday && !createdToday
-        })
-
-        // Calls/activities logged today across all leads (client-side filter)
-        const activityPromises = allLeads.slice(0, 20).map(lead =>
+      const activityResults = await Promise.all(
+        myLeads.slice(0, 20).map(lead =>
           getDocs(collection(db, 'leads', lead.id, 'activities'))
             .then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
         )
-        const allActivities = (await Promise.all(activityPromises)).flat()
-        const callsMade = allActivities.filter(a => {
-          const d = toDate((a as any).createdAt)
-          return (a.type === 'call' || a.type === 'meeting') && d >= todayStart && d <= todayEnd
-        })
+      )
+      const callsMade = activityResults.flat().filter(a =>
+        (a.type === 'call' || a.type === 'meeting') && inToday((a as any).createdAt)
+      )
 
-        // Quotations created today — client-side filter, no composite index needed
-        const quotSnap = await getDocs(collection(db, 'quotations'))
-        const quotToday = quotSnap.docs.filter(d => {
-          const data = d.data()
-          return data.createdBy === user!.id && toDate(data.createdAt) >= todayStart && toDate(data.createdAt) <= todayEnd
-        })
-
-        setTodayStats({
-          leadsCreated,
-          callsMade,
-          quotationsSent: quotToday.length,
-          leadsProgressed: progressed,
-        })
-      } catch (err) {
-        console.error('Failed to load today stats', err)
-      }
+      setTodayStats(prev => ({ ...prev, leadsCreated, leadsProgressed, callsMade }))
     }
-    fetchTodayActivity()
-  }, [user, isManagement])
+
+    async function fetchPM() {
+      const [quotSnap, projSnap] = await Promise.all([
+        getDocs(collection(db, 'quotations')),
+        getDocs(collection(db, 'projects')),
+      ])
+      const quotationsCreated = quotSnap.docs.filter(d => {
+        const data = d.data()
+        return data.createdBy === user!.id && inToday(data.createdAt)
+      }).length
+      const quotationsSentToCustomer = quotSnap.docs.filter(d => {
+        const data = d.data()
+        return data.createdBy === user!.id && inToday(data.sentAt)
+      }).length
+      const activeProjects = projSnap.docs.filter(d => d.data().status === 'in_progress').length
+
+      setTodayStats(prev => ({ ...prev, quotationsCreated, quotationsSentToCustomer, activeProjects }))
+    }
+
+    if (isBD) fetchBD().catch(console.error)
+    if (isPM) fetchPM().catch(console.error)
+    if (!isBD && !isPM) {
+      // fallback: fetch both
+      Promise.all([fetchBD(), fetchPM()]).catch(console.error)
+    }
+  }, [user, isManagement, role])
 
   const submitReport = async () => {
     if (tasks.every(t => !t.details.trim())) { toast.error('Add at least one task'); return }
@@ -152,8 +150,10 @@ export function DailyReportsPage() {
       const systemStats = {
         leadsCreated: todayStats.leadsCreated.length,
         callsMade: todayStats.callsMade.length,
-        quotationsSent: todayStats.quotationsSent,
         leadsProgressed: todayStats.leadsProgressed.length,
+        quotationsCreated: todayStats.quotationsCreated,
+        quotationsSentToCustomer: todayStats.quotationsSentToCustomer,
+        activeProjects: todayStats.activeProjects,
       }
       const data = {
         date: today,
@@ -180,8 +180,11 @@ export function DailyReportsPage() {
     }
   }
 
+  const dept = (user as any)?.department as string | undefined
+  const isBDUser = role === 'bd_exec' || role === 'dept_head' || dept === 'business_development'
+  const isPMUser = role === 'project_manager' || dept === 'project_management'
   const totalActivity = todayStats.leadsCreated.length + todayStats.callsMade.length +
-    todayStats.quotationsSent + todayStats.leadsProgressed.length
+    todayStats.leadsProgressed.length + todayStats.quotationsCreated + todayStats.activeProjects
 
   return (
     <div className="space-y-5">
@@ -229,58 +232,60 @@ export function DailyReportsPage() {
             <span className="text-xs text-gray-600">{format(new Date(), 'dd MMM yyyy')}</span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-gray-800/50 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
-                <p className="text-xs text-gray-500">Leads Added</p>
-              </div>
-              <p className="text-2xl font-bold text-gray-100">{todayStats.leadsCreated.length}</p>
-              {todayStats.leadsCreated.length > 0 && (
-                <div className="mt-1.5 space-y-0.5">
-                  {todayStats.leadsCreated.slice(0, 3).map(l => (
-                    <p key={l.id} className="text-xs text-gray-600 truncate">• {l.name}</p>
-                  ))}
+            {/* BD stats */}
+            {(isBDUser || (!isBDUser && !isPMUser)) && (<>
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
+                  <p className="text-xs text-gray-500">Leads Added</p>
                 </div>
-              )}
-            </div>
-
-            <div className="bg-gray-800/50 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Phone className="w-3.5 h-3.5 text-green-400" />
-                <p className="text-xs text-gray-500">Calls / Visits</p>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.leadsCreated.length}</p>
+                {todayStats.leadsCreated.slice(0, 3).map(l => (
+                  <p key={l.id} className="text-xs text-gray-600 truncate mt-0.5">• {l.name}</p>
+                ))}
               </div>
-              <p className="text-2xl font-bold text-gray-100">{todayStats.callsMade.length}</p>
-              {todayStats.callsMade.length > 0 && (
-                <div className="mt-1.5 space-y-0.5">
-                  {todayStats.callsMade.slice(0, 3).map(a => (
-                    <p key={a.id} className="text-xs text-gray-600 truncate">• {a.type} — {a.outcome ?? 'logged'}</p>
-                  ))}
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Phone className="w-3.5 h-3.5 text-green-400" />
+                  <p className="text-xs text-gray-500">Calls / Visits</p>
                 </div>
-              )}
-            </div>
-
-            <div className="bg-gray-800/50 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <FileText className="w-3.5 h-3.5 text-yellow-400" />
-                <p className="text-xs text-gray-500">Quotations Sent</p>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.callsMade.length}</p>
               </div>
-              <p className="text-2xl font-bold text-gray-100">{todayStats.quotationsSent}</p>
-            </div>
-
-            <div className="bg-gray-800/50 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
-                <p className="text-xs text-gray-500">Leads Advanced</p>
-              </div>
-              <p className="text-2xl font-bold text-gray-100">{todayStats.leadsProgressed.length}</p>
-              {todayStats.leadsProgressed.length > 0 && (
-                <div className="mt-1.5 space-y-0.5">
-                  {todayStats.leadsProgressed.slice(0, 3).map(l => (
-                    <p key={l.id} className="text-xs text-gray-600 truncate">• {l.name}</p>
-                  ))}
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
+                  <p className="text-xs text-gray-500">Leads Advanced</p>
                 </div>
-              )}
-            </div>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.leadsProgressed.length}</p>
+                {todayStats.leadsProgressed.slice(0, 3).map(l => (
+                  <p key={l.id} className="text-xs text-gray-600 truncate mt-0.5">• {l.name}</p>
+                ))}
+              </div>
+            </>)}
+            {/* PM stats */}
+            {(isPMUser || (!isBDUser && !isPMUser)) && (<>
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileText className="w-3.5 h-3.5 text-yellow-400" />
+                  <p className="text-xs text-gray-500">Quotations Created</p>
+                </div>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.quotationsCreated}</p>
+              </div>
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                  <p className="text-xs text-gray-500">Sent to Customer</p>
+                </div>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.quotationsSentToCustomer}</p>
+              </div>
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-green-400" />
+                  <p className="text-xs text-gray-500">Active Projects</p>
+                </div>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.activeProjects}</p>
+              </div>
+            </>)}
           </div>
           {totalActivity === 0 && (
             <p className="text-xs text-gray-600 mt-3 text-center">No activity logged yet today. Data updates as you work.</p>
@@ -388,7 +393,10 @@ export function DailyReportsPage() {
                                   <div className="flex gap-3 ml-2">
                                     {(report.systemStats.leadsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-indigo-400 font-semibold">{report.systemStats.leadsCreated}</span> leads</span>}
                                     {(report.systemStats.callsMade ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.callsMade}</span> calls</span>}
-                                    {(report.systemStats.quotationsSent ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsSent}</span> quotes</span>}
+                                    {(report.systemStats.leadsProgressed ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-purple-400 font-semibold">{report.systemStats.leadsProgressed}</span> advanced</span>}
+                                    {(report.systemStats.quotationsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsCreated}</span> quotes</span>}
+                                    {(report.systemStats.quotationsSentToCustomer ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-orange-400 font-semibold">{report.systemStats.quotationsSentToCustomer}</span> sent</span>}
+                                    {(report.systemStats.activeProjects ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.activeProjects}</span> active proj</span>}
                                   </div>
                                 )}
                                 <span className="ml-auto text-xs text-gray-600">{formatDateTime(report.submittedAt)}</span>
@@ -457,11 +465,13 @@ export function DailyReportsPage() {
                     >{report.status}</Badge>
                   </div>
                   {report.systemStats && Object.values(report.systemStats).some(v => (v as number) > 0) && (
-                    <div className="flex gap-4 mt-2">
+                    <div className="flex gap-4 mt-2 flex-wrap">
                       {(report.systemStats.leadsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-indigo-400 font-semibold">{report.systemStats.leadsCreated}</span> leads</span>}
                       {(report.systemStats.callsMade ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.callsMade}</span> calls</span>}
-                      {(report.systemStats.quotationsSent ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsSent}</span> quotes</span>}
                       {(report.systemStats.leadsProgressed ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-purple-400 font-semibold">{report.systemStats.leadsProgressed}</span> advanced</span>}
+                      {(report.systemStats.quotationsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsCreated}</span> quotes</span>}
+                      {(report.systemStats.quotationsSentToCustomer ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-orange-400 font-semibold">{report.systemStats.quotationsSentToCustomer}</span> sent to customer</span>}
+                      {(report.systemStats.activeProjects ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.activeProjects}</span> active projects</span>}
                     </div>
                   )}
                   {(report as any).tasks?.length > 0 && (
@@ -520,10 +530,16 @@ export function DailyReportsPage() {
           <div className="bg-gray-800/60 rounded-xl p-3">
             <p className="text-xs text-gray-500 mb-2 font-medium">Auto-tracked today</p>
             <div className="flex gap-4 flex-wrap">
-              <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.leadsCreated.length}</span> leads added</span>
-              <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.callsMade.length}</span> calls/visits</span>
-              <span className="text-xs text-gray-400"><span className="text-yellow-400 font-bold">{todayStats.quotationsSent}</span> quotations</span>
-              <span className="text-xs text-gray-400"><span className="text-purple-400 font-bold">{todayStats.leadsProgressed.length}</span> leads advanced</span>
+              {(isBDUser || (!isBDUser && !isPMUser)) && (<>
+                <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.leadsCreated.length}</span> leads added</span>
+                <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.callsMade.length}</span> calls/visits</span>
+                <span className="text-xs text-gray-400"><span className="text-purple-400 font-bold">{todayStats.leadsProgressed.length}</span> leads advanced</span>
+              </>)}
+              {(isPMUser || (!isBDUser && !isPMUser)) && (<>
+                <span className="text-xs text-gray-400"><span className="text-yellow-400 font-bold">{todayStats.quotationsCreated}</span> quotations created</span>
+                <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.quotationsSentToCustomer}</span> sent to customer</span>
+                <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.activeProjects}</span> active projects</span>
+              </>)}
             </div>
           </div>
 
