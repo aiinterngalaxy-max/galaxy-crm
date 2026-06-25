@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Zap, AlertTriangle, CheckCircle2, ExternalLink } from 'lucide-react'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { signInWithGoogle, isFirebaseConfigured } from '../../lib/firebase'
 import { Button } from '../../components/ui/Button'
 import toast from 'react-hot-toast'
@@ -30,6 +30,11 @@ export function LoginPage() {
           backgroundSize: '40px 40px',
         }}
       />
+
+      {/* Gold radial glow behind card */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div style={{ width: 480, height: 480, background: 'radial-gradient(circle, #C9A84012 0%, transparent 70%)' }} />
+      </div>
 
       <div className="relative w-full max-w-md animate-fade-in space-y-4">
         {/* Setup Banner — shown when Firebase not yet configured */}
@@ -69,15 +74,13 @@ export function LoginPage() {
         )}
 
         {/* Login Card */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
+        <div className="rounded-2xl p-8 shadow-2xl" style={{ background: '#111113', border: '1px solid #C9A84030' }}>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
+            <img src="/galaxy-logo.png" alt="Galaxy" className="w-12 h-12 object-contain shrink-0" />
             <div>
-              <h1 className="text-lg font-bold text-gray-50">Galaxy OS</h1>
-              <p className="text-xs text-gray-500">Home Automation CRM</p>
+              <h1 className="text-lg font-bold leading-none" style={{ color: '#C9A840' }}>Galaxy</h1>
+              <p className="text-xs text-gray-500 mt-0.5">Home Automation CRM</p>
             </div>
           </div>
 

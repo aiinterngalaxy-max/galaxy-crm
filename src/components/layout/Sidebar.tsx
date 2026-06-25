@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   HardHat, ClipboardList, Receipt, Sparkles, Bell, Settings,
-  Zap, ChevronRight, LogOut,
+  ChevronRight, LogOut,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -61,19 +61,22 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'h-screen flex flex-col bg-gray-950 border-r border-gray-800 transition-all duration-200',
+        'h-screen flex flex-col border-r border-gray-800/60 transition-all duration-200',
         collapsed ? 'w-16' : 'w-60'
       )}
+      style={{ background: '#0A0A0F' }}
     >
       {/* Logo */}
-      <div className={cn('flex items-center gap-3 px-4 py-5 border-b border-gray-800', collapsed && 'justify-center')}>
-        <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
-          <Zap className="w-4 h-4 text-white" />
-        </div>
+      <div className={cn('flex items-center gap-3 px-4 py-4 border-b border-gray-800', collapsed && 'justify-center px-0')}>
+        <img
+          src="/galaxy-logo.png"
+          alt="Galaxy"
+          className={cn('shrink-0 object-contain', collapsed ? 'w-9 h-9' : 'w-10 h-10')}
+        />
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-sm font-bold text-gray-50 leading-none">Galaxy OS</p>
-            <p className="text-xs text-gray-500 mt-0.5 truncate">Home Automation</p>
+            <p className="text-sm font-bold leading-none" style={{ color: '#C9A840' }}>Galaxy</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">Home Automation CRM</p>
           </div>
         )}
       </div>
@@ -103,7 +106,7 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
                 <>
                   <span className="flex-1 truncate">{item.label}</span>
                   {item.badge ? (
-                    <span className="ml-auto bg-indigo-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                    <span className="ml-auto text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold" style={{ background: '#C9A840', color: '#0A0A0F' }}>
                       {item.badge}
                     </span>
                   ) : isActive ? (
@@ -120,7 +123,7 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
       <div className={cn('border-t border-gray-800 p-3', collapsed && 'flex justify-center')}>
         {!collapsed ? (
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-xs font-bold text-white shrink-0">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: '#C9A84033', color: '#C9A840', border: '1px solid #C9A84055' }}>
               {user ? getInitials(user.name) : '?'}
             </div>
             <div className="flex-1 min-w-0">
