@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
-import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp } from 'lucide-react'
+import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2 } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
-import { Textarea } from '../../components/ui/Textarea'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp
@@ -35,10 +34,15 @@ export function DailyReportsPage() {
     leadsProgressed: [],
   })
 
-  // Form state
-  const [topWin, setTopWin] = useState('')
-  const [challenge, setChallenge] = useState('')
-  const [tomorrow, setTomorrow] = useState('')
+  // Task table state
+  interface TaskRow { id: string; details: string; status: 'pending' | 'done'; duration: string }
+  const newRow = (): TaskRow => ({ id: crypto.randomUUID(), details: '', status: 'pending', duration: '' })
+  const [tasks, setTasks] = useState<TaskRow[]>([newRow()])
+
+  const updateTask = (id: string, field: keyof TaskRow, value: string) =>
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t))
+  const addTask = () => setTasks(prev => [...prev, newRow()])
+  const removeTask = (id: string) => setTasks(prev => prev.length > 1 ? prev.filter(t => t.id !== id) : prev)
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const todayReport = reports.find(r => r.date === today && r.employeeId === user?.id)
@@ -131,7 +135,7 @@ export function DailyReportsPage() {
   }, [user, isManagement])
 
   const submitReport = async () => {
-    if (!topWin.trim()) { toast.error('Fill in your top win for today'); return }
+    if (tasks.every(t => !t.details.trim())) { toast.error('Add at least one task'); return }
     setSubmitting(true)
     try {
       const systemStats = {
@@ -145,9 +149,7 @@ export function DailyReportsPage() {
         employeeId: user?.id,
         employeeName: user?.name,
         department: user?.department,
-        topWin,
-        mainChallenge: challenge,
-        tomorrowPlan: tomorrow,
+        tasks: tasks.filter(t => t.details.trim()).map((t, i) => ({ ...t, no: i + 1 })),
         systemStats,
         status: 'submitted',
         submittedAt: serverTimestamp(),
@@ -159,7 +161,7 @@ export function DailyReportsPage() {
       setReports(prev => [newReport, ...prev])
       toast.success('Daily report submitted!')
       setShowForm(false)
-      setTopWin(''); setChallenge(''); setTomorrow('')
+      setTasks([newRow()])
     } catch {
       toast.error('Failed to submit report')
     } finally {
@@ -322,15 +324,32 @@ export function DailyReportsPage() {
                     </div>
                   )}
 
-                  {report.topWin && (
-                    <div className="mt-2 space-y-1">
-                      <p className="text-xs text-gray-500">🏆 <span className="text-gray-300">{report.topWin}</span></p>
-                      {report.mainChallenge && (
-                        <p className="text-xs text-gray-500">⚡ <span className="text-gray-400">{report.mainChallenge}</span></p>
-                      )}
-                      {report.tomorrowPlan && (
-                        <p className="text-xs text-gray-500">→ <span className="text-gray-400">{report.tomorrowPlan}</span></p>
-                      )}
+                  {(report as any).tasks?.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-gray-800 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-800/60">
+                          <tr>
+                            <th className="text-left px-3 py-1.5 text-gray-500 w-8">#</th>
+                            <th className="text-left px-3 py-1.5 text-gray-500">Task</th>
+                            <th className="text-left px-3 py-1.5 text-gray-500 w-20">Status</th>
+                            <th className="text-left px-3 py-1.5 text-gray-500 w-20">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/60">
+                          {(report as any).tasks.map((t: any) => (
+                            <tr key={t.id}>
+                              <td className="px-3 py-1.5 text-gray-600">{t.no}</td>
+                              <td className="px-3 py-1.5 text-gray-300">{t.details}</td>
+                              <td className="px-3 py-1.5">
+                                <span className={t.status === 'done' ? 'text-green-400' : 'text-yellow-400'}>
+                                  {t.status === 'done' ? 'Done' : 'Pending'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 text-gray-500">{t.duration || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -350,8 +369,8 @@ export function DailyReportsPage() {
         open={showForm}
         onClose={() => setShowForm(false)}
         title={`Daily Report — ${format(new Date(), 'dd MMM yyyy')}`}
-        description="Your system activity is auto-tracked. Just add your personal notes below."
-        size="md"
+        description="Auto-tracked stats are filled in. Log your tasks below."
+        size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
@@ -360,7 +379,7 @@ export function DailyReportsPage() {
         }
       >
         <div className="space-y-4">
-          {/* Auto-stats preview inside modal */}
+          {/* Auto-stats */}
           <div className="bg-gray-800/60 rounded-xl p-3">
             <p className="text-xs text-gray-500 mb-2 font-medium">Auto-tracked today</p>
             <div className="flex gap-4 flex-wrap">
@@ -371,27 +390,67 @@ export function DailyReportsPage() {
             </div>
           </div>
 
-          <Textarea
-            label="🏆 Top Win Today *"
-            placeholder="What was your biggest win today? Closed a lead? Completed a milestone?"
-            value={topWin}
-            onChange={e => setTopWin(e.target.value)}
-            rows={2}
-          />
-          <Textarea
-            label="⚡ Main Challenge"
-            placeholder="What slowed you down or needs help?"
-            value={challenge}
-            onChange={e => setChallenge(e.target.value)}
-            rows={2}
-          />
-          <Textarea
-            label="→ Plan for Tomorrow"
-            placeholder="What are your top 3 priorities tomorrow?"
-            value={tomorrow}
-            onChange={e => setTomorrow(e.target.value)}
-            rows={2}
-          />
+          {/* Task table */}
+          <div>
+            <p className="text-xs font-medium text-gray-400 mb-2">Task Report</p>
+            <div className="rounded-xl border border-gray-700 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-800/80">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-xs text-gray-500 w-10">#</th>
+                    <th className="text-left px-3 py-2 text-xs text-gray-500">Task Details</th>
+                    <th className="text-left px-3 py-2 text-xs text-gray-500 w-28">Status</th>
+                    <th className="text-left px-3 py-2 text-xs text-gray-500 w-24">Duration</th>
+                    <th className="w-8" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {tasks.map((task, i) => (
+                    <tr key={task.id} className="bg-gray-900/40">
+                      <td className="px-3 py-2 text-xs text-gray-600">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="w-full bg-transparent text-xs text-gray-200 placeholder-gray-600 outline-none"
+                          placeholder="What did you work on?"
+                          value={task.details}
+                          onChange={e => updateTask(task.id, 'details', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          className="bg-gray-800 text-xs text-gray-300 rounded px-2 py-1 border border-gray-700 outline-none w-full"
+                          value={task.status}
+                          onChange={e => updateTask(task.id, 'status', e.target.value)}
+                        >
+                          <option value="done">Done</option>
+                          <option value="pending">Pending</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="w-full bg-transparent text-xs text-gray-200 placeholder-gray-600 outline-none"
+                          placeholder="e.g. 2h 30m"
+                          value={task.duration}
+                          onChange={e => updateTask(task.id, 'duration', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <button onClick={() => removeTask(task.id)} className="text-gray-700 hover:text-red-400">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              onClick={addTask}
+              className="mt-2 flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add row
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
