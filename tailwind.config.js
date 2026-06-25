@@ -4,8 +4,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Override indigo entirely with Galaxy gold palette
-        // so every existing `indigo-*` class in the codebase becomes gold
+        // Override indigo + blue entirely with Galaxy gold palette
+        // so every existing `indigo-*` and `blue-*` class becomes gold
+        blue: {
+          50:  '#fdf9ed',
+          100: '#f7ecc4',
+          200: '#efd98a',
+          300: '#d4af37',
+          400: '#C9A840',
+          500: '#C9A840',
+          600: '#A07820',
+          700: '#7a5e18',
+          800: '#4e3b0d',
+          900: '#2b1f08',
+          950: '#160f03',
+        },
         indigo: {
           50:  '#fdf9ed',
           100: '#f7ecc4',
