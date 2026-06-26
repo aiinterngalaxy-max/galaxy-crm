@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, LayoutGrid, List, Phone, Calendar } from 'lucide-react'
+import { Plus, Search, Filter, LayoutGrid, List, Phone, Calendar, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -9,7 +9,7 @@ import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, where, orderBy, onSnapshot } from '../../lib/firebase'
+import { db, collection, query, where, orderBy, onSnapshot, deleteDocument } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, formatRelative,
   formatCurrency, canManageLeads,
@@ -23,15 +23,26 @@ type ViewMode = 'kanban' | 'list'
 
 export function LeadsPage() {
   const navigate = useNavigate()
-  const { user, role } = useAuth()
+  const { user, role, isAdmin } = useAuth()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('kanban')
   const [showForm, setShowForm] = useState(false)
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all')
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const canCreate = role ? canManageLeads(role) : false
+
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (confirmDelete === id) {
+      await deleteDocument('leads', id)
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(id)
+    }
+  }
 
   useEffect(() => {
     if (!user || !role) return
@@ -208,6 +219,23 @@ export function LeadsPage() {
                         <button className="text-gray-600 hover:text-gray-300 p-1" title="Schedule">
                           <Calendar className="w-3.5 h-3.5" />
                         </button>
+                        {isAdmin && (
+                          confirmDelete === lead.id ? (
+                            <button
+                              onClick={e => handleDelete(lead.id, e)}
+                              className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                            >
+                              Confirm?
+                            </button>
+                          ) : (
+                            <button
+                              onClick={e => handleDelete(lead.id, e)}
+                              className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )
+                        )}
                       </div>
                     </td>
                   </tr>

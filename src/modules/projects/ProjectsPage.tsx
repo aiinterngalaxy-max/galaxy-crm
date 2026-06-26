@@ -1,13 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, MapPin, Phone, FolderKanban } from 'lucide-react'
+import { Plus, Search, MapPin, Phone, FolderKanban, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, orderBy, onSnapshot, getDocs } from '../../lib/firebase'
+import {
+  db, collection, query, orderBy, onSnapshot, getDocs, deleteDocument,
+  addDoc, serverTimestamp, generateProjectCode
+} from '../../lib/firebase'
 import { formatDate, canManageProjects } from '../../lib/utils'
 import type { Project, ProjectStatus } from '../../types'
 import { cn } from '../../lib/utils'
+import toast from 'react-hot-toast'
 
 const STATUS_FILTERS: { label: string; value: ProjectStatus | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -35,14 +42,102 @@ function isOverdue(p: Project) {
 
 export function ProjectsPage() {
   const navigate = useNavigate()
-  const { user, role } = useAuth()
+  const { user, role, isAdmin } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [workflowCounts, setWorkflowCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [showNewProject, setShowNewProject] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    title: '', customerName: '', clientContact: '', city: '',
+    siteAddress: '', landmark: '', startDate: '', expectedEndDate: '',
+    projectValue: '', status: 'planning' as ProjectStatus,
+  })
 
   const canCreate = role ? canManageProjects(role) : false
+
+  function resetForm() {
+    setForm({ title: '', customerName: '', clientContact: '', city: '', siteAddress: '', landmark: '', startDate: '', expectedEndDate: '', projectValue: '', status: 'planning' })
+  }
+
+  async function handleCreateProject() {
+    if (!form.title.trim() || !form.customerName.trim()) {
+      toast.error('Project title and client name are required')
+      return
+    }
+    setSaving(true)
+    try {
+      // Get next project code
+      const snap = await getDocs(collection(db, 'projects'))
+      const code = generateProjectCode(snap.size + 1)
+
+      // Create customer record
+      const custRef = await addDoc(collection(db, 'customers'), {
+        name: form.customerName.trim(),
+        phone: form.clientContact || '',
+        address: form.siteAddress || '',
+        type: 'residential',
+        tags: [],
+        totalProjectValue: Number(form.projectValue) || 0,
+        totalPaid: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+
+      const projectData: Record<string, unknown> = {
+        projectCode: code,
+        title: form.title.trim(),
+        customerId: custRef.id,
+        customerName: form.customerName.trim(),
+        quotationId: 'direct_entry',
+        assignedPM: user?.id || '',
+        assignedPMName: user?.name || '',
+        status: form.status,
+        completionPercent: 0,
+        riskLevel: 'low',
+        riskFlags: [],
+        city: form.city,
+        siteAddress: form.siteAddress,
+        landmark: form.landmark,
+        clientContact: form.clientContact,
+        projectValue: Number(form.projectValue) || 0,
+        totalValue: Number(form.projectValue) || 0,
+        totalPaid: 0,
+        collectedAmount: 0,
+        createdBy: user?.id || '',
+      }
+      if (form.startDate) projectData.startDate = new Date(form.startDate)
+      if (form.expectedEndDate) projectData.expectedEndDate = new Date(form.expectedEndDate)
+
+      await addDoc(collection(db, 'projects'), {
+        ...projectData,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+
+      toast.success(`Project ${code} created`)
+      setShowNewProject(false)
+      resetForm()
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to create project')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (confirmDelete === id) {
+      await deleteDocument('projects', id)
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(id)
+    }
+  }
 
   useEffect(() => {
     if (!user || !role) return
@@ -104,7 +199,7 @@ export function ProjectsPage() {
           <p className="text-sm text-gray-500 mt-0.5">Track home automation projects and workflows in real time</p>
         </div>
         {canCreate && (
-          <Button onClick={() => navigate('/quotations')} icon={<Plus className="w-4 h-4" />} variant="warning">
+          <Button onClick={() => setShowNewProject(true)} icon={<Plus className="w-4 h-4" />} variant="warning">
             New Project
           </Button>
         )}
@@ -194,9 +289,28 @@ export function ProjectsPage() {
               {/* Title row */}
               <div className="flex items-start justify-between gap-2 mb-1">
                 <p className="text-base font-bold text-gray-100 leading-snug">{project.title}</p>
-                <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium shrink-0', STATUS_BADGE[project.status])}>
-                  {STATUS_LABEL[project.status]}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium', STATUS_BADGE[project.status])}>
+                    {STATUS_LABEL[project.status]}
+                  </span>
+                  {isAdmin && (
+                    confirmDelete === project.id ? (
+                      <button
+                        onClick={e => handleDelete(project.id, e)}
+                        className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Confirm?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={e => handleDelete(project.id, e)}
+                        className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
               <p className="text-sm text-gray-500 mb-4">{project.customerName}</p>
 
@@ -232,6 +346,94 @@ export function ProjectsPage() {
           )
         })}
       </div>
+
+      {/* ── New Project Modal ── */}
+      <Modal
+        open={showNewProject}
+        onClose={() => { setShowNewProject(false); resetForm() }}
+        title="New Project"
+        description="Enter project details for direct data entry."
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => { setShowNewProject(false); resetForm() }}>Cancel</Button>
+            <Button onClick={handleCreateProject} loading={saving} disabled={!form.title.trim() || !form.customerName.trim()}>
+              Create Project
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Project Title *"
+              placeholder="e.g., Raj Shah - Bandra"
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+            />
+            <Input
+              label="Client Name *"
+              placeholder="e.g., Raj Shah"
+              value={form.customerName}
+              onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
+            />
+            <Input
+              label="Client Phone"
+              placeholder="+91 98765 43210"
+              value={form.clientContact}
+              onChange={e => setForm(f => ({ ...f, clientContact: e.target.value }))}
+            />
+            <Input
+              label="Project Value (₹)"
+              type="number"
+              placeholder="0"
+              value={form.projectValue}
+              onChange={e => setForm(f => ({ ...f, projectValue: e.target.value }))}
+            />
+            <Select
+              label="Status"
+              value={form.status}
+              onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}
+              options={[
+                { value: 'planning', label: 'Planning' },
+                { value: 'in_progress', label: 'In Progress' },
+                { value: 'on_hold', label: 'On Hold' },
+                { value: 'completed', label: 'Completed' },
+              ]}
+            />
+            <Input
+              label="City"
+              placeholder="Mumbai"
+              value={form.city}
+              onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+            />
+            <Input
+              label="Start Date"
+              type="date"
+              value={form.startDate}
+              onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+            />
+            <Input
+              label="Expected End Date"
+              type="date"
+              value={form.expectedEndDate}
+              onChange={e => setForm(f => ({ ...f, expectedEndDate: e.target.value }))}
+            />
+          </div>
+          <Input
+            label="Site Address"
+            placeholder="Full site address"
+            value={form.siteAddress}
+            onChange={e => setForm(f => ({ ...f, siteAddress: e.target.value }))}
+          />
+          <Input
+            label="Landmark"
+            placeholder="Near XYZ"
+            value={form.landmark}
+            onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

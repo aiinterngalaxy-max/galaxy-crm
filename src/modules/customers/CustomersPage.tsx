@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, UserSquare2, ChevronRight, Phone, MapPin } from 'lucide-react'
+import { Search, UserSquare2, ChevronRight, Phone, MapPin, Trash2 } from 'lucide-react'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { db, collection, query, orderBy, onSnapshot } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, deleteDocument } from '../../lib/firebase'
 import { formatCurrency, formatDate } from '../../lib/utils'
+import { useAuth } from '../../contexts/AuthContext'
 import type { Customer } from '../../types'
 
 const TAG_STYLES = {
@@ -18,9 +19,21 @@ const TAG_STYLES = {
 
 export function CustomersPage() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (confirmDelete === id) {
+      await deleteDocument('customers', id)
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(id)
+    }
+  }
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -129,7 +142,26 @@ export function CustomersPage() {
                 </p>
               </div>
 
-              <ChevronRight className="w-4 h-4 text-gray-700 shrink-0" />
+              <div className="flex items-center gap-2 shrink-0">
+                {isAdmin && (
+                  confirmDelete === customer.id ? (
+                    <button
+                      onClick={e => handleDelete(customer.id, e)}
+                      className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                    >
+                      Confirm?
+                    </button>
+                  ) : (
+                    <button
+                      onClick={e => handleDelete(customer.id, e)}
+                      className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )
+                )}
+                <ChevronRight className="w-4 h-4 text-gray-700" />
+              </div>
             </div>
           ))}
         </div>
