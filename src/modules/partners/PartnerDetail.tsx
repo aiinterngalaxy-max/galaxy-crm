@@ -162,6 +162,7 @@ export function PartnerDetail() {
                 <Input label="WhatsApp" value={editData.whatsapp || ''} onChange={e => setEditData(d => ({ ...d, whatsapp: e.target.value }))} />
                 <Input label="Email" type="email" value={editData.email || ''} onChange={e => setEditData(d => ({ ...d, email: e.target.value }))} />
                 <Input label="City" value={editData.city || ''} onChange={e => setEditData(d => ({ ...d, city: e.target.value }))} />
+                <Input label="GST Number" value={editData.gstNo || ''} onChange={e => setEditData(d => ({ ...d, gstNo: e.target.value.toUpperCase() }))} style={{ textTransform: 'uppercase' }} />
                 <Select
                   label="Status"
                   options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
@@ -192,6 +193,12 @@ export function PartnerDetail() {
                   <div className="flex items-center gap-2.5 text-sm text-gray-300">
                     <MapPin className="w-4 h-4 text-gray-500 shrink-0" />
                     <span>{partner.city}</span>
+                  </div>
+                )}
+                {partner.gstNo && (
+                  <div className="flex items-center gap-2.5 text-sm text-gray-300">
+                    <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+                    <span className="font-mono tracking-wide">{partner.gstNo}</span>
                   </div>
                 )}
                 {partner.notes && (

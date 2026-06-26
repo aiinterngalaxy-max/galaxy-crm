@@ -45,6 +45,7 @@ const schema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   city: z.string().optional(),
+  gstNo: z.string().min(15, 'Enter valid 15-digit GST number').max(15, 'GST number must be 15 characters'),
   notes: z.string().optional(),
 })
 type FormData = z.infer<typeof schema>
@@ -101,6 +102,7 @@ export function PartnersPage() {
         email: data.email || null,
         whatsapp: data.whatsapp || null,
         city: data.city || null,
+        gstNo: data.gstNo.toUpperCase(),
         notes: data.notes || null,
         status: 'active',
         totalLeads: 0,
@@ -289,6 +291,14 @@ export function PartnersPage() {
           </div>
 
           <Input label="Email" placeholder="rajesh@example.com" type="email" error={errors.email?.message} {...register('email')} />
+
+          <Input
+            label="GST Number *"
+            placeholder="22AAAAA0000A1Z5"
+            error={errors.gstNo?.message}
+            {...register('gstNo', { setValueAs: v => v.toUpperCase() })}
+            style={{ textTransform: 'uppercase' }}
+          />
 
           <Textarea label="Notes" placeholder="Any notes about this partner…" rows={2} {...register('notes')} />
 

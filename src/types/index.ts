@@ -522,6 +522,7 @@ export interface Partner {
   email?: string
   whatsapp?: string
   city?: string
+  gstNo: string
   notes?: string
   status: PartnerStatus
   totalLeads: number
