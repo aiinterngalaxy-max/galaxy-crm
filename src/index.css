@@ -195,6 +195,18 @@
   min-height: 200px;
 }
 
+/* Native select dropdown — dark theme */
+select option {
+  background-color: #18181b;
+  color: #e4e4e7;
+}
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #27272a;
+  color: #f4f4f5;
+}
+
 /* Recharts overrides */
 .recharts-tooltip-wrapper {
   outline: none !important;
