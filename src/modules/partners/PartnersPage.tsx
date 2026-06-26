@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, Building2, Phone, MapPin, TrendingUp,
-  Users, BarChart3, Star,
+  Users, BarChart3, Star, Trash2,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -12,7 +12,7 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { StatCard } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query } from '../../lib/firebase'
+import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, deleteDocument } from '../../lib/firebase'
 import { formatCurrency, formatCurrencyShort, canAccess } from '../../lib/utils'
 import type { Partner, PartnerType, Lead } from '../../types'
 import toast from 'react-hot-toast'
@@ -59,7 +59,7 @@ const TYPE_OPTIONS = [
 ]
 
 export function PartnersPage() {
-  const { role } = useAuth()
+  const { role, user, isAdmin } = useAuth()
   const navigate = useNavigate()
   const [partners, setPartners] = useState<Partner[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
@@ -67,8 +67,17 @@ export function PartnersPage() {
   const [filterType, setFilterType] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const { user } = useAuth()
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (confirmDelete === id) {
+      await deleteDocument('partners', id)
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(id)
+    }
+  }
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -219,9 +228,28 @@ export function PartnersPage() {
                       <p className="text-xs text-gray-500 truncate">{partner.name}</p>
                     )}
                   </div>
-                  <Badge color={typeStyle.color} bg={typeStyle.bg}>
-                    {PARTNER_TYPE_LABELS[partner.type]}
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge color={typeStyle.color} bg={typeStyle.bg}>
+                      {PARTNER_TYPE_LABELS[partner.type]}
+                    </Badge>
+                    {isAdmin && (
+                      confirmDelete === partner.id ? (
+                        <button
+                          onClick={e => handleDelete(partner.id, e)}
+                          className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                        >
+                          Confirm?
+                        </button>
+                      ) : (
+                        <button
+                          onClick={e => handleDelete(partner.id, e)}
+                          className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
 
                 {/* Contact */}
