@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send, ThumbsUp } from 'lucide-react'
+import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send, ThumbsUp, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
-import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument } from '../../lib/firebase'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { generateProjectCode } from '../../lib/firebase'
 import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
@@ -18,12 +18,23 @@ import toast from 'react-hot-toast'
 
 export function QuotationsPage() {
   const navigate = useNavigate()
-  const { role, user, isManagement } = useAuth()
+  const { role, user, isManagement, isAdmin } = useAuth()
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [creatingProject, setCreatingProject] = useState<string | null>(null)
   const [notifying, setNotifying] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (confirmDelete === id) {
+      await deleteDocument('quotations', id)
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(id)
+    }
+  }
 
   const canCreate = ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'].includes(role || '')
   const canApprove = isManagement
@@ -325,6 +336,23 @@ export function QuotationsPage() {
                     onClick={e => { e.stopPropagation(); navigate(`/quotations/${q.id}/boq`) }}>
                     BOQ
                   </Button>
+                  {isAdmin && (
+                    confirmDelete === q.id ? (
+                      <button
+                        onClick={e => handleDelete(q.id, e)}
+                        className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Confirm?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={e => handleDelete(q.id, e)}
+                        className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             )
