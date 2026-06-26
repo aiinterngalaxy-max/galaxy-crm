@@ -19,7 +19,7 @@ const schema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
-  source: z.enum(['instagram', 'referral', 'website', 'walk_in', 'cold_call', 'linkedin', 'whatsapp', 'partner', 'other']),
+  source: z.enum(['referral', 'partner', 'google_ads', 'linkedin', 'meta_ads', 'justdial', 'indiamart', 'cold_call', 'other']),
   partnerId: z.string().optional(),
   projectType: z.string().optional(),
   propertySize: z.string().optional(),
@@ -37,15 +37,15 @@ interface LeadFormProps {
 }
 
 const SOURCE_OPTIONS = [
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'website', label: 'Website' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'cold_call', label: 'Cold Call' },
-  { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'partner', label: 'B2B Partner' },
-  { value: 'other', label: 'Other' },
+  { value: 'referral',   label: 'Word of Mouth / Referral' },
+  { value: 'partner',    label: 'B2B Partner' },
+  { value: 'google_ads', label: 'Google Ads' },
+  { value: 'linkedin',   label: 'LinkedIn' },
+  { value: 'meta_ads',   label: 'Meta Ads (Instagram / Facebook)' },
+  { value: 'justdial',   label: 'JustDial' },
+  { value: 'indiamart',  label: 'IndiaMART' },
+  { value: 'cold_call',  label: 'Cold Calls / Msgs' },
+  { value: 'other',      label: 'Other' },
 ]
 
 export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) {
@@ -58,7 +58,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     resolver: zodResolver(schema),
     defaultValues: {
       businessType: 'b2c',
-      source: 'walk_in',
+      source: 'referral',
       assignedTo: user?.id || '',
       ...defaultValues,
     },
@@ -80,7 +80,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
   // When switching to B2B, auto-set source to 'partner'
   useEffect(() => {
     if (businessType === 'b2b') setValue('source', 'partner')
-    else if (businessType === 'b2c') setValue('source', 'walk_in')
+    else if (businessType === 'b2c') setValue('source', 'referral')
   }, [businessType, setValue])
 
   const onSubmit = async (data: FormData) => {

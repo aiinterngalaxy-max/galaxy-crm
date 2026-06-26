@@ -48,14 +48,14 @@ export type LeadStatus =
   | 'lost'
 
 export type LeadSource =
-  | 'instagram'
   | 'referral'
-  | 'website'
-  | 'walk_in'
-  | 'cold_call'
-  | 'linkedin'
-  | 'whatsapp'
   | 'partner'
+  | 'google_ads'
+  | 'linkedin'
+  | 'meta_ads'
+  | 'justdial'
+  | 'indiamart'
+  | 'cold_call'
   | 'other'
 
 export type LostReason =

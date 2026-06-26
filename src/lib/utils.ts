@@ -193,6 +193,18 @@ export function generateInvoiceCode(seq: number): string {
   return `GHA-INV-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`
 }
 
+const SOURCE_SCORE: Record<string, number> = {
+  referral:   25,
+  partner:    20,
+  google_ads: 15,
+  linkedin:   12,
+  meta_ads:   10,
+  justdial:    7,
+  indiamart:   7,
+  cold_call:   3,
+  other:       0,
+}
+
 export function calculateLeadScore(lead: Partial<{
   source: string
   estimatedBudget: number
@@ -201,10 +213,12 @@ export function calculateLeadScore(lead: Partial<{
 }>): number {
   let score = 30 // base
 
-  if (lead.source === 'referral') score += 10
-  if (lead.source === 'website') score += 5
-  if (lead.estimatedBudget && lead.estimatedBudget >= 500000) score += 20
-  else if (lead.estimatedBudget && lead.estimatedBudget >= 200000) score += 10
+  score += SOURCE_SCORE[lead.source ?? 'other'] ?? 0
+
+  if (lead.estimatedBudget && lead.estimatedBudget >= 500000) score += 25
+  else if (lead.estimatedBudget && lead.estimatedBudget >= 200000) score += 12
+  else if (lead.estimatedBudget && lead.estimatedBudget >= 100000) score += 6
+
   if (lead.floorPlanUrl) score += 20
 
   return Math.min(100, score)
