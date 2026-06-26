@@ -18,6 +18,8 @@ import { DailyReportsPage } from './modules/daily-reports/DailyReportsPage'
 import { AccountsPage } from './modules/accounts/AccountsPage'
 import { ContentStudioPage } from './modules/content-studio/ContentStudioPage'
 import { NotificationsPage } from './modules/notifications/NotificationsPage'
+import { PartnersPage } from './modules/partners/PartnersPage'
+import { PartnerDetail } from './modules/partners/PartnerDetail'
 import { SettingsPage } from './modules/settings/SettingsPage'
 import { PageLoader } from './components/ui/LoadingSpinner'
 import { canAccess } from './lib/utils'
@@ -74,6 +76,10 @@ function AppRoutes() {
         {/* Leads */}
         <Route path="leads" element={<RequireRole module="leads"><LeadsPage /></RequireRole>} />
         <Route path="leads/:id" element={<RequireRole module="leads"><LeadDetail /></RequireRole>} />
+
+        {/* Partners (B2B) */}
+        <Route path="partners" element={<RequireRole module="partners"><PartnersPage /></RequireRole>} />
+        <Route path="partners/:id" element={<RequireRole module="partners"><PartnerDetail /></RequireRole>} />
 
         {/* Customers */}
         <Route path="customers" element={<RequireRole module="customers"><CustomersPage /></RequireRole>} />

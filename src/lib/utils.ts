@@ -146,6 +146,7 @@ export function canAccess(role: UserRole, module: string): boolean {
 
   const moduleAccess: Record<string, UserRole[]> = {
     leads:          ['dept_head', 'bd_exec', 'project_manager'],
+    partners:       ['dept_head', 'bd_exec', 'project_manager'],
     customers:      ['dept_head', 'bd_exec', 'project_manager', 'accounts'],
     quotations:     ['dept_head', 'project_manager'],
     projects:       ['dept_head', 'project_manager', 'site_worker'],

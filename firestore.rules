@@ -141,6 +141,13 @@ service cloud.firestore {
       allow write: if isAuth() && getRole() in ['super_admin', 'management', 'marketing', 'ai_team'];
     }
 
+    // Partners (B2B)
+    match /partners/{partnerId} {
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'];
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec'];
+      allow delete: if isManagement();
+    }
+
     // Audit Logs — read management only, no client writes
     match /auditLogs/{logId} {
       allow read: if isAuth() && isManagement();

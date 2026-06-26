@@ -179,16 +179,15 @@
   }
 }
 
-  /* Modal / overlay glass */
-  .glass-modal {
-    background: rgba(9, 9, 11, 0.75);
-    backdrop-filter: blur(28px) saturate(200%);
-    -webkit-backdrop-filter: blur(28px) saturate(200%);
-    border: 1px solid rgba(255,255,255,0.09);
-    border-top-color: rgba(255,255,255,0.15);
-    box-shadow: 0 24px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
-    @apply rounded-2xl;
-  }
+/* Modal / overlay glass */
+.glass-modal {
+  background: rgba(9, 9, 11, 0.75);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-top-color: rgba(255,255,255,0.15);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
+  @apply rounded-2xl;
 }
 
 /* Kanban column */

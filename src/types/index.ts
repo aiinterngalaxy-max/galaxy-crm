@@ -55,6 +55,7 @@ export type LeadSource =
   | 'cold_call'
   | 'linkedin'
   | 'whatsapp'
+  | 'partner'
   | 'other'
 
 export type LostReason =
@@ -85,6 +86,9 @@ export interface Lead {
   aiScoreNote?: string
   lostReason?: LostReason
   lostNote?: string
+  businessType?: 'b2b' | 'b2c'
+  partnerId?: string
+  partnerName?: string
   convertedToCustomerId?: string
   floorPlanUrl?: string
   nextFollowUp?: Timestamp
@@ -502,6 +506,29 @@ export interface AiDigest {
   generatedAt: Timestamp
   content: string
   sections: DigestSection
+}
+
+// ─── Partners (B2B) ────────────────────────────────────────────────────────────
+
+export type PartnerType = 'architect' | 'interior_designer' | 'builder' | 'consultant' | 'other'
+export type PartnerStatus = 'active' | 'inactive'
+
+export interface Partner {
+  id: string
+  name: string
+  firmName?: string
+  type: PartnerType
+  phone: string
+  email?: string
+  whatsapp?: string
+  city?: string
+  notes?: string
+  status: PartnerStatus
+  totalLeads: number
+  totalRevenue: number
+  createdBy: string
+  createdAt: Timestamp
+  updatedAt: Timestamp
 }
 
 // ─── Utility Types ─────────────────────────────────────────────────────────────
