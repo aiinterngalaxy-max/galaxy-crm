@@ -9,7 +9,7 @@ import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, where, orderBy, onSnapshot, deleteDocument } from '../../lib/firebase'
+import { db, collection, query, where, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, formatRelative,
   formatCurrency, canManageLeads,
@@ -50,7 +50,7 @@ export function LeadsPage() {
     const constraints = []
     constraints.push(orderBy('updatedAt', 'desc'))
 
-    const q = query(collection(db, 'leads'), ...constraints)
+    const q = query(collection(db, 'leads'), ...constraints, limit(100))
     const unsub = onSnapshot(q, snap => {
       setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
       setLoading(false)

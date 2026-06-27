@@ -9,7 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, query, orderBy, onSnapshot, deleteDocument,
-  addDoc, getDocs, serverTimestamp
+  addDoc, getDocs, serverTimestamp, limit
 } from '../../lib/firebase'
 import { nextProjectCode } from '../../lib/counters'
 import { formatDate, canManageProjects } from '../../lib/utils'
@@ -141,7 +141,7 @@ export function ProjectsPage() {
   useEffect(() => {
     if (!user || !role) return
     const unsub = onSnapshot(
-      query(collection(db, 'projects'), orderBy('createdAt', 'desc')),
+      query(collection(db, 'projects'), orderBy('createdAt', 'desc'), limit(100)),
       async snap => {
         const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)
         setProjects(loaded)

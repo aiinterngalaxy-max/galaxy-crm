@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
-import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument, limit } from '../../lib/firebase'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { nextProjectCode } from '../../lib/counters'
 import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
@@ -41,7 +41,7 @@ export function QuotationsPage() {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'quotations'), orderBy('createdAt', 'desc')),
+      query(collection(db, 'quotations'), orderBy('createdAt', 'desc'), limit(100)),
       snap => {
         setQuotations(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Quotation))
         setLoading(false)

@@ -5,7 +5,7 @@ import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { db, collection, query, orderBy, onSnapshot, deleteDocument } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Customer } from '../../types'
@@ -37,7 +37,7 @@ export function CustomersPage() {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'customers'), orderBy('updatedAt', 'desc')),
+      query(collection(db, 'customers'), orderBy('updatedAt', 'desc'), limit(100)),
       snap => {
         setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Customer))
         setLoading(false)

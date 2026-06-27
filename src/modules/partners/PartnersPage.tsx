@@ -12,7 +12,7 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { StatCard } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, deleteDocument } from '../../lib/firebase'
+import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, deleteDocument, limit } from '../../lib/firebase'
 import { formatCurrency, formatCurrencyShort, canAccess } from '../../lib/utils'
 import type { Partner, PartnerType, Lead } from '../../types'
 import toast from 'react-hot-toast'
@@ -86,7 +86,7 @@ export function PartnersPage() {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'partners'), orderBy('createdAt', 'desc')),
+      query(collection(db, 'partners'), orderBy('createdAt', 'desc'), limit(100)),
       snap => setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Partner))
     )
     return unsub
@@ -94,7 +94,7 @@ export function PartnersPage() {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      query(collection(db, 'leads'), orderBy('createdAt', 'desc')),
+      query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(100)),
       snap => setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
     )
     return unsub
