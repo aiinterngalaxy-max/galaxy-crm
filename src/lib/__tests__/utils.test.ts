@@ -72,7 +72,7 @@ describe('calculateLeadScore', () => {
 
 describe('canAccess', () => {
   const fullAccessRoles: UserRole[] = ['super_admin', 'management', 'ai_team']
-  const modules = ['leads', 'partners', 'customers', 'quotations', 'projects', 'site-ops',
+  const modules = ['leads', 'partners', 'customers', 'quotations', 'projects',
     'daily-reports', 'notifications', 'accounts', 'content-studio', 'settings']
 
   fullAccessRoles.forEach(role => {
@@ -93,27 +93,15 @@ describe('canAccess', () => {
     expect(canAccess('bd_exec', 'quotations')).toBe(false)
   })
 
-  it('project_manager can access customers, quotations, projects, site-ops', () => {
+  it('project_manager can access customers, quotations, projects', () => {
     expect(canAccess('project_manager', 'customers')).toBe(true)
     expect(canAccess('project_manager', 'quotations')).toBe(true)
     expect(canAccess('project_manager', 'projects')).toBe(true)
-    expect(canAccess('project_manager', 'site-ops')).toBe(true)
   })
 
   it('project_manager cannot access leads or accounts', () => {
     expect(canAccess('project_manager', 'leads')).toBe(false)
     expect(canAccess('project_manager', 'accounts')).toBe(false)
-  })
-
-  it('site_worker can access projects and site-ops', () => {
-    expect(canAccess('site_worker', 'projects')).toBe(true)
-    expect(canAccess('site_worker', 'site-ops')).toBe(true)
-  })
-
-  it('site_worker cannot access leads, customers, or quotations', () => {
-    expect(canAccess('site_worker', 'leads')).toBe(false)
-    expect(canAccess('site_worker', 'customers')).toBe(false)
-    expect(canAccess('site_worker', 'quotations')).toBe(false)
   })
 
   it('marketing can only access content-studio (plus daily-reports and notifications)', () => {
@@ -133,7 +121,7 @@ describe('canAccess', () => {
   })
 
   it('settings is blocked for all non-fullAccess roles', () => {
-    const restricted: UserRole[] = ['bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts', 'dept_head']
+    const restricted: UserRole[] = ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head']
     restricted.forEach(role => {
       expect(canAccess(role, 'settings')).toBe(false)
     })

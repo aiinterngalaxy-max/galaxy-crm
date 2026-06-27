@@ -19,7 +19,6 @@ const QuotationBuilder = lazy(() => import('./modules/quotations/QuotationBuilde
 const BOQPreview = lazy(() => import('./modules/quotations/BOQPreview').then(m => ({ default: m.BOQPreview })))
 const ProjectsPage = lazy(() => import('./modules/projects/ProjectsPage').then(m => ({ default: m.ProjectsPage })))
 const ProjectDetail = lazy(() => import('./modules/projects/ProjectDetail').then(m => ({ default: m.ProjectDetail })))
-const SiteOpsPage = lazy(() => import('./modules/site-ops/SiteOpsPage').then(m => ({ default: m.SiteOpsPage })))
 const DailyReportsPage = lazy(() => import('./modules/daily-reports/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })))
 const AccountsPage = lazy(() => import('./modules/accounts/AccountsPage').then(m => ({ default: m.AccountsPage })))
 const ContentStudioLayout = lazy(() => import('./components/content-studio/ContentStudioLayout').then(m => ({ default: m.ContentStudioLayout })))
@@ -111,9 +110,6 @@ function AppRoutes() {
           {/* Projects */}
           <Route path="projects" element={<RequireRole module="projects"><ProjectsPage /></RequireRole>} />
           <Route path="projects/:id" element={<RequireRole module="projects"><ProjectDetail /></RequireRole>} />
-
-          {/* Site Ops */}
-          <Route path="site-ops" element={<RequireRole module="site-ops"><SiteOpsPage /></RequireRole>} />
 
           {/* Daily Reports */}
           <Route path="daily-reports" element={<RequireRole module="daily-reports"><DailyReportsPage /></RequireRole>} />

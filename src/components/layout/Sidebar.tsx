@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
-  HardHat, ClipboardList, Receipt, Sparkles, Bell, Settings,
+  ClipboardList, Receipt, Sparkles, Bell, Settings,
   Building2, ChevronRight, LogOut,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
@@ -24,7 +24,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Customers',      icon: <UserSquare2 className="w-4 h-4" />,     path: '/customers',       module: 'customers' },
   { label: 'Quotations',     icon: <FileText className="w-4 h-4" />,        path: '/quotations',      module: 'quotations' },
   { label: 'Projects',       icon: <FolderKanban className="w-4 h-4" />,    path: '/projects',        module: 'projects' },
-  { label: 'Site Operations',icon: <HardHat className="w-4 h-4" />,         path: '/site-ops',        module: 'site-ops' },
   { label: 'Daily Reports',  icon: <ClipboardList className="w-4 h-4" />,   path: '/daily-reports',   module: 'daily-reports' },
   { label: 'Accounts',       icon: <Receipt className="w-4 h-4" />,         path: '/accounts',        module: 'accounts' },
   { label: 'Content Studio', icon: <Sparkles className="w-4 h-4" />,        path: '/content-studio',  module: 'content-studio' },

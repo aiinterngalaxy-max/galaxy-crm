@@ -31,7 +31,6 @@ const DEPT_OPTIONS: { value: Department; label: string }[] = [
   { value: 'management', label: 'Management' },
   { value: 'business_development', label: 'Business Development' },
   { value: 'project_management', label: 'Project Management' },
-  { value: 'site_operations', label: 'Site Operations' },
   { value: 'marketing', label: 'Marketing' },
   { value: 'ai_department', label: 'AI Department' },
   { value: 'accounts', label: 'Accounts' },

@@ -206,7 +206,6 @@ export function ProjectDetail() {
   const [newStagePayAmt, setNewStagePayAmt] = useState(0)
 
   const canManage = role ? canManageProjects(role) : false
-  const isSiteWorker = role === 'site_worker'
 
   // ── Load data ────────────────────────────────────────────────────────────────
 
@@ -241,7 +240,7 @@ export function ProjectDetail() {
         setWorkflowStages(stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage))
         setReports(repSnap.docs.map(d => ({ id: d.id, ...d.data() }) as SiteReport))
         const allUsers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }) as AppUser)
-        setWorkers(allUsers.filter(u => u.role === 'site_worker' || u.role === 'project_manager'))
+        setWorkers(allUsers.filter(u => u.role === 'project_manager'))
       } catch (err) {
         console.error(err)
         toast.error('Failed to load project')
@@ -561,7 +560,7 @@ export function ProjectDetail() {
           </p>
         </div>
         <div className="flex gap-2">
-          {(canManage || isSiteWorker) && (
+          {canManage && (
             <Button size="sm" variant="secondary" icon={<Camera className="w-3.5 h-3.5" />}
               onClick={() => setShowReportForm(true)}>
               Report
@@ -1008,7 +1007,7 @@ export function ProjectDetail() {
       <Card padding="none">
         <div className="p-4 border-b border-gray-800 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-200">Site Reports</h3>
-          {(canManage || isSiteWorker) && (
+          {canManage && (
             <Button size="sm" variant="secondary" icon={<Plus className="w-3.5 h-3.5" />}
               onClick={() => setShowReportForm(true)}>
               Add Report

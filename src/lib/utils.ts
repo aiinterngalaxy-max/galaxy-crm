@@ -131,7 +131,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   dept_head:       'Department Head',
   bd_exec:         'BD Executive',
   project_manager: 'Project Manager',
-  site_worker:     'Site Worker',
   marketing:       'Marketing',
   ai_team:         'AI Team',
   accounts:        'Accounts',
@@ -151,11 +150,10 @@ export function canAccess(role: UserRole, module: string): boolean {
     // PM only
     customers:       ['project_manager', 'dept_head'],
     quotations:      ['project_manager', 'dept_head'],
-    projects:        ['project_manager', 'dept_head', 'site_worker'],
-    'site-ops':      ['project_manager', 'dept_head', 'site_worker'],
+    projects:        ['project_manager', 'dept_head'],
     // Everyone
-    'daily-reports': ['bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts', 'dept_head'],
-    notifications:   ['bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts', 'dept_head'],
+    'daily-reports': ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head'],
+    notifications:   ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head'],
     // Role-specific
     accounts:        ['accounts'],
     'content-studio':['marketing'],
