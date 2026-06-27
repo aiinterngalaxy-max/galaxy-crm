@@ -309,7 +309,7 @@ export function QuotationsPage() {
                       Remind
                     </Button>
                   )}
-                  {isPending && canApprove && (
+                  {(isPending || isDraft) && canApprove && (
                     <Button size="sm" variant="success"
                       icon={<CheckCircle2 className="w-3.5 h-3.5" />}
                       onClick={e => approveQuotation(q, e)}>
