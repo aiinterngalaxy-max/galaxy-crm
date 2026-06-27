@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
-import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument, limit } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument, limit, arrayUnion } from '../../lib/firebase'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { nextProjectCode } from '../../lib/counters'
 import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
@@ -167,7 +167,6 @@ export function QuotationsPage() {
       })
 
       if (q.customerId) {
-        const { arrayUnion } = await import('firebase/firestore')
         await updateDoc(doc(db, 'customers', q.customerId), {
           projectIds: arrayUnion(projectRef.id),
           updatedAt: serverTimestamp(),

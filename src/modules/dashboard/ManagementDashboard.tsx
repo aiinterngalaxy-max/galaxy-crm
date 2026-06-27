@@ -11,18 +11,6 @@ import { db, collection, query, where, orderBy, limit, getDocs } from '../../lib
 import { formatCurrencyShort, formatCurrency, formatRelative, PROJECT_STATUS_CONFIG, LEAD_STATUS_CONFIG } from '../../lib/utils'
 import type { Lead, Project, Invoice } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
-import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
-} from 'recharts'
-
-const MOCK_REVENUE_DATA = [
-  { month: 'Jan', collected: 420000, projected: 500000 },
-  { month: 'Feb', collected: 380000, projected: 480000 },
-  { month: 'Mar', collected: 510000, projected: 520000 },
-  { month: 'Apr', collected: 670000, projected: 600000 },
-  { month: 'May', collected: 590000, projected: 650000 },
-  { month: 'Jun', collected: 720000, projected: 700000 },
-]
 
 export function ManagementDashboard() {
   const navigate = useNavigate()

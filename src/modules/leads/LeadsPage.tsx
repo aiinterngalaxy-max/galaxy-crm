@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, LayoutGrid, List, Phone, Calendar, Trash2 } from 'lucide-react'
+import { Plus, Search, Filter, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -218,12 +218,24 @@ export function LeadsPage() {
                     <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center gap-2 justify-end">
-                        <button className="text-gray-600 hover:text-gray-300 p-1" title="Call">
+                        <a
+                          href={`tel:${lead.phone}`}
+                          onClick={e => e.stopPropagation()}
+                          className="text-gray-600 hover:text-gray-300 p-1"
+                          title={`Call ${lead.phone}`}
+                        >
                           <Phone className="w-3.5 h-3.5" />
-                        </button>
-                        <button className="text-gray-600 hover:text-gray-300 p-1" title="Schedule">
-                          <Calendar className="w-3.5 h-3.5" />
-                        </button>
+                        </a>
+                        <a
+                          href={`https://wa.me/91${lead.phone.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="text-gray-600 hover:text-green-400 p-1"
+                          title="WhatsApp"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </a>
                         {isAdmin && (
                           confirmDelete === lead.id ? (
                             <button

@@ -23,6 +23,8 @@ import {
   serverTimestamp,
   QueryConstraint,
   writeBatch,
+  arrayUnion,
+  runTransaction,
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
@@ -71,6 +73,8 @@ export {
   Timestamp,
   serverTimestamp,
   writeBatch,
+  arrayUnion,
+  runTransaction,
   type QueryConstraint,
 }
 
