@@ -196,6 +196,10 @@ export function ProjectDetail() {
   const [rNextSteps, setRNextSteps] = useState('')
   const [rSaving, setRSaving] = useState(false)
 
+  // Project value edit
+  const [editingValue, setEditingValue] = useState(false)
+  const [editValueInput, setEditValueInput] = useState(0)
+
   // Add stage form
   const [showAddStage, setShowAddStage] = useState(false)
   const [newStageTitle, setNewStageTitle] = useState('')
@@ -577,7 +581,30 @@ export function ProjectDetail() {
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold text-indigo-400">{progressPercent}%</p>
-            <p className="text-xs text-yellow-400 font-medium">{formatCurrency(totalValue)}</p>
+            {canManage && editingValue ? (
+              <input
+                type="number"
+                autoFocus
+                value={editValueInput}
+                onChange={e => setEditValueInput(Number(e.target.value))}
+                onBlur={async () => {
+                  await updateDoc(doc(db, 'projects', id!), { totalValue: editValueInput, updatedAt: serverTimestamp() })
+                  setProject(prev => prev ? { ...prev, totalValue: editValueInput } as any : prev)
+                  setEditingValue(false)
+                  toast.success('Project value updated')
+                }}
+                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                className="bg-gray-800 border border-indigo-500 rounded px-2 py-0.5 text-xs text-yellow-400 font-medium w-32 text-right focus:outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => { if (canManage) { setEditValueInput(totalValue); setEditingValue(true) } }}
+                className={`text-xs text-yellow-400 font-medium ${canManage ? 'hover:underline cursor-pointer' : ''}`}
+                title={canManage ? 'Click to edit project value' : undefined}
+              >
+                {formatCurrency(totalValue)}
+              </button>
+            )}
           </div>
         </div>
         <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
