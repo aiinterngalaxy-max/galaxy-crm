@@ -83,7 +83,7 @@ export async function createBrand(data: Partial<Brand>): Promise<Brand> {
   )
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<Brand>('SELECT * FROM cmo_brands WHERE id=?', [id])
-  await logActivity('brand', id, 'created', `"${name}"`)
+  await logActivity('brand', id, 'created', `Brand created: ${name}`)
   return row as Brand
 }
 
@@ -103,8 +103,7 @@ export async function updateBrand(id: number, data: Partial<Brand>): Promise<Bra
   args.push(id)
   await run(`UPDATE cmo_brands SET ${sets.join(', ')} WHERE id=?`, args)
   const row = await one<Brand>('SELECT * FROM cmo_brands WHERE id=?', [id])
-  const detail = 'status' in body ? `status → ${body.status}` : 'details updated'
-  await logActivity('brand', id, 'updated', detail)
+  await logActivity('brand', id, 'updated', `Brand updated: ${row!.name}`)
   return row as Brand
 }
 
@@ -124,9 +123,10 @@ export async function deleteBrand(id: number): Promise<void> {
     if (nShoots > 0) parts.push(`${nShoots} ${nShoots === 1 ? 'shoot' : 'shoots'}`)
     throw new Error(`Can't delete — this brand has ${parts.join(', ')}. Reassign or delete those first.`)
   }
+  const brand = await one<{ name: string }>('SELECT name FROM cmo_brands WHERE id=?', [id])
   await run('DELETE FROM cmo_channels WHERE brand_id=?', [id])
   await run('DELETE FROM cmo_brands WHERE id=?', [id])
-  await logActivity('brand', id, 'deleted', 'deleted')
+  await logActivity('brand', id, 'deleted', `Brand deleted: ${brand?.name ?? `#${id}`}`)
 }
 
 // ---------- channels ----------
@@ -243,7 +243,7 @@ export async function createContent(data: Partial<ContentRow>, actor?: string): 
   )
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<ContentRow>(CONTENT_JOIN + ' WHERE ct.id=?', [id])
-  await logActivity('content', id, 'created', `"${String(b.title).slice(0, 60)}"`, actor)
+  await logActivity('content', id, 'created', `Content created: ${String(b.title).slice(0, 60)}`, actor)
   return row as ContentRow
 }
 
@@ -294,23 +294,27 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
   }
 
   const row = await one<ContentRow>(CONTENT_JOIN + ' WHERE ct.id=?', [id])
-  if (body.stage) {
-    await logActivity('content', id, 'stage-change', `moved to ${body.stage}`, actor)
+  const title = row?.title ?? `#${id}`
+  if (body.stage === 'Published') {
+    await logActivity('content', id, 'published', `Content published: ${title}`, actor)
+  } else if (body.stage) {
+    await logActivity('content', id, 'stage-change', `Content moved to ${body.stage}: ${title}`, actor)
   } else if (body.publish_date) {
-    await logActivity('content', id, 'updated', `rescheduled to ${body.publish_date}`, actor)
+    await logActivity('content', id, 'updated', `Content rescheduled: ${title} → ${body.publish_date}`, actor)
   } else {
-    await logActivity('content', id, 'updated', 'details updated', actor)
+    await logActivity('content', id, 'updated', `Content updated: ${title}`, actor)
   }
   return row as ContentRow
 }
 
-export async function deleteContent(id: number, _actor?: string): Promise<void> {
+export async function deleteContent(id: number, actor?: string): Promise<void> {
   const perf = await one<{ n: number }>('SELECT COUNT(*) AS n FROM cmo_performance WHERE content_id=?', [id])
   if (Number(perf?.n ?? 0) > 0) {
     throw new Error("Can't delete — this content piece has performance data. Remove the performance records first.")
   }
+  const content = await one<{ title: string }>('SELECT title FROM cmo_content WHERE id=?', [id])
   await run('DELETE FROM cmo_content WHERE id=?', [id])
-  await logActivity('content', id, 'deleted', 'deleted')
+  await logActivity('content', id, 'deleted', `Content deleted: ${content?.title ?? `#${id}`}`, actor)
 }
 
 // ---------- comments ----------
@@ -352,7 +356,7 @@ export async function createIdea(data: { brand_id: number; month?: string; title
   const rs = await run(`INSERT INTO cmo_ideas (brand_id, month, title) VALUES (?, ?, ?)`, [brand_id, month, title])
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE id=?`, [id])
-  await logActivity('idea', id, 'created', `"${title}"`)
+  await logActivity('idea', id, 'created', `Idea added: ${title}`)
   return row as Idea
 }
 
@@ -381,15 +385,21 @@ export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea>
   }
 
   const row = await one<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE id=?`, [id])
-  const detail =
-    Number(body.approved) === 1 ? 'approved' : Number(body.rejected) === 1 ? 'rejected' : Number(body.pitched) === 1 ? 'pitched' : 'updated'
-  await logActivity('idea', id, detail === 'updated' ? 'updated' : detail, detail)
+  const title = row?.title ?? `#${id}`
+  const status =
+    Number(body.approved) === 1 ? 'approved' : Number(body.rejected) === 1 ? 'rejected' : Number(body.pitched) === 1 ? 'pitched' : null
+  if (status) {
+    await logActivity('idea', id, status === 'pitched' ? 'updated' : status, `Idea ${status}: ${title}`)
+  } else {
+    await logActivity('idea', id, 'updated', `Idea updated: ${title}`)
+  }
   return row as Idea
 }
 
 export async function deleteIdea(id: number): Promise<void> {
+  const idea = await one<{ title: string }>('SELECT title FROM cmo_ideas WHERE id=?', [id])
   await run('DELETE FROM cmo_ideas WHERE id=?', [id])
-  await logActivity('idea', id, 'deleted', 'deleted')
+  await logActivity('idea', id, 'deleted', `Idea deleted: ${idea?.title ?? `#${id}`}`)
 }
 
 // ---------- scripts ----------
@@ -428,7 +438,8 @@ export async function createScript(data: {
     )
     const id = Number(rs.lastInsertRowid ?? 0)
     const row = await one(`SELECT ${SCRIPT_COLS} FROM cmo_scripts WHERE id=?`, [id])
-    await logActivity('script', id, 'created', `created for content #${content_id}`)
+    const content = await one<{ title: string }>('SELECT title FROM cmo_content WHERE id=?', [content_id])
+    await logActivity('script', id, 'created', `Script created: ${content?.title ?? `content #${content_id}`}`)
     return row as ScriptRow
   } catch (err: any) {
     const msg: string = err?.message || ''
@@ -474,8 +485,22 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
   }
 
   const row = await one(`SELECT ${SCRIPT_COLS} FROM cmo_scripts WHERE id=?`, [id])
-  const detail = body.status ? `status → ${body.status}` : body.approved ? 'approved' : 'updated'
-  await logActivity('script', id, detail.startsWith('status') ? 'status-change' : detail === 'approved' ? 'approved' : 'updated', detail)
+  const content = row?.content_id
+    ? await one<{ title: string }>('SELECT title FROM cmo_content WHERE id=?', [row.content_id])
+    : null
+  const title = content?.title ?? `content #${row?.content_id ?? id}`
+
+  if (body.status === 'Submitted') {
+    await logActivity('script', id, 'status-change', `Script submitted for review: ${title}`)
+  } else if (body.status === 'Approved') {
+    await logActivity('script', id, 'approved', `Script approved: ${title}`)
+  } else if (body.status === 'Changes Required') {
+    await logActivity('script', id, 'status-change', `Script rejected: ${title}`)
+  } else if (body.status) {
+    await logActivity('script', id, 'status-change', `Script status changed to ${body.status}: ${title}`)
+  } else {
+    await logActivity('script', id, 'updated', `Script updated: ${title}`)
+  }
   return row as ScriptRow
 }
 
@@ -520,7 +545,7 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   )
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
-  await logActivity('shoot', id, 'created', `"${title}"`)
+  await logActivity('shoot', id, 'created', `Shoot scheduled: ${title}${data.shoot_date ? ` on ${data.shoot_date}` : ''}`)
   return row as ShootRow
 }
 
@@ -533,14 +558,24 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   args.push(id)
   await run(`UPDATE cmo_shoots SET ${sets.join(', ')} WHERE id=?`, args)
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
-  const detail = body.status ? `status → ${body.status}` : 'details updated'
-  await logActivity('shoot', id, body.status ? 'status-change' : 'updated', detail)
+  const title = row?.title ?? `#${id}`
+
+  if (body.status === 'Completed') {
+    await logActivity('shoot', id, 'status-change', `Shoot completed: ${title}`)
+  } else if (body.status === 'Cancelled') {
+    await logActivity('shoot', id, 'status-change', `Shoot cancelled: ${title}`)
+  } else if (body.status) {
+    await logActivity('shoot', id, 'status-change', `Shoot ${String(body.status).toLowerCase()}: ${title}`)
+  } else {
+    await logActivity('shoot', id, 'updated', `Shoot updated: ${title}`)
+  }
   return row as ShootRow
 }
 
 export async function deleteShoot(id: number): Promise<void> {
+  const shoot = await one<{ title: string }>('SELECT title FROM cmo_shoots WHERE id=?', [id])
   await run('DELETE FROM cmo_shoots WHERE id=?', [id])
-  await logActivity('shoot', id, 'deleted', 'deleted')
+  await logActivity('shoot', id, 'deleted', `Shoot deleted: ${shoot?.title ?? `#${id}`}`)
 }
 
 // ---------- performance ----------
@@ -821,10 +856,16 @@ export async function syncNow(limit?: number): Promise<{ ok: boolean; summary?: 
       error: 'No platforms connected. Add the API credentials (VITE_ env vars) for YouTube / Instagram / LinkedIn / Facebook, then sync.',
     }
   }
+  await logActivity('sync', 0, 'triggered', `Social sync triggered for ${connected.map((s) => s.label).join(', ')}`)
+
   const summary = await syncAll(Math.max(1, Math.min(100, limit || 100)))
-  const okCount = summary.filter((s) => s.ok).length
-  const posts = summary.reduce((n, s) => n + (s.ok ? s.posts : 0), 0)
-  await logActivity('sync', 0, 'synced', `${okCount}/${summary.length} platforms, ${posts} posts refreshed`)
+  for (const s of summary) {
+    if (s.ok) {
+      await logActivity('sync', 0, 'synced', `Social sync completed for ${s.platform}: ${s.posts} posts fetched`)
+    } else {
+      await logActivity('sync', 0, 'sync-failed', `Social sync failed for ${s.platform}: ${s.error ?? 'unknown error'}`)
+    }
+  }
   return { ok: true, summary }
 }
 

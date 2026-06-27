@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
-import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2, ChevronDown, ChevronRight, Search, Sparkles } from 'lucide-react'
+import {
+  ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2,
+  ChevronDown, ChevronRight, Search, Sparkles, Building2, Lightbulb, Video, Workflow, Link2,
+} from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -29,20 +32,25 @@ interface TodayStats {
   contentStudioActivity: ActivityEntry[]
 }
 
-const CS_ACTION_LABEL: Record<string, string> = {
-  created: 'created',
-  updated: 'updated',
-  'status-change': 'status changed',
-  'stage-change': 'moved stage',
-  approved: 'approved',
-  deleted: 'deleted',
-  synced: 'synced',
+const CS_GROUP_META: Record<ActivityEntry['entity_type'], { label: string; icon: React.ReactNode; color: string }> = {
+  content:  { label: 'Content',  icon: <Workflow className="w-3.5 h-3.5" />,    color: 'text-sky-400' },
+  script:   { label: 'Scripts',  icon: <FileText className="w-3.5 h-3.5" />,    color: 'text-amber-400' },
+  brand:    { label: 'Brands',   icon: <Building2 className="w-3.5 h-3.5" />,   color: 'text-emerald-400' },
+  idea:     { label: 'Ideas',    icon: <Lightbulb className="w-3.5 h-3.5" />,   color: 'text-purple-400' },
+  shoot:    { label: 'Shoots',   icon: <Video className="w-3.5 h-3.5" />,       color: 'text-rose-400' },
+  sync:     { label: 'Sync',     icon: <Link2 className="w-3.5 h-3.5" />,       color: 'text-indigo-400' },
+}
+const CS_GROUP_ORDER: ActivityEntry['entity_type'][] = ['content', 'script', 'idea', 'shoot', 'brand', 'sync']
+
+function csGroup(entries: ActivityEntry[]): { type: ActivityEntry['entity_type']; entries: ActivityEntry[] }[] {
+  return CS_GROUP_ORDER
+    .map(type => ({ type, entries: entries.filter(e => e.entity_type === type) }))
+    .filter(g => g.entries.length > 0)
 }
 
-function csDescribe(entry: ActivityEntry): string {
-  const verb = CS_ACTION_LABEL[entry.action] ?? entry.action
-  const noun = entry.entity_type === 'sync' ? 'Social sync' : `${entry.entity_type[0].toUpperCase()}${entry.entity_type.slice(1)} #${entry.entity_id}`
-  return `${noun} ${verb}${entry.detail ? ` — ${entry.detail}` : ''}`
+function csTime(entry: ActivityEntry): string {
+  const d = new Date(entry.created_at.replace(' ', 'T'))
+  return isNaN(d.getTime()) ? '' : format(d, 'h:mm a')
 }
 
 const DEPARTMENTS = ['All', 'business_development', 'project_management', 'accounts', 'management']
@@ -74,6 +82,7 @@ export function DailyReportsPage() {
     contentStudioActivity: [],
   })
   const canSeeContentStudio = isManagement || (role ? canAccess(role as UserRole, 'content-studio') : false)
+  const [csExpanded, setCsExpanded] = useState(false)
 
   // Task table state
   interface TaskRow { id: string; details: string; status: 'pending' | 'done'; duration: string }
@@ -329,23 +338,61 @@ export function DailyReportsPage() {
                 <p className="text-2xl font-bold text-gray-100">{todayStats.activeProjects}</p>
               </div>
             </>)}
-            {/* Content Studio stats */}
-            {canSeeContentStudio && (
-              <div className="bg-gray-800/50 rounded-xl p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Sparkles className="w-3.5 h-3.5 text-pink-400" />
-                  <p className="text-xs text-gray-500">Content Studio</p>
-                </div>
-                <p className="text-2xl font-bold text-gray-100">{todayStats.contentStudioActivity.length}</p>
-                {todayStats.contentStudioActivity.slice(0, 3).map(entry => (
-                  <p key={entry.id} className="text-xs text-gray-600 truncate mt-0.5">• {csDescribe(entry)}</p>
-                ))}
-              </div>
-            )}
           </div>
           {totalActivity === 0 && (
             <p className="text-xs text-gray-600 mt-3 text-center">No activity logged yet today. Data updates as you work.</p>
           )}
+
+          {/* Content Studio — full pipeline activity */}
+          {canSeeContentStudio && todayStats.contentStudioActivity.length > 0 && (() => {
+            const sorted = [...todayStats.contentStudioActivity].sort(
+              (a, b) => new Date(b.created_at.replace(' ', 'T')).getTime() - new Date(a.created_at.replace(' ', 'T')).getTime()
+            )
+            const visible = csExpanded ? sorted : sorted.slice(0, 10)
+            const groups = csGroup(visible)
+
+            return (
+              <div className="mt-4 pt-4 border-t border-gray-800">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-pink-400" /> Content Studio Activity
+                  </h3>
+                  <span className="text-xs text-gray-600">{sorted.length} {sorted.length === 1 ? 'action' : 'actions'} today</span>
+                </div>
+
+                <div className="space-y-3">
+                  {groups.map(g => {
+                    const meta = CS_GROUP_META[g.type]
+                    return (
+                      <div key={g.type}>
+                        <div className={`flex items-center gap-1.5 mb-1.5 ${meta.color}`}>
+                          {meta.icon}
+                          <p className="text-xs font-medium">{meta.label} <span className="text-gray-600">({g.entries.length})</span></p>
+                        </div>
+                        <div className="space-y-1 pl-5">
+                          {g.entries.map(entry => (
+                            <div key={entry.id} className="flex items-center justify-between gap-3 text-xs">
+                              <p className="text-gray-400 truncate">{entry.detail}</p>
+                              <span className="text-gray-600 shrink-0">{csTime(entry)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {sorted.length > 10 && (
+                  <button
+                    onClick={() => setCsExpanded(e => !e)}
+                    className="mt-3 text-xs text-indigo-400 hover:text-indigo-300"
+                  >
+                    {csExpanded ? 'Show less' : `View all ${sorted.length}`}
+                  </button>
+                )}
+              </div>
+            )
+          })()}
         </Card>
       )}
 
