@@ -418,6 +418,7 @@ export interface DailyReportStats {
   photosUploaded?: number
   invoicesRaised?: number
   contentGenerated?: number
+  contentStudioActivity?: number
 }
 
 export interface DailyReport {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { ClipboardList, CheckCircle2, AlertCircle, Plus, Phone, UserPlus, FileText, TrendingUp, Trash2, ChevronDown, ChevronRight, Search, Sparkles } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -8,11 +8,13 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp
 } from '../../lib/firebase'
-import { formatDate, formatDateTime } from '../../lib/utils'
-import type { DailyReport, Lead, LeadActivity } from '../../types'
+import { formatDate, formatDateTime, canAccess } from '../../lib/utils'
+import type { DailyReport, Lead, LeadActivity, UserRole } from '../../types'
 import { format, startOfDay, endOfDay } from 'date-fns'
 import { Timestamp } from 'firebase/firestore'
 import toast from 'react-hot-toast'
+import { getActivity } from '../../lib/content-studio/queries'
+import type { ActivityEntry } from '../../types/content-studio'
 
 interface TodayStats {
   // BD
@@ -23,6 +25,24 @@ interface TodayStats {
   quotationsCreated: number
   quotationsSentToCustomer: number
   activeProjects: number
+  // Content Studio
+  contentStudioActivity: ActivityEntry[]
+}
+
+const CS_ACTION_LABEL: Record<string, string> = {
+  created: 'created',
+  updated: 'updated',
+  'status-change': 'status changed',
+  'stage-change': 'moved stage',
+  approved: 'approved',
+  deleted: 'deleted',
+  synced: 'synced',
+}
+
+function csDescribe(entry: ActivityEntry): string {
+  const verb = CS_ACTION_LABEL[entry.action] ?? entry.action
+  const noun = entry.entity_type === 'sync' ? 'Social sync' : `${entry.entity_type[0].toUpperCase()}${entry.entity_type.slice(1)} #${entry.entity_id}`
+  return `${noun} ${verb}${entry.detail ? ` — ${entry.detail}` : ''}`
 }
 
 const DEPARTMENTS = ['All', 'business_development', 'project_management', 'accounts', 'management']
@@ -51,7 +71,9 @@ export function DailyReportsPage() {
     quotationsCreated: 0,
     quotationsSentToCustomer: 0,
     activeProjects: 0,
+    contentStudioActivity: [],
   })
+  const canSeeContentStudio = isManagement || (role ? canAccess(role as UserRole, 'content-studio') : false)
 
   // Task table state
   interface TaskRow { id: string; details: string; status: 'pending' | 'done'; duration: string }
@@ -145,6 +167,23 @@ export function DailyReportsPage() {
     }
   }, [user, isManagement, role])
 
+  // Auto-fetch today's Content Studio activity (Turso-backed, separate from the Firestore fetch above)
+  useEffect(() => {
+    if (!user || !canSeeContentStudio) return
+    const todayStart = startOfDay(new Date())
+    const todayEnd = endOfDay(new Date())
+
+    getActivity()
+      .then(entries => {
+        const todays = entries.filter(e => {
+          const d = new Date(e.created_at.replace(' ', 'T'))
+          return d >= todayStart && d <= todayEnd
+        })
+        setTodayStats(prev => ({ ...prev, contentStudioActivity: todays }))
+      })
+      .catch(console.error)
+  }, [user, canSeeContentStudio])
+
   const submitReport = async () => {
     if (tasks.every(t => !t.details.trim())) { toast.error('Add at least one task'); return }
     setSubmitting(true)
@@ -156,6 +195,7 @@ export function DailyReportsPage() {
         quotationsCreated: todayStats.quotationsCreated,
         quotationsSentToCustomer: todayStats.quotationsSentToCustomer,
         activeProjects: todayStats.activeProjects,
+        contentStudioActivity: todayStats.contentStudioActivity.length,
       }
       const data = {
         date: today,
@@ -186,7 +226,8 @@ export function DailyReportsPage() {
   const isBDUser = role === 'bd_exec' || role === 'dept_head' || dept === 'business_development'
   const isPMUser = role === 'project_manager' || dept === 'project_management'
   const totalActivity = todayStats.leadsCreated.length + todayStats.callsMade.length +
-    todayStats.leadsProgressed.length + todayStats.quotationsCreated + todayStats.activeProjects
+    todayStats.leadsProgressed.length + todayStats.quotationsCreated + todayStats.activeProjects +
+    todayStats.contentStudioActivity.length
 
   return (
     <div className="space-y-5">
@@ -288,6 +329,19 @@ export function DailyReportsPage() {
                 <p className="text-2xl font-bold text-gray-100">{todayStats.activeProjects}</p>
               </div>
             </>)}
+            {/* Content Studio stats */}
+            {canSeeContentStudio && (
+              <div className="bg-gray-800/50 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+                  <p className="text-xs text-gray-500">Content Studio</p>
+                </div>
+                <p className="text-2xl font-bold text-gray-100">{todayStats.contentStudioActivity.length}</p>
+                {todayStats.contentStudioActivity.slice(0, 3).map(entry => (
+                  <p key={entry.id} className="text-xs text-gray-600 truncate mt-0.5">• {csDescribe(entry)}</p>
+                ))}
+              </div>
+            )}
           </div>
           {totalActivity === 0 && (
             <p className="text-xs text-gray-600 mt-3 text-center">No activity logged yet today. Data updates as you work.</p>
@@ -406,6 +460,7 @@ export function DailyReportsPage() {
                                     {(report.systemStats.quotationsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsCreated}</span> quotes</span>}
                                     {(report.systemStats.quotationsSentToCustomer ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-orange-400 font-semibold">{report.systemStats.quotationsSentToCustomer}</span> sent</span>}
                                     {(report.systemStats.activeProjects ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.activeProjects}</span> active proj</span>}
+                                    {(report.systemStats.contentStudioActivity ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-pink-400 font-semibold">{report.systemStats.contentStudioActivity}</span> content studio</span>}
                                   </div>
                                 )}
                                 <span className="ml-auto text-xs text-gray-600">{formatDateTime(report.submittedAt)}</span>
@@ -481,6 +536,7 @@ export function DailyReportsPage() {
                       {(report.systemStats.quotationsCreated ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-yellow-400 font-semibold">{report.systemStats.quotationsCreated}</span> quotes</span>}
                       {(report.systemStats.quotationsSentToCustomer ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-orange-400 font-semibold">{report.systemStats.quotationsSentToCustomer}</span> sent to customer</span>}
                       {(report.systemStats.activeProjects ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-green-400 font-semibold">{report.systemStats.activeProjects}</span> active projects</span>}
+                      {(report.systemStats.contentStudioActivity ?? 0) > 0 && <span className="text-xs text-gray-500"><span className="text-pink-400 font-semibold">{report.systemStats.contentStudioActivity}</span> content studio</span>}
                     </div>
                   )}
                   {(report as any).tasks?.length > 0 && (
@@ -549,6 +605,9 @@ export function DailyReportsPage() {
                 <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.quotationsSentToCustomer}</span> sent to customer</span>
                 <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.activeProjects}</span> active projects</span>
               </>)}
+              {canSeeContentStudio && (
+                <span className="text-xs text-gray-400"><span className="text-pink-400 font-bold">{todayStats.contentStudioActivity.length}</span> content studio actions</span>
+              )}
             </div>
           </div>
 

@@ -27,12 +27,19 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Activity', icon: <Activity className="w-4 h-4" />, path: '/content-studio/activity' },
 ]
 
-export function CmoSidebar() {
+interface CmoSidebarProps {
+  collapsed?: boolean
+}
+
+export function CmoSidebar({ collapsed = false }: CmoSidebarProps) {
   const location = useLocation()
 
   return (
     <aside
-      className="h-screen w-60 flex flex-col shrink-0"
+      className={cn(
+        'h-screen flex flex-col shrink-0 transition-all duration-200',
+        collapsed ? 'w-16' : 'w-60'
+      )}
       style={{
         background: 'rgba(10,10,15,0.7)',
         backdropFilter: 'blur(24px) saturate(180%)',
@@ -40,14 +47,16 @@ export function CmoSidebar() {
         borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
+      <div className={cn('flex items-center gap-3 px-4 py-4 border-b border-gray-800', collapsed && 'justify-center px-0')}>
         <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gold-500 text-gray-950 font-extrabold shrink-0">
           G
         </span>
-        <div className="min-w-0">
-          <p className="text-sm font-bold leading-none" style={{ color: '#C9A840' }}>Content Studio</p>
-          <p className="text-xs text-gray-500 mt-0.5 truncate">Marketing Command Center</p>
-        </div>
+        {!collapsed && (
+          <div className="min-w-0">
+            <p className="text-sm font-bold leading-none" style={{ color: '#C9A840' }}>Content Studio</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">Marketing Command Center</p>
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
@@ -61,10 +70,15 @@ export function CmoSidebar() {
             <Link
               key={item.path}
               to={item.path}
-              className={cn('sidebar-item', isActive ? 'sidebar-item-active' : 'sidebar-item-inactive')}
+              title={collapsed ? item.label : undefined}
+              className={cn(
+                'sidebar-item',
+                isActive ? 'sidebar-item-active' : 'sidebar-item-inactive',
+                collapsed && 'justify-center px-0'
+              )}
             >
               <span className="shrink-0">{item.icon}</span>
-              <span className="flex-1 truncate">{item.label}</span>
+              {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
             </Link>
           )
         })}

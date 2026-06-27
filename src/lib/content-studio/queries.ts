@@ -822,6 +822,9 @@ export async function syncNow(limit?: number): Promise<{ ok: boolean; summary?: 
     }
   }
   const summary = await syncAll(Math.max(1, Math.min(100, limit || 100)))
+  const okCount = summary.filter((s) => s.ok).length
+  const posts = summary.reduce((n, s) => n + (s.ok ? s.posts : 0), 0)
+  await logActivity('sync', 0, 'synced', `${okCount}/${summary.length} platforms, ${posts} posts refreshed`)
   return { ok: true, summary }
 }
 
