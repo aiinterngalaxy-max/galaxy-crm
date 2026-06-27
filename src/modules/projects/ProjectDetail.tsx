@@ -884,6 +884,20 @@ export function ProjectDetail() {
                 {/* Stage Body */}
                 {isExpanded && !isLocked && (
                   <div className="border-t border-gray-800 p-4 space-y-4 bg-gray-800/20">
+                    {/* Stage Title */}
+                    {canManage && (
+                      <div className="flex items-center gap-3">
+                        <label className="text-xs text-gray-500 shrink-0">Stage Title</label>
+                        <input
+                          type="text"
+                          value={stage.title}
+                          onChange={e => setWorkflowStages(prev => prev.map(s => s.id === stage.id ? { ...s, title: e.target.value } : s))}
+                          onBlur={() => saveStageFields(stage, { title: stage.title })}
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 flex-1 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    )}
+
                     {/* Payment Amount */}
                     {canManage && (
                       <div className="flex items-center gap-3">
