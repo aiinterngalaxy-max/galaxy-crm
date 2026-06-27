@@ -199,7 +199,7 @@ export function ProjectDetail() {
   // Add stage form
   const [showAddStage, setShowAddStage] = useState(false)
   const [newStageTitle, setNewStageTitle] = useState('')
-  const [newStagePayAmt, setNewStagePayAmt] = useState(0)
+  const [newStagePayPct, setNewStagePayPct] = useState(0)
 
   const canManage = role ? canManageProjects(role) : false
   const isSiteWorker = role === 'site_worker'
@@ -234,19 +234,10 @@ export function ProjectDetail() {
             electricianContact: p.electricianContact || '',
           })
         }
-        const stages = stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage)
-        setWorkflowStages(stages)
+        setWorkflowStages(stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage))
         setReports(repSnap.docs.map(d => ({ id: d.id, ...d.data() }) as SiteReport))
         const allUsers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }) as AppUser)
         setWorkers(allUsers.filter(u => u.role === 'site_worker' || u.role === 'project_manager'))
-
-        // Sync completionPercent if out of date
-        if (projSnap.exists() && stages.length > 0) {
-          const livePct = Math.round((stages.filter(s => s.status === 'completed').length / stages.length) * 100)
-          if (livePct !== (projSnap.data().completionPercent ?? 0)) {
-            updateDoc(doc(db, 'projects', id!), { completionPercent: livePct })
-          }
-        }
       } catch (err) {
         console.error(err)
         toast.error('Failed to load project')
@@ -367,11 +358,13 @@ export function ProjectDetail() {
   async function addCustomStage() {
     if (!newStageTitle.trim() || !id) return
     const orderIndex = workflowStages.length
+    const totalValue = (project as any)?.totalValue || (project as any)?.projectValue || 0
+    const paymentAmount = Math.round((totalValue * newStagePayPct) / 100)
     const newStage = {
       title: newStageTitle,
       orderIndex,
-      paymentPercent: 0,
-      paymentAmount: newStagePayAmt,
+      paymentPercent: newStagePayPct,
+      paymentAmount,
       tasks: [{ id: 't1', label: 'Task 1', completed: false }],
       notes: '',
       deadline: '',
@@ -384,7 +377,7 @@ export function ProjectDetail() {
       })
       setWorkflowStages(prev => [...prev, { ...newStage, id: ref.id }])
       setNewStageTitle('')
-      setNewStagePayAmt(0)
+      setNewStagePayPct(0)
       setShowAddStage(false)
       toast.success('Stage added')
     } catch {
@@ -1012,8 +1005,8 @@ export function ProjectDetail() {
         <div className="space-y-4">
           <Input label="Stage Title *" placeholder="e.g., Extra Cabling" value={newStageTitle}
             onChange={e => setNewStageTitle(e.target.value)} />
-          <Input label="Payment Amount (₹)" type="number" min={0} value={newStagePayAmt}
-            onChange={e => setNewStagePayAmt(Number(e.target.value))} />
+          <Input label="Payment %" type="number" min={0} max={100} value={newStagePayPct}
+            onChange={e => setNewStagePayPct(Number(e.target.value))} />
         </div>
       </Modal>
 

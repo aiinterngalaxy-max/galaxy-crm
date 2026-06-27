@@ -462,33 +462,6 @@ export interface AppNotification {
   readAt?: Timestamp
 }
 
-// ─── Content Studio ────────────────────────────────────────────────────────────
-
-export type ContentType =
-  | 'reel_script'
-  | 'caption'
-  | 'linkedin_post'
-  | 'product_description'
-  | 'ad_copy'
-
-export type ContentPlatform = 'instagram' | 'linkedin' | 'facebook' | 'youtube' | 'general'
-
-export type ContentStatus = 'draft' | 'approved' | 'published'
-
-export interface ContentItem {
-  id: string
-  createdBy: string
-  createdByName?: string
-  type: ContentType
-  prompt: string
-  generatedContent: string
-  editedContent?: string
-  platform: ContentPlatform
-  status: ContentStatus
-  publishedAt?: Timestamp
-  createdAt: Timestamp
-}
-
 // ─── AI Digest ─────────────────────────────────────────────────────────────────
 
 export interface DigestSection {

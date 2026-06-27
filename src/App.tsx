@@ -16,7 +16,20 @@ import { ProjectDetail } from './modules/projects/ProjectDetail'
 import { SiteOpsPage } from './modules/site-ops/SiteOpsPage'
 import { DailyReportsPage } from './modules/daily-reports/DailyReportsPage'
 import { AccountsPage } from './modules/accounts/AccountsPage'
-import { ContentStudioPage } from './modules/content-studio/ContentStudioPage'
+import { ContentStudioLayout } from './components/content-studio/ContentStudioLayout'
+import { OverviewPage } from './pages/content-studio/OverviewPage'
+import { BrandsPage } from './pages/content-studio/BrandsPage'
+import { PipelinePage } from './pages/content-studio/PipelinePage'
+import { IdeasPage } from './pages/content-studio/IdeasPage'
+import { ScriptsPage } from './pages/content-studio/ScriptsPage'
+import { EditingPage } from './pages/content-studio/EditingPage'
+import { CalendarPage } from './pages/content-studio/CalendarPage'
+import { ShootsPage } from './pages/content-studio/ShootsPage'
+import { PerformancePage } from './pages/content-studio/PerformancePage'
+import { InsightsPage } from './pages/content-studio/InsightsPage'
+import { ReportsPage } from './pages/content-studio/ReportsPage'
+import { ConnectionsPage } from './pages/content-studio/ConnectionsPage'
+import { ActivityPage } from './pages/content-studio/ActivityPage'
 import { NotificationsPage } from './modules/notifications/NotificationsPage'
 import { PartnersPage } from './modules/partners/PartnersPage'
 import { PartnerDetail } from './modules/partners/PartnerDetail'
@@ -105,7 +118,21 @@ function AppRoutes() {
         <Route path="accounts" element={<RequireRole module="accounts"><AccountsPage /></RequireRole>} />
 
         {/* Content Studio */}
-        <Route path="content-studio" element={<RequireRole module="content-studio"><ContentStudioPage /></RequireRole>} />
+        <Route path="content-studio" element={<RequireRole module="content-studio"><ContentStudioLayout /></RequireRole>}>
+          <Route index element={<OverviewPage />} />
+          <Route path="brands" element={<BrandsPage />} />
+          <Route path="pipeline" element={<PipelinePage />} />
+          <Route path="ideas" element={<IdeasPage />} />
+          <Route path="scripts" element={<ScriptsPage />} />
+          <Route path="editing" element={<EditingPage />} />
+          <Route path="calendar" element={<CalendarPage />} />
+          <Route path="shoots" element={<ShootsPage />} />
+          <Route path="performance" element={<PerformancePage />} />
+          <Route path="insights" element={<InsightsPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="connections" element={<ConnectionsPage />} />
+          <Route path="activity" element={<ActivityPage />} />
+        </Route>
 
         {/* Notifications — everyone */}
         <Route path="notifications" element={<NotificationsPage />} />
