@@ -142,7 +142,13 @@ export function SettingsPage() {
     }
   }
 
-  const activeUsers = users.filter(u => u.role !== 'pending')
+  const [filterRole, setFilterRole] = useState<UserRole | 'all'>('all')
+
+  const activeUsers = users.filter(u => {
+    if (u.role === 'pending') return false
+    if (filterRole === 'all') return true
+    return u.role === filterRole
+  })
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'users', label: 'Team Members', icon: <Users className="w-4 h-4" /> },
@@ -266,8 +272,41 @@ export function SettingsPage() {
           )}
 
           {/* Active Team Members */}
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-gray-400">{activeUsers.length} team members</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-gray-400">
+                {activeUsers.length}
+                {filterRole !== 'all' && ` of ${users.filter(u => u.role !== 'pending').length}`}
+                {' '}team members
+                {filterRole !== 'all' && <span className="text-indigo-400"> · {ROLE_LABELS[filterRole as UserRole]}</span>}
+              </p>
+              {filterRole !== 'all' && (
+                <button onClick={() => setFilterRole('all')} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                  Clear filter
+                </button>
+              )}
+            </div>
+            {isAdmin && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setFilterRole('all')}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${filterRole === 'all' ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+                >
+                  All
+                </button>
+                {(Object.entries(ROLE_LABELS) as [UserRole, string][])
+                  .filter(([v]) => v !== 'pending')
+                  .map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => setFilterRole(value)}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${filterRole === value ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
           <Card padding="none">
             {loading && <div className="p-8 text-center text-sm text-gray-600">Loading…</div>}
