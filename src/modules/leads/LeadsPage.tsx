@@ -178,7 +178,7 @@ export function LeadsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Name', 'Phone', 'Source', 'Status', 'Score', 'Assigned To', 'Last Updated', ''].map(h => (
+                  {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Last Updated', ''].map(h => (
                     <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
                       {h}
                     </th>
@@ -187,7 +187,7 @@ export function LeadsPage() {
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {loading && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-600">Loading…</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-600">Loading…</td></tr>
                 )}
                 {filtered.map(lead => (
                   <tr
@@ -208,6 +208,11 @@ export function LeadsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`font-bold ${getScoreColor(lead.aiScore)}`}>{lead.aiScore}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.demoGiven
+                        ? <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">Yes</span>
+                        : <span className="text-xs text-gray-600">No</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
                     <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
@@ -242,7 +247,7 @@ export function LeadsPage() {
                 ))}
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <EmptyState
                         title="No leads found"
                         description={search ? 'Try a different search term.' : 'Add your first lead to get started.'}
@@ -316,6 +321,11 @@ function LeadKanbanCard({ lead, onClick }: { lead: Lead; onClick: () => void }) 
         {lead.floorPlanUrl && (
           <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded">
             Floor plan ✓
+          </span>
+        )}
+        {lead.demoGiven && (
+          <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">
+            Demo ✓
           </span>
         )}
       </div>

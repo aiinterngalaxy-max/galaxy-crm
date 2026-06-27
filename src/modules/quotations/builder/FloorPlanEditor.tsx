@@ -111,10 +111,11 @@ function ProductSidebar({ products }: { products: CRMProduct[] }) {
 }
 
 // ── Zone summary popup ─────────────────────────────────────────────────────────
-function ZoneSummary({ zone, products, onUpdateDevice, onDeleteDevice, onClose }: {
+function ZoneSummary({ zone, products, onUpdateDevice, onDeleteDevice, onDeleteZone, onClose }: {
   zone: FPZone; products: CRMProduct[]
   onUpdateDevice: (id: string, qty: number) => void
   onDeleteDevice: (id: string) => void
+  onDeleteZone: (id: string) => void
   onClose: () => void
 }) {
   const devices = zone.devices || []
@@ -135,6 +136,7 @@ function ZoneSummary({ zone, products, onUpdateDevice, onDeleteDevice, onClose }
       </div>
       <div className="p-3 max-h-60 overflow-y-auto space-y-1.5">
         {devices.length === 0 && <p className="text-xs text-center py-4 text-gray-600">Drag products from sidebar onto this zone</p>}
+
         {devices.map(device => {
           const p = products.find(x => x.id === device.productId)
           if (!p) return null
@@ -157,6 +159,12 @@ function ZoneSummary({ zone, products, onUpdateDevice, onDeleteDevice, onClose }
             </div>
           )
         })}
+      </div>
+      <div className="px-3 pb-3">
+        <button onClick={() => { onDeleteZone(zone.id); onClose() }}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 border border-red-900/40 hover:bg-red-900/20 transition-colors">
+          <Trash2 className="w-3.5 h-3.5" /> Delete Zone
+        </button>
       </div>
     </div>
   )
@@ -377,16 +385,16 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
 
         {/* Zone name input */}
         {naming && (
-          <div className="flex items-center gap-2 px-4 py-2.5 shrink-0 bg-indigo-900/10 border-b border-indigo-800/30">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 shrink-0 bg-indigo-900/10 border-b border-indigo-800/30">
             <span className="text-sm font-semibold text-indigo-400 shrink-0">Name this zone:</span>
             <input autoFocus value={nameInput} onChange={e => setNameInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') confirmZone(); if (e.key === 'Escape') cancelZone() }}
-              className="flex-1 bg-transparent text-sm text-gray-100 outline-none px-3 py-1.5 rounded-xl border border-indigo-700/50"
+              className="flex-1 min-w-40 bg-transparent text-sm text-gray-100 outline-none px-3 py-1.5 rounded-xl border border-indigo-700/50"
               placeholder="e.g. Living Room, Master Bedroom…" />
-            <button onClick={confirmZone} className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white">
+            <button onClick={confirmZone} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-500">
               <Check className="w-3.5 h-3.5" /> Confirm
             </button>
-            <button onClick={cancelZone} className="p-2 rounded-xl bg-gray-800 text-gray-500 border border-gray-700"><X className="w-4 h-4" /></button>
+            <button onClick={cancelZone} className="shrink-0 p-2 rounded-xl bg-gray-800 text-gray-500 border border-gray-700"><X className="w-4 h-4" /></button>
           </div>
         )}
 
@@ -469,6 +477,7 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
             {selectedZone && (
               <ZoneSummary zone={selectedZone} products={products}
                 onUpdateDevice={updateDeviceQty} onDeleteDevice={deleteDevice}
+                onDeleteZone={deleteZone}
                 onClose={() => setSelectedZoneId(null)} />
             )}
           </div>
@@ -498,7 +507,8 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
                     </span>
                   )}
                   <button onClick={e => { e.stopPropagation(); deleteZone(zone.id) }}
-                    className="w-4 h-4 flex items-center justify-center rounded-full opacity-40 hover:opacity-100 text-red-400">
+                    title="Delete zone"
+                    className="w-5 h-5 flex items-center justify-center rounded-full bg-red-900/30 text-red-400 hover:bg-red-600 hover:text-white transition-colors">
                     <X className="w-3 h-3" />
                   </button>
                 </button>

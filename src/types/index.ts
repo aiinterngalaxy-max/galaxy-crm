@@ -91,6 +91,7 @@ export interface Lead {
   partnerName?: string
   convertedToCustomerId?: string
   floorPlanUrl?: string
+  demoGiven?: boolean
   nextFollowUp?: Timestamp
   createdBy: string
   createdAt: Timestamp

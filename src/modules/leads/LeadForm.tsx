@@ -25,6 +25,7 @@ const schema = z.object({
   propertySize: z.string().optional(),
   estimatedBudget: z.coerce.number().optional(),
   assignedTo: z.string().min(1, 'Assign to someone'),
+  demoGiven: z.boolean().optional(),
   notes: z.string().optional(),
 })
 
@@ -118,6 +119,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         assignedToName: assignedUser?.name || null,
         partnerId: selectedPartner?.id || null,
         partnerName: selectedPartner ? (selectedPartner.firmName || selectedPartner.name) : null,
+        demoGiven: data.demoGiven ?? false,
         aiScore,
         aiScoreNote: `Auto-scored based on source and budget.`,
         createdBy: user?.id,
@@ -232,7 +234,19 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         />
       </div>
 
-      <Textarea label="Notes" placeholder="Any initial observations…" rows={2} {...register('notes')} />
+      {/* Demo toggle */}
+  <div className="flex items-center justify-between p-3 rounded-xl border border-gray-700 bg-gray-800/40">
+    <div>
+      <p className="text-sm font-medium text-gray-200">Demo Given</p>
+      <p className="text-xs text-gray-500">Has the client been shown a product demo?</p>
+    </div>
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input type="checkbox" className="sr-only peer" {...register('demoGiven')} />
+      <div className="w-10 h-5 rounded-full bg-gray-700 peer-checked:bg-indigo-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" />
+    </label>
+  </div>
+
+  <Textarea label="Notes" placeholder="Any initial observations…" rows={2} {...register('notes')} />
 
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>

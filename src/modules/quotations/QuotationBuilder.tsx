@@ -231,10 +231,17 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
             </p>
           </div>
         </div>
-        <button onClick={() => onChange({ ...quote, floorPlan: null, floorPlanZones: [] })}
-          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors">
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-400 border border-indigo-800/40 hover:bg-indigo-900/20 cursor-pointer transition-colors">
+            <Upload className="w-3.5 h-3.5" /> Replace
+            <input type="file" accept="image/*,.pdf" className="sr-only"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+          </label>
+          <button onClick={() => onChange({ ...quote, floorPlan: null, floorPlanZones: [] })}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors" title="Remove floor plan">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-hidden">
         <FloorPlanEditor
