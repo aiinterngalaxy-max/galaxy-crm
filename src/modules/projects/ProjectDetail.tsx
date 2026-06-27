@@ -199,7 +199,7 @@ export function ProjectDetail() {
   // Add stage form
   const [showAddStage, setShowAddStage] = useState(false)
   const [newStageTitle, setNewStageTitle] = useState('')
-  const [newStagePayPct, setNewStagePayPct] = useState(0)
+  const [newStagePayAmt, setNewStagePayAmt] = useState(0)
 
   const canManage = role ? canManageProjects(role) : false
   const isSiteWorker = role === 'site_worker'
@@ -359,12 +359,11 @@ export function ProjectDetail() {
     if (!newStageTitle.trim() || !id) return
     const orderIndex = workflowStages.length
     const totalValue = (project as any)?.totalValue || (project as any)?.projectValue || 0
-    const paymentAmount = Math.round((totalValue * newStagePayPct) / 100)
     const newStage = {
       title: newStageTitle,
       orderIndex,
-      paymentPercent: newStagePayPct,
-      paymentAmount,
+      paymentPercent: 0,
+      paymentAmount: newStagePayAmt,
       tasks: [{ id: 't1', label: 'Task 1', completed: false }],
       notes: '',
       deadline: '',
@@ -377,7 +376,7 @@ export function ProjectDetail() {
       })
       setWorkflowStages(prev => [...prev, { ...newStage, id: ref.id }])
       setNewStageTitle('')
-      setNewStagePayPct(0)
+      setNewStagePayAmt(0)
       setShowAddStage(false)
       toast.success('Stage added')
     } catch {
@@ -1019,8 +1018,8 @@ export function ProjectDetail() {
         <div className="space-y-4">
           <Input label="Stage Title *" placeholder="e.g., Extra Cabling" value={newStageTitle}
             onChange={e => setNewStageTitle(e.target.value)} />
-          <Input label="Payment %" type="number" min={0} max={100} value={newStagePayPct}
-            onChange={e => setNewStagePayPct(Number(e.target.value))} />
+          <Input label="Payment Amount (₹)" type="number" min={0} value={newStagePayAmt}
+            onChange={e => setNewStagePayAmt(Number(e.target.value))} />
         </div>
       </Modal>
 
