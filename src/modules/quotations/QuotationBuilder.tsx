@@ -7,7 +7,8 @@ import { PricingSummary } from './builder/PricingSummary'
 import { computePricing } from '../../lib/pricingEngine'
 import { PRESETS, ACTIVE_PRESETS } from '../../data/presets'
 import { formatCurrency } from '../../lib/utils'
-import { db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode, doc, getDoc, updateDoc, uploadBase64 } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp, doc, getDoc, updateDoc, uploadBase64 } from '../../lib/firebase'
+import { nextQuotationCode } from '../../lib/counters'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import type { Customer } from '../../types'
@@ -635,8 +636,14 @@ export function QuotationBuilder() {
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Upload timeout')), 15000)),
           ])
         } catch {
-          // Storage upload failed — fall back to storing base64 directly in Firestore
-          floorPlanUrl = quote.floorPlan.data
+          // Storage upload failed — fall back to base64 in Firestore if small enough
+          // Firestore document limit is 1MB; base64 inflates by ~33%
+          const approxBytes = quote.floorPlan.data.length * 0.75
+          if (approxBytes > 700_000) {
+            toast.error('Floor plan too large to save (~1MB max). Please compress the image or deploy Firebase Storage rules.')
+          } else {
+            floorPlanUrl = quote.floorPlan.data
+          }
         }
       } else if (quote.floorPlan?.data) {
         floorPlanUrl = quote.floorPlan.data // already a URL or previously stored base64
@@ -687,10 +694,9 @@ export function QuotationBuilder() {
         await updateDoc(doc(db, 'quotations', editId), { ...payload, version: currentVersion + 1 })
         toast.success(`Quotation updated (V${currentVersion + 1})`)
       } else {
-        const snap = await getDocs(collection(db, 'quotations'))
         const quotationRef = await addDoc(collection(db, 'quotations'), {
           ...payload,
-          quotationCode:  generateQuotationCode(snap.size + 1),
+          quotationCode:  await nextQuotationCode(),
           version:        1,
           assignedPM:     user?.id,
           assignedPMName: user?.name,

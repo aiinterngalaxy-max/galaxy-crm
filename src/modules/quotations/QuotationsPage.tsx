@@ -10,7 +10,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
 import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument } from '../../lib/firebase'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
-import { generateProjectCode } from '../../lib/firebase'
+import { nextProjectCode } from '../../lib/counters'
 import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
 import type { Quotation } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
@@ -114,11 +114,8 @@ export function QuotationsPage() {
     }
     setCreatingProject(q.id)
     try {
-      const snap = await getDocs(collection(db, 'projects'))
-      const seq = snap.size + 1
-
       // Fetch customer details to pre-fill site info
-      let customerData: any = {}
+      let customerData: Record<string, unknown> = {}
       if (q.customerId) {
         const custSnap = await getDocs(collection(db, 'customers'))
         const custDoc = custSnap.docs.find(d => d.id === q.customerId)
@@ -126,7 +123,7 @@ export function QuotationsPage() {
       }
 
       const projectRef = await addDoc(collection(db, 'projects'), {
-        projectCode: generateProjectCode(seq),
+        projectCode: await nextProjectCode(),
         title: `${q.customerName} — Home Automation`,
         customerId: q.customerId,
         customerName: q.customerName,

@@ -66,7 +66,7 @@ export function SettingsPage() {
       .then(([u, r]) => {
         // Dept heads only see users in their own department
         const filtered = isDeptHead
-          ? u.filter(x => x.department === (currentUser as any)?.department)
+          ? u.filter(x => x.department === currentUser?.department)
           : u
         setUsers(filtered)
         setRequests(r)

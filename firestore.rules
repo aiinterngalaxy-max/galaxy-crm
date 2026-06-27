@@ -18,12 +18,43 @@ service cloud.firestore {
       return getRole() == 'super_admin';
     }
 
+    function isNotPending() {
+      return getRole() != 'pending';
+    }
+
     // Users collection
     match /users/{userId} {
       allow read: if isAuth() && (request.auth.uid == userId || isManagement());
-      allow create: if isSuperAdmin();
-      allow update: if isAuth() && (request.auth.uid == userId || isManagement());
+
+      // First login: user creates their own doc with role=pending only
+      allow create: if isAuth() && request.auth.uid == userId && request.resource.data.role == 'pending';
+
+      // Self-update: allowed but role, isActive, and department are immutable by the user
+      // Only management can change those fields
+      allow update: if isAuth() && (
+        (
+          request.auth.uid == userId
+          && !('role' in request.resource.data.diff(resource.data).affectedKeys())
+          && !('isActive' in request.resource.data.diff(resource.data).affectedKeys())
+          && !('department' in request.resource.data.diff(resource.data).affectedKeys())
+        )
+        || isManagement()
+      );
+
       allow delete: if isSuperAdmin();
+    }
+
+    // Counter document for atomic code generation (leads, quotations, projects)
+    match /meta/{docId} {
+      allow read, write: if isAuth() && isNotPending();
+    }
+
+    // Access Requests
+    match /accessRequests/{reqId} {
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isManagement());
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isManagement();
+      allow delete: if isManagement();
     }
 
     // Leads
@@ -45,7 +76,7 @@ service cloud.firestore {
 
     // Customers
     match /customers/{customerId} {
-      allow read: if isAuth() && getRole() != 'site_worker';
+      allow read: if isAuth() && getRole() != 'site_worker' && getRole() != 'pending';
       allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager', 'accounts'];
       allow delete: if isManagement();
     }
@@ -63,35 +94,40 @@ service cloud.firestore {
 
     // Products
     match /products/{productId} {
-      allow read: if isAuth();
+      allow read: if isAuth() && isNotPending();
       allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head'];
     }
 
     // Projects
     match /projects/{projectId} {
-      allow read: if isAuth() && getRole() != 'marketing';
+      allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
       allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
       allow delete: if isManagement();
 
+      match /workflow/{stageId} {
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
+        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      }
+
       match /milestones/{milestoneId} {
-        allow read: if isAuth() && getRole() != 'marketing';
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
         allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
       }
 
       match /tasks/{taskId} {
-        allow read: if isAuth() && getRole() != 'marketing';
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
         allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'site_worker'];
       }
 
       match /siteReports/{reportId} {
-        allow read: if isAuth() && getRole() != 'marketing';
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
         allow create: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'site_worker'];
         allow update, delete: if isManagement();
       }
 
       match /issues/{issueId} {
-        allow read: if isAuth() && getRole() != 'marketing';
-        allow create: if isAuth() && getRole() != 'marketing';
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
+        allow create: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
         allow update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
       }
     }
@@ -114,24 +150,26 @@ service cloud.firestore {
         getRole() == 'dept_head' ||
         resource.data.employeeId == request.auth.uid
       );
-      allow create: if isAuth() && request.resource.data.employeeId == request.auth.uid;
+      allow create: if isAuth() && isNotPending() && request.resource.data.employeeId == request.auth.uid;
       allow update: if isAuth() && (
         resource.data.employeeId == request.auth.uid ||
         isManagement()
       );
     }
 
-    // AI Digests — read only for management
+    // AI Digests — read only for management, no client writes
     match /aiDigests/{digestId} {
       allow read: if isAuth() && isManagement();
-      allow write: if false; // Cloud Functions only
+      allow write: if false;
     }
 
     // Notifications
+    // Any non-pending user can create (needed for cross-role notifications e.g. PM → management approval)
+    // Only the recipient can read/update/delete their own notifications
     match /notifications/{notifId} {
       allow read: if isAuth() && resource.data.recipientId == request.auth.uid;
       allow update: if isAuth() && resource.data.recipientId == request.auth.uid;
-      allow create: if isAuth();
+      allow create: if isAuth() && isNotPending();
       allow delete: if isAuth() && resource.data.recipientId == request.auth.uid;
     }
 

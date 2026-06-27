@@ -7,7 +7,8 @@ import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, addDoc, getDocs, serverTimestamp, generateLeadCode } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp } from '../../lib/firebase'
+import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
 import type { User, Partner } from '../../types'
 import toast from 'react-hot-toast'
@@ -91,8 +92,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     }
     setLoading(true)
     try {
-      const snap = await getDocs(collection(db, 'leads'))
-      const seq = snap.size + 1
+      const leadCode = await nextLeadCode()
 
       const assignedUser = bdUsers.find(u => u.id === data.assignedTo)
       const selectedPartner = partners.find(p => p.id === data.partnerId)
@@ -103,7 +103,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
       })
 
       await addDoc(collection(db, 'leads'), {
-        leadCode: generateLeadCode(seq),
+        leadCode,
         status: 'new',
         businessType: data.businessType,
         source: data.source,

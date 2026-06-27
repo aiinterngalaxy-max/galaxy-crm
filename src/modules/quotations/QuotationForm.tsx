@@ -6,8 +6,9 @@ import { Textarea } from '../../components/ui/Textarea'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, collection, addDoc, getDocs, serverTimestamp, generateQuotationCode
+  db, collection, addDoc, getDocs, serverTimestamp
 } from '../../lib/firebase'
+import { nextQuotationCode } from '../../lib/counters'
 import { formatCurrency } from '../../lib/utils'
 import type { Customer, Product, QuotationLineItem } from '../../types'
 import toast from 'react-hot-toast'
@@ -180,8 +181,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
 
     setLoading(true)
     try {
-      const snap = await getDocs(collection(db, 'quotations'))
-      const seq = snap.size + 1
+      const quotationCode = await nextQuotationCode()
       const customer = customers.find(c => c.id === selectedCustomerId)
 
       const validUntil = new Date()
@@ -192,7 +192,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         .map((l, idx) => ({ ...l, id: `li_${idx + 1}` }))
 
       const quotationRef = await addDoc(collection(db, 'quotations'), {
-        quotationCode: generateQuotationCode(seq),
+        quotationCode,
         customerId: selectedCustomerId,
         customerName: customer?.name || '',
         leadId: leadId || null,

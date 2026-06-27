@@ -8,9 +8,10 @@ import { Select } from '../../components/ui/Select'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, collection, query, orderBy, onSnapshot, getDocs, deleteDocument,
-  addDoc, serverTimestamp, generateProjectCode
+  db, collection, query, orderBy, onSnapshot, deleteDocument,
+  addDoc, getDocs, serverTimestamp
 } from '../../lib/firebase'
+import { nextProjectCode } from '../../lib/counters'
 import { formatDate, canManageProjects } from '../../lib/utils'
 import type { Project, ProjectStatus } from '../../types'
 import { cn } from '../../lib/utils'
@@ -70,9 +71,7 @@ export function ProjectsPage() {
     }
     setSaving(true)
     try {
-      // Get next project code
-      const snap = await getDocs(collection(db, 'projects'))
-      const code = generateProjectCode(snap.size + 1)
+      const code = await nextProjectCode()
 
       // Create customer record
       const custRef = await addDoc(collection(db, 'customers'), {

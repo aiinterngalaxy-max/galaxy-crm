@@ -1,48 +1,34 @@
-import { createClient, type Client as LibsqlClient, type InValue } from '@libsql/client/web'
+// Content Studio previously used Turso/libsql. That dependency has been removed.
+// These stubs preserve the module interface so the app compiles.
+// Content Studio data should be migrated to Firestore.
 
-let _client: LibsqlClient | undefined
+type InValue = string | number | boolean | null
+type StubResult = { rows: unknown[]; lastInsertRowid: number }
 
-function buildUrl(raw: string): string {
-  return raw.startsWith('libsql://') ? raw.replace('libsql://', 'https://') : raw
+const STUB: StubResult = { rows: [], lastInsertRowid: 0 }
+
+export function db(): never {
+  throw new Error('Content Studio DB not configured. Migrate to Firestore.')
 }
 
-export function db(): LibsqlClient {
-  if (_client) return _client
-  const url = import.meta.env.VITE_TURSO_DATABASE_URL as string | undefined
-  const authToken = import.meta.env.VITE_TURSO_AUTH_TOKEN as string | undefined
-  if (!url) {
-    throw new Error('VITE_TURSO_DATABASE_URL is not set. Add it (and VITE_TURSO_AUTH_TOKEN) to .env.local.')
-  }
-  _client = createClient({ url: buildUrl(url), authToken })
-  return _client
+export async function all<T = Record<string, unknown>>(_sql: string, _args: InValue[] = []): Promise<T[]> {
+  console.warn('Content Studio DB not configured.')
+  return []
 }
 
-export async function all<T = any>(sql: string, args: InValue[] = []): Promise<T[]> {
-  const rs = await db().execute({ sql, args })
-  return rs.rows as unknown as T[]
+export async function one<T = Record<string, unknown>>(_sql: string, _args: InValue[] = []): Promise<T | null> {
+  console.warn('Content Studio DB not configured.')
+  return null
 }
 
-export async function one<T = any>(sql: string, args: InValue[] = []): Promise<T | null> {
-  const rows = await all<T>(sql, args)
-  return rows.length ? rows[0] : null
+export async function run(_sql: string, _args: InValue[] = []): Promise<StubResult> {
+  console.warn('Content Studio DB not configured.')
+  return STUB
 }
 
-export async function run(sql: string, args: InValue[] = []) {
-  return db().execute({ sql, args })
+export async function batch(_statements: { sql: string; args?: InValue[] }[]): Promise<StubResult[]> {
+  console.warn('Content Studio DB not configured.')
+  return [STUB]
 }
 
-export async function batch(statements: { sql: string; args?: InValue[] }[]) {
-  return db().batch(
-    statements.map((s) => ({ sql: s.sql, args: s.args ?? [] })),
-    'write',
-  )
-}
-
-export function resetClient() {
-  try {
-    _client?.close()
-  } catch {
-    // ignore
-  }
-  _client = undefined
-}
+export function resetClient() {}
