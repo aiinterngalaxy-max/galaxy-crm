@@ -384,7 +384,7 @@ export function ProjectDetail() {
       })
       setWorkflowStages(prev => [...prev, { ...newStage, id: ref.id }])
       setNewStageTitle('')
-      setNewStagePayPct(0)
+      setNewStagePayAmt(0)
       setShowAddStage(false)
       toast.success('Stage added')
     } catch {
