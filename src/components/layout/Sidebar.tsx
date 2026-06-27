@@ -43,9 +43,8 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   const location = useLocation()
 
   const visibleItems = NAV_ITEMS.filter((item) => {
-    if (item.module === 'dashboard') return true
-    if (item.module === 'notifications') return true
     if (!role) return false
+    if (item.module === 'dashboard') return true
     if (role === 'super_admin' || role === 'management' || role === 'ai_team') return true
     return canAccess(role, item.module)
   })

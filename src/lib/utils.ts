@@ -145,17 +145,21 @@ export function canAccess(role: UserRole, module: string): boolean {
   if (fullAccess.includes(role)) return true
 
   const moduleAccess: Record<string, UserRole[]> = {
-    leads:          ['dept_head', 'bd_exec', 'project_manager'],
-    partners:       ['dept_head', 'bd_exec', 'project_manager'],
-    customers:      ['dept_head', 'bd_exec', 'project_manager', 'accounts'],
-    quotations:     ['dept_head', 'project_manager'],
-    projects:       ['dept_head', 'project_manager', 'site_worker'],
-    'site-ops':     ['dept_head', 'project_manager', 'site_worker'],
-    'daily-reports':['dept_head', 'bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts'],
-    accounts:       ['dept_head', 'accounts'],
-    'content-studio':['dept_head', 'marketing'],
-    notifications:  ['dept_head', 'bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts'],
-    settings:       ['dept_head'],
+    // BD only
+    leads:           ['bd_exec', 'dept_head'],
+    partners:        ['bd_exec', 'dept_head'],
+    // PM only
+    customers:       ['project_manager', 'dept_head'],
+    quotations:      ['project_manager', 'dept_head'],
+    projects:        ['project_manager', 'dept_head', 'site_worker'],
+    'site-ops':      ['project_manager', 'dept_head', 'site_worker'],
+    // Everyone
+    'daily-reports': ['bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts', 'dept_head'],
+    notifications:   ['bd_exec', 'project_manager', 'site_worker', 'marketing', 'accounts', 'dept_head'],
+    // Role-specific
+    accounts:        ['accounts'],
+    'content-studio':['marketing'],
+    settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
 
   return moduleAccess[module]?.includes(role) ?? false

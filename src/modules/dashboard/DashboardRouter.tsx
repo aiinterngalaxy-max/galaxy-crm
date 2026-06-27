@@ -3,6 +3,8 @@ import { ManagementDashboard } from './ManagementDashboard'
 import { BDDashboard } from './BDDashboard'
 import { PMDashboard } from './PMDashboard'
 import { SiteWorkerDashboard } from './SiteWorkerDashboard'
+import { AccountsDashboard } from './AccountsDashboard'
+import { AIDashboard } from './AIDashboard'
 import { GenericDashboard } from './GenericDashboard'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
 
@@ -16,12 +18,17 @@ export function DashboardRouter() {
     case 'management':
       return <ManagementDashboard />
     case 'bd_exec':
-    case 'dept_head':
       return <BDDashboard />
     case 'project_manager':
       return <PMDashboard />
     case 'site_worker':
       return <SiteWorkerDashboard />
+    case 'accounts':
+      return <AccountsDashboard />
+    case 'ai_team':
+      return <AIDashboard />
+    case 'dept_head':
+      return <ManagementDashboard />
     default:
       return <GenericDashboard />
   }
