@@ -634,12 +634,12 @@ export function QuotationBuilder() {
             ),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Upload timeout')), 15000)),
           ])
-        } catch (uploadErr) {
-          console.warn('Floor plan upload failed, saving without it:', uploadErr)
-          toast('Floor plan upload failed — quotation saved without floor plan image', { icon: '⚠️' })
+        } catch {
+          // Storage upload failed — fall back to storing base64 directly in Firestore
+          floorPlanUrl = quote.floorPlan.data
         }
       } else if (quote.floorPlan?.data) {
-        floorPlanUrl = quote.floorPlan.data // already a URL
+        floorPlanUrl = quote.floorPlan.data // already a URL or previously stored base64
       }
 
       const lineItems = pricing.lineItems.map((item, idx) => ({
