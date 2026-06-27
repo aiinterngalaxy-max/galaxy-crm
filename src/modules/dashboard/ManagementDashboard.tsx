@@ -101,7 +101,7 @@ export function ManagementDashboard() {
           icon={<Receipt className="w-5 h-5 text-yellow-400" />}
           iconBg="bg-yellow-900/40"
           trend={overdueInvoices.length > 0 ? { value: `${overdueInvoices.length} overdue`, up: false } : undefined}
-          onClick={() => navigate('/accounts')}
+          onClick={() => navigate('/projects')}
         />
         <StatCard
           label="Hot Leads"
@@ -220,7 +220,7 @@ export function ManagementDashboard() {
               </div>
             ))}
             {overdueInvoices.map(inv => (
-              <div key={inv.id} onClick={() => navigate('/accounts')}
+              <div key={inv.id} onClick={() => navigate('/projects')}
                 className="flex items-start gap-3 px-5 py-3 hover:bg-gray-800/50 cursor-pointer">
                 <Clock className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
                 <div>

@@ -73,7 +73,7 @@ describe('calculateLeadScore', () => {
 describe('canAccess', () => {
   const fullAccessRoles: UserRole[] = ['super_admin', 'management', 'ai_team']
   const modules = ['leads', 'partners', 'customers', 'quotations', 'projects',
-    'daily-reports', 'notifications', 'accounts', 'content-studio', 'settings']
+    'daily-reports', 'notifications', 'content-studio', 'settings']
 
   fullAccessRoles.forEach(role => {
     it(`${role} can access every module`, () => {
@@ -99,9 +99,8 @@ describe('canAccess', () => {
     expect(canAccess('project_manager', 'projects')).toBe(true)
   })
 
-  it('project_manager cannot access leads or accounts', () => {
+  it('project_manager cannot access leads', () => {
     expect(canAccess('project_manager', 'leads')).toBe(false)
-    expect(canAccess('project_manager', 'accounts')).toBe(false)
   })
 
   it('marketing can only access content-studio (plus daily-reports and notifications)', () => {
@@ -112,16 +111,8 @@ describe('canAccess', () => {
     expect(canAccess('marketing', 'projects')).toBe(false)
   })
 
-  it('accounts can only access accounts module (plus daily-reports and notifications)', () => {
-    expect(canAccess('accounts', 'accounts')).toBe(true)
-    expect(canAccess('accounts', 'daily-reports')).toBe(true)
-    expect(canAccess('accounts', 'notifications')).toBe(true)
-    expect(canAccess('accounts', 'leads')).toBe(false)
-    expect(canAccess('accounts', 'quotations')).toBe(false)
-  })
-
   it('settings is blocked for all non-fullAccess roles', () => {
-    const restricted: UserRole[] = ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head']
+    const restricted: UserRole[] = ['bd_exec', 'project_manager', 'marketing', 'dept_head']
     restricted.forEach(role => {
       expect(canAccess(role, 'settings')).toBe(false)
     })

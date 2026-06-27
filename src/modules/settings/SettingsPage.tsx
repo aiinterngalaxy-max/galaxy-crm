@@ -33,7 +33,6 @@ const DEPT_OPTIONS: { value: Department; label: string }[] = [
   { value: 'project_management', label: 'Project Management' },
   { value: 'marketing', label: 'Marketing' },
   { value: 'ai_department', label: 'AI Department' },
-  { value: 'accounts', label: 'Accounts' },
 ]
 
 type Tab = 'users' | 'products' | 'system'

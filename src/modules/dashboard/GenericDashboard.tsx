@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { ClipboardList, Bell, Sparkles, Receipt } from 'lucide-react'
+import { ClipboardList, Bell, Sparkles } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
 import { ROLE_LABELS } from '../../lib/utils'
@@ -12,7 +12,6 @@ export function GenericDashboard() {
     { label: 'Daily Reports', icon: <ClipboardList className="w-5 h-5 text-indigo-400" />, path: '/daily-reports' },
     { label: 'Notifications', icon: <Bell className="w-5 h-5 text-yellow-400" />, path: '/notifications' },
     { label: 'Content Studio', icon: <Sparkles className="w-5 h-5 text-pink-400" />, path: '/content-studio', roles: ['marketing', 'ai_team'] },
-    { label: 'Accounts', icon: <Receipt className="w-5 h-5 text-violet-400" />, path: '/accounts', roles: ['accounts'] },
   ]
 
   return (

@@ -20,7 +20,6 @@ const BOQPreview = lazy(() => import('./modules/quotations/BOQPreview').then(m =
 const ProjectsPage = lazy(() => import('./modules/projects/ProjectsPage').then(m => ({ default: m.ProjectsPage })))
 const ProjectDetail = lazy(() => import('./modules/projects/ProjectDetail').then(m => ({ default: m.ProjectDetail })))
 const DailyReportsPage = lazy(() => import('./modules/daily-reports/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })))
-const AccountsPage = lazy(() => import('./modules/accounts/AccountsPage').then(m => ({ default: m.AccountsPage })))
 const ContentStudioLayout = lazy(() => import('./components/content-studio/ContentStudioLayout').then(m => ({ default: m.ContentStudioLayout })))
 const OverviewPage = lazy(() => import('./pages/content-studio/OverviewPage').then(m => ({ default: m.OverviewPage })))
 const BrandsPage = lazy(() => import('./pages/content-studio/BrandsPage').then(m => ({ default: m.BrandsPage })))
@@ -113,9 +112,6 @@ function AppRoutes() {
 
           {/* Daily Reports */}
           <Route path="daily-reports" element={<RequireRole module="daily-reports"><DailyReportsPage /></RequireRole>} />
-
-          {/* Accounts */}
-          <Route path="accounts" element={<RequireRole module="accounts"><AccountsPage /></RequireRole>} />
 
           {/* Content Studio */}
           <Route path="content-studio" element={<RequireRole module="content-studio"><ContentStudioLayout /></RequireRole>}>

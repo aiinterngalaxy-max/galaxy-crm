@@ -53,11 +53,10 @@ function csTime(entry: ActivityEntry): string {
   return isNaN(d.getTime()) ? '' : format(d, 'h:mm a')
 }
 
-const DEPARTMENTS = ['All', 'business_development', 'project_management', 'accounts', 'management']
+const DEPARTMENTS = ['All', 'business_development', 'project_management', 'management']
 const DEPT_LABELS: Record<string, string> = {
   business_development: 'BD',
   project_management: 'PM',
-  accounts: 'Accounts',
   management: 'Management',
 }
 

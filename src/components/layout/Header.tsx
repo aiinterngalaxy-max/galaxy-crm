@@ -11,7 +11,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/quotations':     'Quotations',
   '/projects':       'Projects',
   '/daily-reports':  'Daily Reports',
-  '/accounts':       'Accounts',
   '/content-studio': 'Content Studio',
   '/notifications':  'Notifications',
   '/settings':       'Settings',

@@ -10,7 +10,6 @@ export type UserRole =
   | 'project_manager'
   | 'marketing'
   | 'ai_team'
-  | 'accounts'
   | 'pending'
 
 export type Department =
@@ -19,7 +18,6 @@ export type Department =
   | 'project_management'
   | 'marketing'
   | 'ai_department'
-  | 'accounts'
 
 export interface User {
   id: string

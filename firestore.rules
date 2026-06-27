@@ -77,13 +77,13 @@ service cloud.firestore {
     // Customers
     match /customers/{customerId} {
       allow read: if isAuth() && isNotPending();
-      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager', 'accounts'];
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'];
       allow delete: if isManagement();
     }
 
     // Quotations
     match /quotations/{quoteId} {
-      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager', 'accounts'];
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'];
       allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
       allow delete: if isManagement();
 
@@ -134,12 +134,12 @@ service cloud.firestore {
 
     // Invoices
     match /invoices/{invoiceId} {
-      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager', 'accounts'];
-      allow write: if isAuth() && getRole() in ['super_admin', 'management', 'accounts'];
+      allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      allow write: if isAuth() && getRole() in ['super_admin', 'management'];
 
       match /payments/{paymentId} {
-        allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'accounts'];
-        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'accounts'];
+        allow read: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head'];
+        allow write: if isAuth() && getRole() in ['super_admin', 'management'];
       }
     }
 

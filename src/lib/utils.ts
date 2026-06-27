@@ -133,7 +133,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   project_manager: 'Project Manager',
   marketing:       'Marketing',
   ai_team:         'AI Team',
-  accounts:        'Accounts',
   pending:         'Pending Approval',
 }
 
@@ -152,10 +151,9 @@ export function canAccess(role: UserRole, module: string): boolean {
     quotations:      ['project_manager', 'dept_head'],
     projects:        ['project_manager', 'dept_head'],
     // Everyone
-    'daily-reports': ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head'],
-    notifications:   ['bd_exec', 'project_manager', 'marketing', 'accounts', 'dept_head'],
+    'daily-reports': ['bd_exec', 'project_manager', 'marketing', 'dept_head'],
+    notifications:   ['bd_exec', 'project_manager', 'marketing', 'dept_head'],
     // Role-specific
-    accounts:        ['accounts'],
     'content-studio':['marketing'],
     settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
