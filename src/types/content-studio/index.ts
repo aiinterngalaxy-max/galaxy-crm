@@ -126,7 +126,7 @@ export interface PerfRow extends Performance {
 
 export interface ActivityEntry {
   id: number;
-  entity_type: "content" | "brand" | "idea" | "script" | "shoot";
+  entity_type: "content" | "brand" | "idea" | "script" | "shoot" | "sync";
   entity_id: number;
   action: string;
   detail: string;
