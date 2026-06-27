@@ -8,4 +8,8 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  test: {
+    environment: 'node',
+    globals: true,
+  },
 })
