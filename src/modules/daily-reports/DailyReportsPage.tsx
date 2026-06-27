@@ -53,11 +53,13 @@ function csTime(entry: ActivityEntry): string {
   return isNaN(d.getTime()) ? '' : format(d, 'h:mm a')
 }
 
-const DEPARTMENTS = ['All', 'business_development', 'project_management', 'management']
+const DEPARTMENTS = ['All', 'business_development', 'project_management', 'management', 'marketing', 'ai_department']
 const DEPT_LABELS: Record<string, string> = {
   business_development: 'BD',
   project_management: 'PM',
   management: 'Management',
+  marketing: 'Marketing',
+  ai_department: 'AI Dept',
 }
 
 export function DailyReportsPage() {

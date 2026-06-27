@@ -70,6 +70,7 @@ export function ManagementDashboard() {
           size="sm"
           icon={<Zap className="w-3.5 h-3.5 text-yellow-400" />}
           onClick={() => {}}
+          title="Coming soon"
         >
           AI Digest
         </Button>
