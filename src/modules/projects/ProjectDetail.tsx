@@ -234,10 +234,19 @@ export function ProjectDetail() {
             electricianContact: p.electricianContact || '',
           })
         }
-        setWorkflowStages(stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage))
+        const stages = stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage)
+        setWorkflowStages(stages)
         setReports(repSnap.docs.map(d => ({ id: d.id, ...d.data() }) as SiteReport))
         const allUsers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }) as AppUser)
         setWorkers(allUsers.filter(u => u.role === 'site_worker' || u.role === 'project_manager'))
+
+        // Sync completionPercent if out of date
+        if (projSnap.exists() && stages.length > 0) {
+          const livePct = Math.round((stages.filter(s => s.status === 'completed').length / stages.length) * 100)
+          if (livePct !== (projSnap.data().completionPercent ?? 0)) {
+            updateDoc(doc(db, 'projects', id!), { completionPercent: livePct })
+          }
+        }
       } catch (err) {
         console.error(err)
         toast.error('Failed to load project')
