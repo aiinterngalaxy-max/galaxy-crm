@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
 import { STAGES, STAGE_STYLE, stageProgress } from '@/lib/content-studio/stages'
 import { fmtDate, dueLabel } from '@/lib/content-studio/format'
 import type { ContentRow } from '@/types/content-studio'
@@ -74,8 +75,9 @@ export function KanbanBoard({
       const updated = await updateContent(id, { stage }, actor)
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...updated } : r)))
       onChanged()
-    } catch {
+    } catch (err: any) {
       setRows(prev)
+      toast.error(err?.message || `Couldn't move "${cur.title}"`)
     } finally {
       setSaving(null)
     }

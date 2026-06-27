@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
+import toast from 'react-hot-toast'
 import { fmtDate } from '@/lib/content-studio/format'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import type { Idea } from '@/types/content-studio'
 import { deleteIdea as apiDeleteIdea, updateIdea } from '@/lib/content-studio/queries'
+import { notifyTeamOfIdeaApproved, notifyTeamOfIdeaRejected } from '@/lib/notifyHelpers'
 
-export function IdeaRow({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
+export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?: string; onChanged: () => void }) {
   const { viewer } = useViewer()
   const canApprove = !!viewer?.is_owner
   const [pitched, setPitched] = useState(!!idea.pitched)
@@ -14,11 +16,18 @@ export function IdeaRow({ idea, onChanged }: { idea: Idea; onChanged: () => void
   const [busy, setBusy] = useState(false)
   const noteRef = useRef<HTMLInputElement>(null)
 
-  async function patch(body: Record<string, any>) {
+  async function patch(body: Record<string, any>): Promise<boolean> {
     setBusy(true)
     try {
       await updateIdea(idea.id, body)
       onChanged()
+      return true
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update idea')
+      setPitched(!!idea.pitched)
+      setApproved(!!idea.approved)
+      setRejected(!!idea.rejected)
+      return false
     } finally {
       setBusy(false)
     }
@@ -30,7 +39,8 @@ export function IdeaRow({ idea, onChanged }: { idea: Idea; onChanged: () => void
     try {
       await apiDeleteIdea(idea.id)
       onChanged()
-    } catch {
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete idea')
       setBusy(false)
     }
   }
@@ -64,7 +74,9 @@ export function IdeaRow({ idea, onChanged }: { idea: Idea; onChanged: () => void
             const v = !approved
             setApproved(v)
             if (v) setRejected(false)
-            patch({ approved: v ? 1 : 0, rejected: 0 })
+            patch({ approved: v ? 1 : 0, rejected: 0 }).then((ok) => {
+              if (ok && v) notifyTeamOfIdeaApproved({ ideaId: idea.id, title: idea.title, brandName }).catch(console.error)
+            })
           }}
         />
         <Toggle
@@ -81,7 +93,9 @@ export function IdeaRow({ idea, onChanged }: { idea: Idea; onChanged: () => void
               setApproved(false)
               setTimeout(() => noteRef.current?.focus(), 50)
             }
-            patch({ rejected: v ? 1 : 0, approved: 0 })
+            patch({ rejected: v ? 1 : 0, approved: 0 }).then((ok) => {
+              if (ok && v) notifyTeamOfIdeaRejected({ ideaId: idea.id, title: idea.title, brandName, reviewNote }).catch(console.error)
+            })
           }}
         />
       </div>

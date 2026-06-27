@@ -107,7 +107,7 @@ function Section({
                 </div>
                 {s.review_comments && <div className="text-xs text-gray-500 mt-1.5 italic">"{s.review_comments}"</div>}
               </div>
-              <ScriptStatus id={s.id} status={s.status} onChanged={onChanged} />
+              <ScriptStatus id={s.id} status={s.status} contentTitle={s.title} brandName={s.brand_name} onChanged={onChanged} />
             </div>
           )
         })}

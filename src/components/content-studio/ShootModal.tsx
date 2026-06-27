@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brand, Shoot } from '@/types/content-studio'
 import { createShoot, deleteShoot, updateShoot } from '@/lib/content-studio/queries'
+import { useViewer } from '@/lib/content-studio/viewer-context'
 
 const STATUSES = ['Planned', 'Scheduled', 'Completed', 'Cancelled'] as const
 
@@ -44,6 +45,8 @@ function fromShoot(s: ShootRow) {
 }
 
 export function ShootModal({ shoot, brands, onClose, onSaved }: Props) {
+  const { viewer } = useViewer()
+  const canDelete = !!viewer?.is_owner
   const firstRef = useRef<HTMLInputElement>(null)
   const isEdit = !!shoot
 
@@ -206,9 +209,13 @@ export function ShootModal({ shoot, brands, onClose, onSaved }: Props) {
 
           <div className="flex items-center justify-between pt-1">
             {isEdit ? (
-              <button type="button" disabled={busy} className="text-sm font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-50" onClick={handleDelete}>
-                Delete shoot
-              </button>
+              canDelete ? (
+                <button type="button" disabled={busy} className="text-sm font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-50" onClick={handleDelete}>
+                  Delete shoot
+                </button>
+              ) : (
+                <span className="text-xs text-gray-600" title="Only the Owner can delete shoots">Owner-only delete</span>
+              )
             ) : (
               <span />
             )}

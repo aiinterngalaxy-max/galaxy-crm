@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brand } from '@/types/content-studio'
 import { createBrand, deleteBrand, updateBrand } from '@/lib/content-studio/queries'
+import { useViewer } from '@/lib/content-studio/viewer-context'
 
 const STATUSES = ['Active', 'Onboarding', 'Paused', 'Retired'] as const
 
@@ -11,6 +12,8 @@ interface Props {
 }
 
 export function BrandModal({ brand, onClose, onSaved }: Props) {
+  const { viewer } = useViewer()
+  const canDelete = !!viewer?.is_owner
   const nameRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
@@ -145,25 +148,29 @@ export function BrandModal({ brand, onClose, onSaved }: Props) {
 
           <div className="flex items-center justify-between pt-1">
             {brand ? (
-              <button
-                type="button"
-                disabled={busy}
-                className="text-sm font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-50"
-                onClick={async () => {
-                  if (!confirm(`Delete "${brand.name}"? This cannot be undone.`)) return
-                  setBusy(true)
-                  setError('')
-                  try {
-                    await deleteBrand(brand.id)
-                    onSaved()
-                  } catch (err: any) {
-                    setError(err.message || 'Something went wrong.')
-                    setBusy(false)
-                  }
-                }}
-              >
-                Delete brand
-              </button>
+              canDelete ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="text-sm font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!confirm(`Delete "${brand.name}"? This cannot be undone.`)) return
+                    setBusy(true)
+                    setError('')
+                    try {
+                      await deleteBrand(brand.id)
+                      onSaved()
+                    } catch (err: any) {
+                      setError(err.message || 'Something went wrong.')
+                      setBusy(false)
+                    }
+                  }}
+                >
+                  Delete brand
+                </button>
+              ) : (
+                <span className="text-xs text-gray-600" title="Only the Owner can delete brands">Owner-only delete</span>
+              )
             ) : (
               <span />
             )}

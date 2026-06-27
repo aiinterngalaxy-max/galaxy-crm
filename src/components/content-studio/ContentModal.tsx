@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
+import { Check } from 'lucide-react'
 import { STAGES, PLATFORMS, PRIORITIES } from '@/lib/content-studio/stages'
 import type { ContentRow } from '@/types/content-studio'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { createComment, createContent, deleteContent, getComments, updateContent } from '@/lib/content-studio/queries'
+import { notifyTeamOfContentPublished } from '@/lib/notifyHelpers'
 
 const FORMATS = ['Reel', 'Short', 'Long-form', 'Carousel', 'Post'] as const
 
@@ -31,6 +34,7 @@ function blank(brands: { id: number; name: string }[], defaultBrandId?: number) 
     shoot_date: '',
     publish_date: '',
     notes: '',
+    approved: false,
   }
 }
 
@@ -51,6 +55,7 @@ function fromRow(c: ContentRow) {
     shoot_date: c.shoot_date ?? '',
     publish_date: c.publish_date ?? '',
     notes: c.notes ?? '',
+    approved: !!c.approved,
   }
 }
 
@@ -133,8 +138,8 @@ export function ContentModal({ content, brands, defaultBrandId, onClose, onSaved
       const comment = await createComment(content.id, text, author)
       setComments((prev) => [...prev, comment])
       setCommentText('')
-    } catch {
-      // ignore
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to post comment')
     } finally {
       setCommentBusy(false)
     }
@@ -169,11 +174,22 @@ export function ContentModal({ content, brands, defaultBrandId, onClose, onSaved
       publish_date: form.publish_date || null,
       notes: form.notes.trim(),
     }
+    if (isEdit) payload.approved = form.approved ? 1 : 0
 
     setBusy(true)
     try {
-      if (isEdit) await updateContent(content!.id, payload, viewer?.name)
-      else await createContent(payload, viewer?.name)
+      let savedId = content?.id
+      if (isEdit) {
+        const saved = await updateContent(content!.id, payload, viewer?.name)
+        savedId = saved.id
+      } else {
+        const saved = await createContent(payload, viewer?.name)
+        savedId = saved.id
+      }
+      if (form.stage === 'Published' && content?.stage !== 'Published' && savedId) {
+        const brandName = brands.find((b) => b.id === Number(form.brand_id))?.name
+        notifyTeamOfContentPublished({ contentId: savedId, title: form.title.trim(), brandName }).catch(console.error)
+      }
       onSaved()
     } catch (err: any) {
       setError(err.message || 'Something went wrong.')
@@ -241,6 +257,28 @@ export function ContentModal({ content, brands, defaultBrandId, onClose, onSaved
               </select>
             </div>
           </div>
+
+          {isEdit && (
+            <div>
+              {viewer?.is_owner ? (
+                <label className="inline-flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.approved}
+                    disabled={busy}
+                    onChange={(e) => setForm((f) => ({ ...f, approved: e.target.checked }))}
+                    className="rounded border-gray-700 bg-gray-800 text-gold-500 focus:ring-gold-500"
+                  />
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  Content approved — required to advance past Review
+                </label>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  {form.approved ? '✓ Content approved' : 'Not yet approved — needs owner sign-off before it can advance past Review'}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

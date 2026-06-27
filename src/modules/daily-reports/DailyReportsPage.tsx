@@ -235,6 +235,9 @@ export function DailyReportsPage() {
   const dept = (user as any)?.department as string | undefined
   const isBDUser = role === 'bd_exec' || role === 'dept_head' || dept === 'business_development'
   const isPMUser = role === 'project_manager' || dept === 'project_management'
+  const isMarketingUser = role === 'marketing' || dept === 'marketing'
+  const showBDTiles = isBDUser || (!isBDUser && !isPMUser && !isMarketingUser)
+  const showPMTiles = isPMUser || (!isBDUser && !isPMUser && !isMarketingUser)
   const totalActivity = todayStats.leadsCreated.length + todayStats.callsMade.length +
     todayStats.leadsProgressed.length + todayStats.quotationsCreated + todayStats.activeProjects +
     todayStats.contentStudioActivity.length
@@ -284,9 +287,10 @@ export function DailyReportsPage() {
             <h2 className="section-header"><TrendingUp className="w-4 h-4 text-indigo-400" /> Today's Activity (Auto-tracked)</h2>
             <span className="text-xs text-gray-600">{format(new Date(), 'dd MMM yyyy')}</span>
           </div>
+          {(showBDTiles || showPMTiles) && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {/* BD stats */}
-            {(isBDUser || (!isBDUser && !isPMUser)) && (<>
+            {showBDTiles && (<>
               <div className="bg-gray-800/50 rounded-xl p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
@@ -316,7 +320,7 @@ export function DailyReportsPage() {
               </div>
             </>)}
             {/* PM stats */}
-            {(isPMUser || (!isBDUser && !isPMUser)) && (<>
+            {showPMTiles && (<>
               <div className="bg-gray-800/50 rounded-xl p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <FileText className="w-3.5 h-3.5 text-yellow-400" />
@@ -340,6 +344,7 @@ export function DailyReportsPage() {
               </div>
             </>)}
           </div>
+          )}
           {totalActivity === 0 && (
             <p className="text-xs text-gray-600 mt-3 text-center">No activity logged yet today. Data updates as you work.</p>
           )}
@@ -643,12 +648,12 @@ export function DailyReportsPage() {
           <div className="bg-gray-800/60 rounded-xl p-3">
             <p className="text-xs text-gray-500 mb-2 font-medium">Auto-tracked today</p>
             <div className="flex gap-4 flex-wrap">
-              {(isBDUser || (!isBDUser && !isPMUser)) && (<>
+              {showBDTiles && (<>
                 <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.leadsCreated.length}</span> leads added</span>
                 <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.callsMade.length}</span> calls/visits</span>
                 <span className="text-xs text-gray-400"><span className="text-purple-400 font-bold">{todayStats.leadsProgressed.length}</span> leads advanced</span>
               </>)}
-              {(isPMUser || (!isBDUser && !isPMUser)) && (<>
+              {showPMTiles && (<>
                 <span className="text-xs text-gray-400"><span className="text-yellow-400 font-bold">{todayStats.quotationsCreated}</span> quotations created</span>
                 <span className="text-xs text-gray-400"><span className="text-indigo-400 font-bold">{todayStats.quotationsSentToCustomer}</span> sent to customer</span>
                 <span className="text-xs text-gray-400"><span className="text-green-400 font-bold">{todayStats.activeProjects}</span> active projects</span>

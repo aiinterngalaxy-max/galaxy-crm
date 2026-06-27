@@ -41,7 +41,7 @@ export function IdeasView({ brands, ideas, onChanged }: Props) {
               </div>
               <div className="divide-y divide-gray-800">
                 {list.map((idea) => (
-                  <IdeaRow key={idea.id} idea={idea} onChanged={onChanged} />
+                  <IdeaRow key={idea.id} idea={idea} brandName={br.name} onChanged={onChanged} />
                 ))}
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import toast from 'react-hot-toast'
 import { updateShoot } from '@/lib/content-studio/queries'
 
 const OPTIONS = ['Planned', 'Scheduled', 'Completed', 'Cancelled'] as const
@@ -9,11 +10,15 @@ export function ShootStatus({ id, status, onChanged }: { id: number; status: str
 
   async function set(s: string) {
     if (s === val) return
+    const prev = val
     setBusy(true)
     setVal(s)
     try {
       await updateShoot(id, { status: s })
       onChanged()
+    } catch (err: any) {
+      setVal(prev)
+      toast.error(err?.message || 'Failed to update shoot status')
     } finally {
       setBusy(false)
     }

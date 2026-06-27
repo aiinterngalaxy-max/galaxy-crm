@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ContentRow, ContentScript } from '@/types/content-studio'
 import { createScript, updateScript } from '@/lib/content-studio/queries'
+import { notifySuperAdminsOfScriptSubmitted, notifyTeamOfScriptChangesRequired } from '@/lib/notifyHelpers'
+import { useViewer } from '@/lib/content-studio/viewer-context'
 
-const STATUSES = ['Pending', 'In Progress', 'Submitted', 'Changes Required', 'Approved'] as const
+const STATUSES = ['Pending', 'In Progress', 'Submitted', 'Changes Required'] as const
+const ALL_STATUSES = [...STATUSES, 'Approved'] as const
 
 interface Props {
   script?: ContentScript | null
@@ -34,8 +37,11 @@ function fromScript(s: ContentScript) {
 }
 
 export function ScriptModal({ script, content, onClose, onSaved }: Props) {
+  const { viewer } = useViewer()
+  const canApprove = !!viewer?.is_owner
   const firstRef = useRef<HTMLSelectElement | HTMLInputElement>(null)
   const isEdit = !!script
+  const statusOptions = canApprove ? ALL_STATUSES : STATUSES
 
   const [form, setForm] = useState(() => (script ? fromScript(script) : blank()))
   const [error, setError] = useState('')
@@ -77,13 +83,38 @@ export function ScriptModal({ script, content, onClose, onSaved }: Props) {
       deadline: form.deadline || null,
       revision_count: Number(form.revision_count) || 0,
       review_comments: form.review_comments.trim(),
+      approved: form.status === 'Approved' ? 1 : 0,
     }
     if (!isEdit) payload.content_id = Number(form.content_id)
 
     setBusy(true)
     try {
-      if (isEdit) await updateScript(script!.id, payload)
-      else await createScript(payload as any)
+      const wasSubmitted = isEdit ? script!.status === 'Submitted' : false
+      const wasChangesRequired = isEdit ? script!.status === 'Changes Required' : false
+      let scriptId: number
+      let contentTitle: string | undefined
+      let brandName: string | undefined
+
+      if (isEdit) {
+        const saved = await updateScript(script!.id, payload)
+        scriptId = saved.id
+        const c = content.find((c) => c.id === script!.content_id)
+        contentTitle = c?.title
+        brandName = c?.brand_name
+      } else {
+        const saved = await createScript(payload as any)
+        scriptId = saved.id
+        const c = content.find((c) => c.id === Number(form.content_id))
+        contentTitle = c?.title
+        brandName = c?.brand_name
+      }
+
+      if (form.status === 'Submitted' && !wasSubmitted) {
+        notifySuperAdminsOfScriptSubmitted({ scriptId, contentTitle: contentTitle || `script #${scriptId}`, brandName }).catch(console.error)
+      }
+      if (form.status === 'Changes Required' && !wasChangesRequired) {
+        notifyTeamOfScriptChangesRequired({ scriptId, contentTitle: contentTitle || `script #${scriptId}`, brandName }).catch(console.error)
+      }
       onSaved()
     } catch (err: any) {
       setError(err.message || 'Something went wrong.')
@@ -131,9 +162,16 @@ export function ScriptModal({ script, content, onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="form-label">Status</label>
-              <select className="form-input" value={form.status} onChange={set('status')} disabled={busy}>
-                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              <select
+                className="form-input"
+                value={form.status}
+                onChange={set('status')}
+                disabled={busy || (form.status === 'Approved' && !canApprove)}
+              >
+                {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                {form.status === 'Approved' && !canApprove && <option value="Approved">Approved</option>}
               </select>
+              {!canApprove && <p className="text-[11px] text-gray-600 mt-1">Only the Owner can approve a script.</p>}
             </div>
           </div>
 

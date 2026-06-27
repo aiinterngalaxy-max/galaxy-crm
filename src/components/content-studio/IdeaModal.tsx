@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brand } from '@/types/content-studio'
 import { createIdea } from '@/lib/content-studio/queries'
+import { notifySuperAdminsOfNewIdea } from '@/lib/notifyHelpers'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Props {
   brands: Brand[]
@@ -13,6 +15,7 @@ function currentMonth() {
 }
 
 export function IdeaModal({ brands, onClose, onSaved }: Props) {
+  const { user } = useAuth()
   const firstRef = useRef<HTMLSelectElement>(null)
 
   const [form, setForm] = useState({ brand_id: '', month: currentMonth(), title: '' })
@@ -50,7 +53,14 @@ export function IdeaModal({ brands, onClose, onSaved }: Props) {
 
     setBusy(true)
     try {
-      await createIdea({ brand_id: Number(form.brand_id), month: form.month, title: form.title.trim() })
+      const idea = await createIdea({ brand_id: Number(form.brand_id), month: form.month, title: form.title.trim() })
+      const brandName = brands.find(b => b.id === Number(form.brand_id))?.name
+      notifySuperAdminsOfNewIdea({
+        ideaId: idea.id,
+        title: idea.title,
+        brandName,
+        creatorName: user?.name,
+      }).catch(console.error)
       onSaved()
     } catch (err: any) {
       setError(err.message || 'Something went wrong.')

@@ -246,6 +246,12 @@ export async function createContent(data: Partial<ContentRow>, actor?: string): 
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<ContentRow>(CONTENT_JOIN + ' WHERE ct.id=?', [id])
   await logActivity('content', id, 'created', `Content created: ${String(b.title).slice(0, 60)}`, actor)
+
+  await maybeCreateIdeaForContent(id, Number(b.brand_id), String(b.title))
+  if (row && STAGE_INDEX[row.stage] >= STAGE_INDEX['Script Writing']) {
+    await maybeCreateScriptForContent(id)
+  }
+
   return row as ContentRow
 }
 
@@ -291,6 +297,9 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
   args.push(id)
   await run(`UPDATE cmo_content SET ${sets.join(', ')} WHERE id=?`, args)
 
+  if (body.stage && STAGE_INDEX[body.stage as string] >= STAGE_INDEX['Script Writing']) {
+    await maybeCreateScriptForContent(id)
+  }
   if (body.stage === 'Shoot Planning') {
     await maybeCreateShootForContent(id)
   }
@@ -309,12 +318,39 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
   return row as ContentRow
 }
 
-export async function deleteContent(id: number, actor?: string): Promise<void> {
-  const perf = await one<{ n: number }>('SELECT COUNT(*) AS n FROM cmo_performance WHERE content_id=?', [id])
-  if (Number(perf?.n ?? 0) > 0) {
-    throw new Error("Can't delete — this content piece has performance data. Remove the performance records first.")
+/**
+ * Delete every record linked to a content piece (script, shoot, comments,
+ * performance, and the idea that spawned it, if any) but NOT the content
+ * row itself — callers delete that afterward. Keeps content/idea/script/
+ * shoot deletions fully in sync everywhere they're surfaced.
+ */
+async function deleteContentLinks(contentId: number): Promise<void> {
+  const [script, shoots, idea] = await Promise.all([
+    one<{ id: number }>('SELECT id FROM cmo_scripts WHERE content_id=?', [contentId]),
+    all<{ id: number }>('SELECT id FROM cmo_shoots WHERE content_id=?', [contentId]),
+    one<{ id: number }>('SELECT id FROM cmo_ideas WHERE content_id=?', [contentId]),
+  ])
+
+  await run('DELETE FROM cmo_comments WHERE content_id=?', [contentId])
+  await run('DELETE FROM cmo_performance WHERE content_id=?', [contentId])
+
+  if (script) {
+    await run('DELETE FROM cmo_scripts WHERE id=?', [script.id])
+    await logActivity('script', script.id, 'deleted', 'Script deleted (content removed)')
   }
+  for (const shoot of shoots) {
+    await run('DELETE FROM cmo_shoots WHERE id=?', [shoot.id])
+    await logActivity('shoot', shoot.id, 'deleted', 'Shoot deleted (content removed)')
+  }
+  if (idea) {
+    await run('DELETE FROM cmo_ideas WHERE id=?', [idea.id])
+    await logActivity('idea', idea.id, 'deleted', 'Idea deleted (content removed)')
+  }
+}
+
+export async function deleteContent(id: number, actor?: string): Promise<void> {
   const content = await one<{ title: string }>('SELECT title FROM cmo_content WHERE id=?', [id])
+  await deleteContentLinks(id)
   await run('DELETE FROM cmo_content WHERE id=?', [id])
   await logActivity('content', id, 'deleted', `Content deleted: ${content?.title ?? `#${id}`}`, actor)
 }
@@ -377,12 +413,18 @@ export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea>
       [id],
     )
     if (idea && !idea.content_id) {
-      const rs = await run(`INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Idea', 'idea')`, [
-        idea.brand_id,
-        idea.title,
-      ])
+      // Approving the idea lands the content straight at Script Writing —
+      // the next actionable stage — instead of leaving it stuck at "Idea".
+      const rs = await run(
+        `INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Script Writing', 'idea')`,
+        [idea.brand_id, idea.title],
+      )
       const contentId = Number(rs.lastInsertRowid ?? 0)
-      if (contentId) await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
+      if (contentId) {
+        await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
+        await maybeCreateScriptForContent(contentId)
+        await logActivity('content', contentId, 'created', `Content created: ${idea.title}`)
+      }
     }
   }
 
@@ -399,9 +441,16 @@ export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea>
 }
 
 export async function deleteIdea(id: number): Promise<void> {
-  const idea = await one<{ title: string }>('SELECT title FROM cmo_ideas WHERE id=?', [id])
+  const idea = await one<{ title: string; content_id: number | null }>('SELECT title, content_id FROM cmo_ideas WHERE id=?', [id])
+
   await run('DELETE FROM cmo_ideas WHERE id=?', [id])
   await logActivity('idea', id, 'deleted', `Idea deleted: ${idea?.title ?? `#${id}`}`)
+
+  if (idea?.content_id) {
+    await deleteContentLinks(idea.content_id)
+    await run('DELETE FROM cmo_content WHERE id=?', [idea.content_id])
+    await logActivity('content', idea.content_id, 'deleted', 'Content deleted (idea removed)')
+  }
 }
 
 // ---------- scripts ----------
@@ -476,7 +525,7 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
         let targetStage: string | null = null
         if (body.status === 'Submitted' && stage === 'Script Writing') targetStage = 'Script Review'
         else if (body.status === 'Changes Required' && stage !== 'Revisions') targetStage = 'Revisions'
-        else if (body.status === 'Approved' && (stage === 'Script Review' || stage === 'Revisions')) targetStage = 'Shoot Planning'
+        else if (body.status === 'Approved' && STAGE_INDEX[stage] < STAGE_INDEX['Shoot Planning']) targetStage = 'Shoot Planning'
 
         if (targetStage) {
           await run('UPDATE cmo_content SET stage=? WHERE id=?', [targetStage, script.content_id])
@@ -561,6 +610,14 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   await run(`UPDATE cmo_shoots SET ${sets.join(', ')} WHERE id=?`, args)
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   const title = row?.title ?? `#${id}`
+
+  if (body.status === 'Completed' && row?.content_id) {
+    const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [row.content_id])
+    if (content && STAGE_INDEX[content.stage] < STAGE_INDEX['Editing']) {
+      await run('UPDATE cmo_content SET stage=? WHERE id=?', ['Editing', row.content_id])
+      await logActivity('content', row.content_id, 'stage-change', 'Content moved to Editing')
+    }
+  }
 
   if (body.status === 'Completed') {
     await logActivity('shoot', id, 'status-change', `Shoot completed: ${title}`)
@@ -841,6 +898,54 @@ export async function maybeCreateShootForContent(contentId: number): Promise<voi
     contentId,
     content.title,
   ])
+}
+
+/**
+ * If content_id has no linked script yet, insert one with status 'In Progress'
+ * so it surfaces on the Scripts page the moment a content piece reaches (or
+ * starts at/past) the Script Writing stage.
+ */
+export async function maybeCreateScriptForContent(contentId: number): Promise<void> {
+  const existing = await one<{ id: number }>('SELECT id FROM cmo_scripts WHERE content_id=?', [contentId])
+  if (existing) return
+
+  const content = await one<{ writer: string; due_date: string | null; title: string }>(
+    'SELECT writer, due_date, title FROM cmo_content WHERE id=?',
+    [contentId],
+  )
+  if (!content) return
+
+  try {
+    const rs = await run(
+      "INSERT INTO cmo_scripts (content_id, writer, status, deadline) VALUES (?, ?, 'In Progress', ?)",
+      [contentId, content.writer || '', content.due_date],
+    )
+    const id = Number(rs.lastInsertRowid ?? 0)
+    await logActivity('script', id, 'created', `Script created: ${content.title}`)
+  } catch (err: any) {
+    if (!String(err?.message || '').toLowerCase().includes('unique')) throw err
+  }
+}
+
+/**
+ * If a content piece has no linked idea yet, insert one (pitched, but NOT
+ * pre-approved — approval is still a separate explicit action) so it
+ * surfaces on the Ideas page too, the reverse of the idea-approval flow
+ * that auto-creates content. Approving it later is a no-op on the content
+ * side since content_id is already linked.
+ */
+export async function maybeCreateIdeaForContent(contentId: number, brandId: number, title: string): Promise<void> {
+  if (!brandId) return
+  const existing = await one<{ id: number }>('SELECT id FROM cmo_ideas WHERE content_id=?', [contentId])
+  if (existing) return
+
+  const month = new Date().toISOString().slice(0, 7)
+  const rs = await run(
+    `INSERT INTO cmo_ideas (brand_id, month, title, pitched, approved, content_id) VALUES (?, ?, ?, 1, 0, ?)`,
+    [brandId, month, title, contentId],
+  )
+  const id = Number(rs.lastInsertRowid ?? 0)
+  await logActivity('idea', id, 'created', `Idea added: ${title}`)
 }
 
 // ---------- sync / connections ----------

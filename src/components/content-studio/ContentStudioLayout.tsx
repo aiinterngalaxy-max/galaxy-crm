@@ -1,19 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { PanelLeftClose, PanelLeft } from 'lucide-react'
 import { CmoSidebar } from './CmoSidebar'
 import { GlobalSearch } from './GlobalSearch'
 import { NotificationBell, type NotifSection } from './NotificationBell'
 import { ViewerContext } from '@/lib/content-studio/viewer-context'
+import { getTeam } from '@/lib/content-studio/queries'
+import { useAuth } from '@/contexts/AuthContext'
 import type { TeamMember } from '@/types/content-studio'
 
 const COLLAPSE_KEY = 'cs-sidebar-collapsed'
+// Roles allowed to approve/reject Content Studio ideas — mirrors the CRM's
+// existing approval gates elsewhere (quotations, etc).
+const IDEA_APPROVER_ROLES = new Set(['super_admin', 'management'])
 
 export function ContentStudioLayout() {
-  const [viewer, setViewer] = useState<TeamMember | null>(null)
-  const [team] = useState<TeamMember[]>([])
+  const { user, role } = useAuth()
+  const [team, setTeam] = useState<TeamMember[]>([])
   const [sections] = useState<NotifSection[]>([])
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1')
+
+  useEffect(() => {
+    getTeam().then(setTeam).catch(console.error)
+  }, [])
+
+  // The "viewer" is the logged-in CRM user, mapped onto the Content Studio
+  // team-member shape used for activity attribution and the idea approval
+  // gate. is_owner reflects the CRM's own super_admin/management roles
+  // rather than the legacy cmo_team.is_owner flag, since that flag has no
+  // connection to Firebase auth roles.
+  const viewer = useMemo<TeamMember | null>(() => {
+    if (!user) return null
+    const matched = team.find((t) => t.name.toLowerCase() === user.name.toLowerCase())
+    return {
+      id: matched?.id ?? 0,
+      name: user.name,
+      role: matched?.role ?? '',
+      capacity: matched?.capacity ?? 0,
+      is_owner: role && IDEA_APPROVER_ROLES.has(role) ? 1 : 0,
+    }
+  }, [user, role, team])
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -24,7 +50,7 @@ export function ContentStudioLayout() {
   }
 
   return (
-    <ViewerContext.Provider value={{ viewer, setViewer, team }}>
+    <ViewerContext.Provider value={{ viewer, setViewer: () => {}, team }}>
       <div className="flex h-screen overflow-hidden bg-gray-950">
         <CmoSidebar collapsed={collapsed} />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">

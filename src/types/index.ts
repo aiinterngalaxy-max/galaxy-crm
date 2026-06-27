@@ -445,6 +445,12 @@ export type NotificationType =
   | 'lead_assigned'
   | 'report_reminder'
   | 'digest_ready'
+  | 'content_studio_idea'
+  | 'content_studio_script'
+  | 'content_studio_idea_approved'
+  | 'content_studio_idea_rejected'
+  | 'content_studio_script_changes'
+  | 'content_studio_content_published'
   | 'general'
 
 export interface AppNotification {
@@ -453,7 +459,7 @@ export interface AppNotification {
   type: NotificationType
   title: string
   body: string
-  relatedEntityType?: 'lead' | 'project' | 'invoice' | 'quotation' | 'customer'
+  relatedEntityType?: 'lead' | 'project' | 'invoice' | 'quotation' | 'customer' | 'content-studio-idea' | 'content-studio-script' | 'content-studio-content'
   relatedEntityId?: string
   isRead: boolean
   createdAt: Timestamp

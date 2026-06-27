@@ -21,6 +21,12 @@ const TYPE_CONFIG: Record<NotificationType, { label: string; color: string; bg: 
   lead_assigned:      { label: 'Lead Assigned',      color: 'text-blue-400',    bg: 'bg-blue-900/30' },
   report_reminder:    { label: 'Report Reminder',    color: 'text-gray-400',    bg: 'bg-gray-800' },
   digest_ready:       { label: 'AI Digest',          color: 'text-cyan-400',    bg: 'bg-cyan-900/30' },
+  content_studio_idea:  { label: 'Idea Pitched',     color: 'text-pink-400',    bg: 'bg-pink-900/30' },
+  content_studio_script:{ label: 'Script Review',    color: 'text-amber-400',   bg: 'bg-amber-900/30' },
+  content_studio_idea_approved: { label: 'Idea Approved', color: 'text-emerald-400', bg: 'bg-emerald-900/30' },
+  content_studio_idea_rejected: { label: 'Idea Rejected', color: 'text-rose-400', bg: 'bg-rose-900/30' },
+  content_studio_script_changes: { label: 'Script Changes', color: 'text-orange-400', bg: 'bg-orange-900/30' },
+  content_studio_content_published: { label: 'Published', color: 'text-teal-400', bg: 'bg-teal-900/30' },
   general:            { label: 'General',            color: 'text-gray-400',    bg: 'bg-gray-800' },
 }
 
@@ -30,6 +36,9 @@ const ENTITY_PATH: Record<string, (id: string) => string> = {
   lead:      id => `/leads/${id}`,
   invoice:   id => `/invoices/${id}`,
   customer:  id => `/customers/${id}`,
+  'content-studio-idea': () => `/content-studio/ideas`,
+  'content-studio-script': () => `/content-studio/scripts`,
+  'content-studio-content': () => `/content-studio/pipeline`,
 }
 
 export function NotificationsPage() {
