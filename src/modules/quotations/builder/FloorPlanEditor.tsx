@@ -306,7 +306,7 @@ export function FloorPlanEditor({ floorPlanData, zones, onZonesChange, products 
     <div className="flex h-full relative" style={{ minHeight: '600px' }}>
       {/* Suggestion popup */}
       {pendingSuggestion && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}>
           <div className="w-96 rounded-2xl overflow-hidden shadow-2xl flex flex-col" style={{ background: '#111827', border: `2px solid ${pendingSuggestion.pendingZone.stroke}`, maxHeight: '85vh' }}>
             <div className="px-5 py-4 shrink-0" style={{ background: `${pendingSuggestion.pendingZone.stroke}18`, borderBottom: `1px solid ${pendingSuggestion.pendingZone.stroke}33` }}>
               <div className="flex items-center gap-2 mb-1">
