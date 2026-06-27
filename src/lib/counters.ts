@@ -1,9 +1,11 @@
-import { runTransaction, doc, increment } from 'firebase/firestore'
+import { runTransaction, doc } from 'firebase/firestore'
 import { db } from './firebase'
 
 // Atomic counter using a Firestore transaction — race-condition safe.
 // Replaces the pattern: getDocs(collection) → size + 1
 // which fetches all documents AND produces duplicates under concurrent writes.
+// Note: do NOT use Firestore increment() inside a transaction — the transaction
+// already serializes reads/writes, so we compute and write the exact value directly.
 
 const countersRef = () => doc(db, 'meta', 'counters')
 
@@ -13,7 +15,7 @@ async function nextSeq(field: string): Promise<number> {
     const current = snap.exists() ? ((snap.data()[field] as number) ?? 0) : 0
     const next = current + 1
     if (snap.exists()) {
-      tx.update(countersRef(), { [field]: increment(next - current) })
+      tx.update(countersRef(), { [field]: next })
     } else {
       tx.set(countersRef(), { [field]: next })
     }
