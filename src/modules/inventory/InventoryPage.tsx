@@ -30,6 +30,27 @@ function computeStatus(closing: number, reorder: number): StockStatus {
   return 'in_stock'
 }
 
+// Known color names, longest/most-specific phrases first so e.g. "Rose Gold" wins over "Gold"
+const KNOWN_COLORS = [
+  'Champagne Gold', 'Rose Gold', 'Matt Black', 'Matt White', 'Pearl White',
+  'Sandstone Beige', 'Antique Brass', 'Brushed Steel', 'Gun Metal',
+  'White', 'Black', 'Silver', 'Gold', 'Ivory', 'Beige', 'Bronze', 'Brown',
+  'Grey', 'Gray', 'Champagne', 'Graphite', 'Charcoal', 'Sandstone', 'Wine',
+  'Blue', 'Red', 'Green', 'Copper', 'Brass', 'Cream', 'Pearl', 'Matt', 'Glossy',
+]
+
+function extractColor(itemName: string): string | null {
+  const lower = itemName.toLowerCase()
+  for (const c of KNOWN_COLORS) {
+    if (lower.includes(c.toLowerCase())) return c
+  }
+  return null
+}
+
+function getItemColor(item: InventoryItem): string | null {
+  return item.color || extractColor(item.itemName)
+}
+
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 interface AddItemModalProps {
@@ -366,11 +387,11 @@ export function InventoryPage() {
       : items
 
     const cats = Array.from(new Set(scoped.map(i => i.category))).sort()
-    const cols = Array.from(new Set(scoped.map(i => i.color).filter((c): c is string => !!c))).sort()
+    const cols = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
 
     const rows = scoped.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
-      if (colorFilter !== 'ALL' && item.color !== colorFilter) return false
+      if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
         const s = search.toLowerCase()
@@ -567,7 +588,7 @@ export function InventoryPage() {
                             <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-medium">{item.category}</span>
                           </td>
                           <td className="px-4 py-3 text-xs font-medium text-gray-200 max-w-[200px]">{item.itemName}</td>
-                          <td className="px-4 py-3 text-xs text-gray-400">{item.color || '—'}</td>
+                          <td className="px-4 py-3 text-xs text-gray-400">{getItemColor(item) || '—'}</td>
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {editingLocation?.id === item.id ? (
                               <input
