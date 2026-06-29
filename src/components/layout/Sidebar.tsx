@@ -118,12 +118,12 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
                     prev.includes(item.path) ? prev.filter(p => p !== item.path) : [...prev, item.path]
                   )}
                   className={cn(
-                    'sidebar-item w-full',
+                    'sidebar-item w-full text-left',
                     isActive ? 'sidebar-item-active' : 'sidebar-item-inactive'
                   )}
                 >
                   <span className="shrink-0">{item.icon}</span>
-                  <span className="flex-1 truncate">{item.label}</span>
+                  <span className="flex-1 truncate text-left">{item.label}</span>
                   <ChevronDown className={cn('w-3.5 h-3.5 ml-auto transition-transform duration-200', isExpanded && 'rotate-180')} />
                 </button>
                 {isExpanded && (
