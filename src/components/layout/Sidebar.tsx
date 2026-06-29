@@ -1,13 +1,19 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   ClipboardList, Sparkles, Bell, Settings,
-  Building2, ChevronRight, LogOut, Package,
+  Building2, ChevronRight, LogOut, Package, ChevronDown,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { signOut } from '../../lib/firebase'
 import toast from 'react-hot-toast'
+
+interface SubItem {
+  label: string
+  path: string
+}
 
 interface NavItem {
   label: string
@@ -15,6 +21,7 @@ interface NavItem {
   path: string
   module: string
   badge?: number
+  children?: SubItem[]
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -26,7 +33,13 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Projects',       icon: <FolderKanban className="w-4 h-4" />,    path: '/projects',        module: 'projects' },
   { label: 'Daily Reports',  icon: <ClipboardList className="w-4 h-4" />,   path: '/daily-reports',   module: 'daily-reports' },
   { label: 'Content Studio', icon: <Sparkles className="w-4 h-4" />,        path: '/content-studio',  module: 'content-studio' },
-  { label: 'Inventory',       icon: <Package className="w-4 h-4" />,         path: '/inventory',       module: 'inventory' },
+  {
+    label: 'Inventory', icon: <Package className="w-4 h-4" />, path: '/inventory', module: 'inventory',
+    children: [
+      { label: 'Elysia',  path: '/inventory/elysia' },
+      { label: 'Vitrum',  path: '/inventory/vitrum' },
+    ],
+  },
   { label: 'Notifications',  icon: <Bell className="w-4 h-4" />,            path: '/notifications',   module: 'notifications' },
   { label: 'Settings',       icon: <Settings className="w-4 h-4" />,        path: '/settings',        module: 'settings' },
 ]
@@ -40,6 +53,10 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   const { user, role } = useAuth()
   const location = useLocation()
+  const [expanded, setExpanded] = useState<string[]>(() => {
+    // auto-expand if already on a child path
+    return location.pathname.startsWith('/inventory') ? ['/inventory'] : []
+  })
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!role) return false
@@ -91,6 +108,48 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
             item.path === '/'
               ? location.pathname === '/'
               : location.pathname.startsWith(item.path)
+          const isExpanded = expanded.includes(item.path)
+
+          if (item.children && !collapsed) {
+            return (
+              <div key={item.path}>
+                <button
+                  onClick={() => setExpanded(prev =>
+                    prev.includes(item.path) ? prev.filter(p => p !== item.path) : [...prev, item.path]
+                  )}
+                  className={cn(
+                    'sidebar-item w-full',
+                    isActive ? 'sidebar-item-active' : 'sidebar-item-inactive'
+                  )}
+                >
+                  <span className="shrink-0">{item.icon}</span>
+                  <span className="flex-1 truncate">{item.label}</span>
+                  <ChevronDown className={cn('w-3.5 h-3.5 ml-auto transition-transform duration-200', isExpanded && 'rotate-180')} />
+                </button>
+                {isExpanded && (
+                  <div className="mt-0.5 ml-3 pl-3 border-l border-gray-800 space-y-0.5">
+                    {item.children.map(child => {
+                      const childActive = location.pathname === child.path
+                      return (
+                        <Link
+                          key={child.path}
+                          to={child.path}
+                          onClick={onNavClick}
+                          className={cn(
+                            'sidebar-item text-xs',
+                            childActive ? 'sidebar-item-active' : 'sidebar-item-inactive'
+                          )}
+                        >
+                          <span className="flex-1 truncate">{child.label}</span>
+                          {childActive && <ChevronRight className="w-3 h-3 opacity-60 ml-auto" />}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          }
 
           return (
             <Link

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   Package, Plus, TrendingDown, TrendingUp, AlertTriangle,
   Search, ArrowDownCircle, ArrowUpCircle, History, X,
@@ -40,7 +41,7 @@ interface AddItemModalProps {
 function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
   const [form, setForm] = useState({
     itemCode: '', itemName: '', category: '1T', location: '',
-    openingStock: '', reorderLevel: '',
+    openingStock: '', reorderLevel: '', productLine: 'elysia',
   })
   const [saving, setSaving] = useState(false)
 
@@ -62,6 +63,7 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
         category: form.category,
         itemName: form.itemName.trim(),
         location: form.location.trim(),
+        productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
         issuedQty: 0,
@@ -90,6 +92,13 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="form-label">Product Line</label>
+            <select className="form-input" value={form.productLine} onChange={e => set('productLine', e.target.value)}>
+              <option value="elysia">Elysia</option>
+              <option value="vitrum">Vitrum</option>
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Item Code *</label>
@@ -308,6 +317,7 @@ function TransactionLog() {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export function InventoryPage() {
+  const { line } = useParams<{ line?: string }>()
   const { user, role } = useAuth()
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -329,13 +339,20 @@ export function InventoryPage() {
     })
   }, [])
 
+  // items scoped to the active product line
+  const lineItems = useMemo(() => {
+    if (!line) return items
+    // existing seeded items have no productLine field — treat missing as 'elysia'
+    return items.filter(i => (i.productLine ?? 'elysia') === line)
+  }, [items, line])
+
   const categories = useMemo(() => {
-    const unique = Array.from(new Set(items.map(i => i.category))).sort()
+    const unique = Array.from(new Set(lineItems.map(i => i.category))).sort()
     return [...STATIC_CATEGORIES, ...unique]
-  }, [items])
+  }, [lineItems])
 
   const filtered = useMemo(() => {
-    return items.filter(item => {
+    return lineItems.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
@@ -347,11 +364,13 @@ export function InventoryPage() {
   }, [items, categoryFilter, statusFilter, search])
 
   const stats = useMemo(() => ({
-    total:       items.length,
-    inStock:     items.filter(i => i.stockStatus === 'in_stock').length,
-    lowStock:    items.filter(i => i.stockStatus === 'low_stock').length,
-    outOfStock:  items.filter(i => i.stockStatus === 'out_of_stock').length,
-  }), [items])
+    total:       lineItems.length,
+    inStock:     lineItems.filter(i => i.stockStatus === 'in_stock').length,
+    lowStock:    lineItems.filter(i => i.stockStatus === 'low_stock').length,
+    outOfStock:  lineItems.filter(i => i.stockStatus === 'out_of_stock').length,
+  }), [lineItems])
+
+  const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
   return (
     <div className="space-y-6">
@@ -359,7 +378,7 @@ export function InventoryPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title">Inventory</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Stock summary — {items.length} items tracked</p>
+          <p className="text-sm text-gray-500 mt-0.5">{lineLabel} · {lineItems.length} items tracked</p>
         </div>
         {canManage && (
           <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>

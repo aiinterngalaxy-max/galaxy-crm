@@ -136,6 +136,7 @@ function AppRoutes() {
 
           {/* Inventory */}
           <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
+          <Route path="inventory/:line" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
 
           {/* Settings */}
           <Route path="settings" element={<RequireRole module="settings"><SettingsPage /></RequireRole>} />

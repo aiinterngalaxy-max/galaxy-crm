@@ -363,6 +363,7 @@ export interface InventoryItem {
   category: string
   itemName: string
   location: string
+  productLine?: string
   openingStock: number
   importedQty: number
   issuedQty: number
