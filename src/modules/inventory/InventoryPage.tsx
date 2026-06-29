@@ -94,7 +94,7 @@ const CSV_INPUT_HEADERS_BASE = ['Item Code', 'Category', 'Item Name', 'Rack', 'O
 
 function getCsvHeaders(line?: string): string[] {
   return line === 'elysia'
-    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Color', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+    ? ['Product', 'Module', 'Material', 'Color', 'Rack', 'Opening Stock']
     : CSV_INPUT_HEADERS_BASE
 }
 
@@ -961,18 +961,27 @@ export function InventoryPage() {
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
   const handleExport = () => {
+    if (line === 'elysia') {
+      const rows = [
+        [...getCsvHeaders(line), 'Closing Stock', 'Stock Status'],
+        ...lineItems.map(i => [
+          getItemType(i), getItemModule(i), i.material || '', getItemColor(i) || '',
+          extractRackNumber(i.location), String(i.openingStock),
+          String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
+        ]),
+      ]
+      downloadCsv(`elysia-export-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
+      return
+    }
+
     const rows = [
       [...getCsvHeaders(line), 'Closing Stock', 'Stock Status'],
-      ...lineItems.map(i => {
-        const row = [i.itemCode, i.category, i.itemName]
-        if (line === 'elysia') row.push(i.material || '', getItemColor(i) || '')
-        row.push(
-          extractRackNumber(i.location),
-          String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
-          String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
-        )
-        return row
-      }),
+      ...lineItems.map(i => [
+        i.itemCode, i.category, i.itemName,
+        extractRackNumber(i.location),
+        String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
+        String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
+      ]),
     ]
     downloadCsv(`${line ?? 'inventory'}-export-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
   }
@@ -983,13 +992,10 @@ export function InventoryPage() {
       // Item Code and Item Name are derived on import, same as manual entry.
       const itemRows = [...lineItems]
         .sort((a, b) => a.itemCode.localeCompare(b.itemCode))
-        .map(i => {
-          const type = getItemType(i)
-          const module = type === 'Switch'
-            ? i.category
-            : ELYSIA_SOCKET_MODULES.find(m => i.itemName.toUpperCase().startsWith(m.toUpperCase())) ?? ''
-          return [type, module, i.material || '', getItemColor(i) || '', extractRackNumber(i.location), String(i.closingStock)]
-        })
+        .map(i => [
+          getItemType(i), getItemModule(i), i.material || '', getItemColor(i) || '',
+          extractRackNumber(i.location), String(i.closingStock),
+        ])
 
       const exampleRows = [
         ['Switch', ELYSIA_SWITCH_MODULES[0], ELYSIA_MATERIALS[0], ELYSIA_COLORS[0], '2', '10'],
