@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  Package, Plus, TrendingDown, TrendingUp, AlertTriangle,
+  Package, Plus,
   Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil,
 } from 'lucide-react'
-import { Card, StatCard } from '../../components/ui/Card'
+import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
 import { useAuth } from '../../contexts/AuthContext'
@@ -918,7 +918,7 @@ export function InventoryPage() {
   }, [])
 
   // single memo — deps are all primitives + items array, no chained memos
-  const { lineItems, types, materials, colors, modules, racks, filtered, stats } = useMemo(() => {
+  const { lineItems, types, materials, colors, modules, racks, filtered } = useMemo(() => {
     const scoped = line
       ? items.filter(i => (i.productLine ?? 'elysia') === line)
       : items
@@ -955,12 +955,6 @@ export function InventoryPage() {
       modules: [...STATIC_CATEGORIES, ...mods],
       racks: [...STATIC_CATEGORIES, ...rcks],
       filtered: rows,
-      stats: {
-        total:      scoped.length,
-        inStock:    scoped.filter(i => i.stockStatus === 'in_stock').length,
-        lowStock:   scoped.filter(i => i.stockStatus === 'low_stock').length,
-        outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
-      },
     }
   }, [items, line, typeFilter, categoryFilter, colorFilter, rackFilter, materialFilter, statusFilter, search])
 
@@ -1213,41 +1207,6 @@ export function InventoryPage() {
             </Button>
           </div>
         )}
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Items"
-          value={stats.total}
-          icon={<Package className="w-5 h-5 text-indigo-400" />}
-          iconBg="bg-indigo-900/40"
-          onClick={() => setStatusFilter('all')}
-        />
-        <StatCard
-          label="In Stock"
-          value={stats.inStock}
-          icon={<TrendingUp className="w-5 h-5 text-green-400" />}
-          iconBg="bg-green-900/40"
-          onClick={() => setStatusFilter('in_stock')}
-        />
-        <StatCard
-          label="Low Stock"
-          value={stats.lowStock}
-          subValue="At or below reorder level"
-          icon={<AlertTriangle className="w-5 h-5 text-yellow-400" />}
-          iconBg="bg-yellow-900/40"
-          trend={stats.lowStock > 0 ? { value: 'Reorder needed', up: false } : undefined}
-          onClick={() => setStatusFilter('low_stock')}
-        />
-        <StatCard
-          label="Out of Stock"
-          value={stats.outOfStock}
-          icon={<TrendingDown className="w-5 h-5 text-red-400" />}
-          iconBg="bg-red-900/40"
-          trend={stats.outOfStock > 0 ? { value: 'Critical', up: false } : undefined}
-          onClick={() => setStatusFilter('out_of_stock')}
-        />
       </div>
 
       {/* Tabs */}
