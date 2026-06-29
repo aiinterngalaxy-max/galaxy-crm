@@ -171,7 +171,7 @@ function buildElysiaItemName(product: 'switch' | 'socket', module: string, color
 }
 
 function buildElysiaItemCode(module: string, color: string, material: string): string {
-  const mod = module.toUpperCase().replace(/\s+/g, '')
+  const mod = module.trim().toUpperCase()
   return [mod, color.trim().toUpperCase(), material.trim().toUpperCase()].filter(Boolean).join('-')
 }
 
