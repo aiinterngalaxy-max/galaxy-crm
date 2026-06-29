@@ -15,7 +15,7 @@ import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
 import toast from 'react-hot-toast'
 import { cn } from '../../lib/utils'
 
-const CATEGORIES = ['ALL', '1T', '2T', '3T', '4T', '4T KNOB', '6T', '8T', 'CITRUM', 'SOCKET', 'OTHER']
+const STATIC_CATEGORIES = ['ALL']
 
 const STATUS_CONFIG: Record<StockStatus, { label: string; color: string; bg: string; dot: string }> = {
   in_stock:     { label: 'In Stock',     color: 'text-green-400',  bg: 'bg-green-900/30',  dot: 'bg-green-400' },
@@ -98,7 +98,7 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
             <div>
               <label className="form-label">Category</label>
               <select className="form-input" value={form.category} onChange={e => set('category', e.target.value)}>
-                {CATEGORIES.filter(c => c !== 'ALL').map(c => <option key={c}>{c}</option>)}
+                {['1T','2T','3T','4T','4T KNOB','6T','8T','CITRUM','SOCKET','VITRUM','LCD','CURTAINS','OTHER'].map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
           </div>
@@ -329,6 +329,11 @@ export function InventoryPage() {
     })
   }, [])
 
+  const categories = useMemo(() => {
+    const unique = Array.from(new Set(items.map(i => i.category))).sort()
+    return [...STATIC_CATEGORIES, ...unique]
+  }, [items])
+
   const filtered = useMemo(() => {
     return items.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
@@ -454,7 +459,7 @@ export function InventoryPage() {
 
           {/* Category chips */}
           <div className="flex gap-2 flex-wrap">
-            {CATEGORIES.map(cat => (
+            {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
