@@ -68,6 +68,10 @@ function getItemColor(item: InventoryItem): string | null {
   return item.color || extractColor(item.itemName) || extractColor(item.itemCode)
 }
 
+function getItemType(item: InventoryItem): 'Switch' | 'Socket' {
+  return item.category?.toUpperCase() === 'SOCKET' ? 'Socket' : 'Switch'
+}
+
 function extractRackNumber(location: string | undefined): string {
   return location?.match(/\d+/)?.[0] ?? ''
 }
@@ -83,7 +87,7 @@ const CSV_INPUT_HEADERS_BASE = ['Item Code', 'Category', 'Item Name', 'Rack', 'O
 
 function getCsvHeaders(line?: string): string[] {
   return line === 'elysia'
-    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Color', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
     : CSV_INPUT_HEADERS_BASE
 }
 
@@ -91,7 +95,7 @@ function getCsvHeaders(line?: string): string[] {
 // Opening/Imported/Issued ledger columns used for day-to-day stock-in/out imports.
 function getRecountHeaders(line?: string): string[] {
   return line === 'elysia'
-    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Rack', 'Counted Stock', 'Reorder Level']
+    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Color', 'Rack', 'Counted Stock', 'Reorder Level']
     : ['Item Code', 'Category', 'Item Name', 'Rack', 'Counted Stock', 'Reorder Level']
 }
 
@@ -475,6 +479,7 @@ export function InventoryPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'stock' | 'log'>('stock')
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('ALL')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
   const [colorFilter, setColorFilter] = useState('ALL')
   const [rackFilter, setRackFilter] = useState('ALL')
@@ -509,21 +514,24 @@ export function InventoryPage() {
   }, [])
 
   // single memo — deps are all primitives + items array, no chained memos
-  const { lineItems, categories, colors, racks, materials, filtered, stats } = useMemo(() => {
+  const { lineItems, types, materials, colors, modules, racks, filtered, stats } = useMemo(() => {
     const scoped = line
       ? items.filter(i => (i.productLine ?? 'elysia') === line)
       : items
 
-    const cats  = Array.from(new Set(scoped.map(i => i.category))).sort()
-    const cols  = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
-    const rcks  = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
-    const mats  = Array.from(new Set(scoped.map(i => i.material).filter((m): m is string => !!m))).sort()
+    const typs = Array.from(new Set(scoped.map(getItemType))).sort()
+    const mats = Array.from(new Set(scoped.map(i => i.material).filter((m): m is string => !!m))).sort()
+    const cols = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
+    // Modules are switch sub-categories (1T, 4T, CITRUM, etc) — Socket is its own Type, not a module.
+    const mods = Array.from(new Set(scoped.map(i => i.category).filter(c => c.toUpperCase() !== 'SOCKET'))).sort()
+    const rcks = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
 
     const rows = scoped.filter(item => {
-      if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
-      if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
-      if (rackFilter !== 'ALL' && item.location !== rackFilter) return false
+      if (typeFilter !== 'ALL' && getItemType(item) !== typeFilter) return false
       if (materialFilter !== 'ALL' && item.material !== materialFilter) return false
+      if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
+      if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
+      if (rackFilter !== 'ALL' && item.location !== rackFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
         const s = search.toLowerCase()
@@ -534,10 +542,11 @@ export function InventoryPage() {
 
     return {
       lineItems: scoped,
-      categories: [...STATIC_CATEGORIES, ...cats],
-      colors: [...STATIC_CATEGORIES, ...cols],
-      racks: [...STATIC_CATEGORIES, ...rcks],
+      types: [...STATIC_CATEGORIES, ...typs],
       materials: [...STATIC_CATEGORIES, ...mats],
+      colors: [...STATIC_CATEGORIES, ...cols],
+      modules: [...STATIC_CATEGORIES, ...mods],
+      racks: [...STATIC_CATEGORIES, ...rcks],
       filtered: rows,
       stats: {
         total:      scoped.length,
@@ -546,7 +555,7 @@ export function InventoryPage() {
         outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
       },
     }
-  }, [items, line, categoryFilter, colorFilter, rackFilter, materialFilter, statusFilter, search])
+  }, [items, line, typeFilter, categoryFilter, colorFilter, rackFilter, materialFilter, statusFilter, search])
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
@@ -555,7 +564,7 @@ export function InventoryPage() {
       [...getCsvHeaders(line), 'Closing Stock', 'Stock Status'],
       ...lineItems.map(i => {
         const row = [i.itemCode, i.category, i.itemName]
-        if (line === 'elysia') row.push(i.material || '')
+        if (line === 'elysia') row.push(i.material || '', getItemColor(i) || '')
         row.push(
           extractRackNumber(i.location),
           String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
@@ -574,14 +583,14 @@ export function InventoryPage() {
       .sort((a, b) => a.itemCode.localeCompare(b.itemCode))
       .map(i => {
         const row = [i.itemCode, i.category, i.itemName]
-        if (line === 'elysia') row.push(i.material || '')
+        if (line === 'elysia') row.push(i.material || '', getItemColor(i) || '')
         row.push(extractRackNumber(i.location), String(i.closingStock), String(i.reorderLevel))
         return row
       })
 
     const exampleCategory = CATEGORIES_BY_LINE[line ?? 'elysia']?.[0] ?? 'OTHER'
     const exampleRow = ['NEW-ITEM-CODE', exampleCategory, 'New Item Found During Count']
-    if (line === 'elysia') exampleRow.push(ELYSIA_MATERIALS[0])
+    if (line === 'elysia') exampleRow.push(ELYSIA_MATERIALS[0], 'White')
     exampleRow.push('2', '0', '0')
 
     const rows = [getRecountHeaders(line), ...itemRows, exampleRow]
@@ -606,6 +615,7 @@ export function InventoryPage() {
       const iCode = idx('item code'), iCat = idx('category'), iName = idx('item name')
       const iRack = idx('rack') !== -1 ? idx('rack') : idx('location')
       const iMat = idx('material')
+      const iColor = idx('color')
       const iCounted = idx('counted stock')
       const iOpen = idx('opening stock'), iImp = idx('imported qty'), iIss = idx('issued qty'), iReorder = idx('reorder level')
       const isRecount = iCounted !== -1
@@ -625,6 +635,7 @@ export function InventoryPage() {
         const rackRaw = iRack !== -1 ? (row[iRack]?.trim() ?? '') : ''
         const location = formatRack(extractRackNumber(rackRaw) || rackRaw)
         const material = line === 'elysia' && iMat !== -1 ? (row[iMat]?.trim() ?? '') : ''
+        const color = line === 'elysia' && iColor !== -1 ? (row[iColor]?.trim() ?? '') : ''
         const reorder = Number(row[iReorder]) || 0
         const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === line)
 
@@ -634,14 +645,14 @@ export function InventoryPage() {
           const counted = Number(row[iCounted]) || 0
           if (existing) {
             await updateDoc(doc(db, 'inventory', existing.id), {
-              category, itemName, location, material,
+              category, itemName, location, material, color,
               openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
               closingStock: counted, stockStatus: computeStatus(counted, reorder), updatedAt: serverTimestamp(),
             })
             updated++
           } else {
             await addDoc(collection(db, 'inventory'), {
-              itemCode, category, itemName, location, material, productLine: line,
+              itemCode, category, itemName, location, material, color, productLine: line,
               openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
               closingStock: counted, stockStatus: computeStatus(counted, reorder),
               createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
@@ -663,7 +674,7 @@ export function InventoryPage() {
           const issuedQty = existing.issuedQty + csvIssued
           const closingStock = existing.openingStock + importedQty - issuedQty
           await updateDoc(doc(db, 'inventory', existing.id), {
-            category, itemName, location, material,
+            category, itemName, location, material, color,
             importedQty, issuedQty, reorderLevel: reorder,
             closingStock, stockStatus: computeStatus(closingStock, reorder), updatedAt: serverTimestamp(),
           })
@@ -671,7 +682,7 @@ export function InventoryPage() {
         } else {
           const closingStock = csvOpening + csvImported - csvIssued
           await addDoc(collection(db, 'inventory'), {
-            itemCode, category, itemName, location, material, productLine: line,
+            itemCode, category, itemName, location, material, color, productLine: line,
             openingStock: csvOpening, importedQty: csvImported, issuedQty: csvIssued, reorderLevel: reorder,
             closingStock, stockStatus: computeStatus(closingStock, reorder),
             createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
@@ -825,81 +836,118 @@ export function InventoryPage() {
             </div>
           </div>
 
-          {/* Category chips */}
-          <div className="flex gap-2 flex-wrap">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={cn(
-                  'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
-                  categoryFilter === cat
-                    ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
-                    : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
-                )}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Color chips */}
-          {colors.length > 1 && (
-            <div className="flex gap-2 flex-wrap">
-              {colors.map(col => (
-                <button
-                  key={col}
-                  onClick={() => setColorFilter(col)}
-                  className={cn(
-                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
-                    colorFilter === col
-                      ? 'border-indigo-500 text-indigo-400 bg-indigo-900/20'
-                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
-                  )}
-                >
-                  {col}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Rack chips */}
-          {racks.length > 1 && (
-            <div className="flex gap-2 flex-wrap">
-              {racks.map(rack => (
-                <button
-                  key={rack}
-                  onClick={() => setRackFilter(rack)}
-                  className={cn(
-                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
-                    rackFilter === rack
-                      ? 'border-green-500 text-green-400 bg-green-900/20'
-                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
-                  )}
-                >
-                  {rack}
-                </button>
-              ))}
+          {/* Type chips (Switch / Socket) */}
+          {types.length > 1 && (
+            <div>
+              <p className="text-[11px] font-medium text-gray-600 uppercase tracking-wider mb-1.5">Type</p>
+              <div className="flex gap-2 flex-wrap">
+                {types.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setTypeFilter(t)}
+                    className={cn(
+                      'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                      typeFilter === t
+                        ? 'border-pink-500 text-pink-400 bg-pink-900/20'
+                        : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           {/* Material chips */}
           {materials.length > 1 && (
-            <div className="flex gap-2 flex-wrap">
-              {materials.map(mat => (
-                <button
-                  key={mat}
-                  onClick={() => setMaterialFilter(mat)}
-                  className={cn(
-                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
-                    materialFilter === mat
-                      ? 'border-purple-500 text-purple-400 bg-purple-900/20'
-                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
-                  )}
-                >
-                  {mat}
-                </button>
-              ))}
+            <div>
+              <p className="text-[11px] font-medium text-gray-600 uppercase tracking-wider mb-1.5">Material</p>
+              <div className="flex gap-2 flex-wrap">
+                {materials.map(mat => (
+                  <button
+                    key={mat}
+                    onClick={() => setMaterialFilter(mat)}
+                    className={cn(
+                      'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                      materialFilter === mat
+                        ? 'border-purple-500 text-purple-400 bg-purple-900/20'
+                        : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                    )}
+                  >
+                    {mat}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Color chips */}
+          {colors.length > 1 && (
+            <div>
+              <p className="text-[11px] font-medium text-gray-600 uppercase tracking-wider mb-1.5">Color</p>
+              <div className="flex gap-2 flex-wrap">
+                {colors.map(col => (
+                  <button
+                    key={col}
+                    onClick={() => setColorFilter(col)}
+                    className={cn(
+                      'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                      colorFilter === col
+                        ? 'border-indigo-500 text-indigo-400 bg-indigo-900/20'
+                        : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                    )}
+                  >
+                    {col}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Module chips (1T, 4T, CITRUM, etc) */}
+          {modules.length > 1 && (
+            <div>
+              <p className="text-[11px] font-medium text-gray-600 uppercase tracking-wider mb-1.5">Module</p>
+              <div className="flex gap-2 flex-wrap">
+                {modules.map(mod => (
+                  <button
+                    key={mod}
+                    onClick={() => setCategoryFilter(mod)}
+                    className={cn(
+                      'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                      categoryFilter === mod
+                        ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
+                        : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                    )}
+                  >
+                    {mod}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rack chips */}
+          {racks.length > 1 && (
+            <div>
+              <p className="text-[11px] font-medium text-gray-600 uppercase tracking-wider mb-1.5">Rack</p>
+              <div className="flex gap-2 flex-wrap">
+                {racks.map(rack => (
+                  <button
+                    key={rack}
+                    onClick={() => setRackFilter(rack)}
+                    className={cn(
+                      'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                      rackFilter === rack
+                        ? 'border-green-500 text-green-400 bg-green-900/20'
+                        : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                    )}
+                  >
+                    {rack}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
