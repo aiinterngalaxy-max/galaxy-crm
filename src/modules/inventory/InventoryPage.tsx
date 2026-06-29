@@ -91,11 +91,11 @@ function getCsvHeaders(line?: string): string[] {
     : CSV_INPUT_HEADERS_BASE
 }
 
-// Recount template: one row per existing item with a single "Counted Stock" column, instead of the
-// Opening/Imported/Issued ledger columns used for day-to-day stock-in/out imports.
+// Recount/data-entry template. Elysia mirrors the simplified Add Item form (Product/Module/Material/
+// Color/Rack/Opening Stock) — Item Code and Item Name are derived on import, same as manual entry.
 function getRecountHeaders(line?: string): string[] {
   return line === 'elysia'
-    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Color', 'Rack', 'Counted Stock', 'Reorder Level']
+    ? ['Product', 'Module', 'Material', 'Color', 'Rack', 'Opening Stock']
     : ['Item Code', 'Category', 'Item Name', 'Rack', 'Counted Stock', 'Reorder Level']
 }
 
@@ -732,21 +732,37 @@ export function InventoryPage() {
   }
 
   const handleDownloadTemplate = () => {
-    // Pre-filled with every current item so a physical recount just means filling in "Counted Stock"
-    // (and Material/Rack if changed) per row, instead of retyping the whole catalog from scratch.
+    if (line === 'elysia') {
+      // Mirrors the simplified Add Item form: Product/Module/Material/Color/Rack/Opening Stock.
+      // Item Code and Item Name are derived on import, same as manual entry.
+      const itemRows = [...lineItems]
+        .sort((a, b) => a.itemCode.localeCompare(b.itemCode))
+        .map(i => {
+          const type = getItemType(i)
+          const module = type === 'Switch'
+            ? i.category
+            : ELYSIA_SOCKET_MODULES.find(m => i.itemName.toUpperCase().startsWith(m.toUpperCase())) ?? ''
+          return [type, module, i.material || '', getItemColor(i) || '', extractRackNumber(i.location), String(i.closingStock)]
+        })
+
+      const exampleRows = [
+        ['Switch', ELYSIA_SWITCH_MODULES[0], ELYSIA_MATERIALS[0], ELYSIA_COLORS[0], '2', '10'],
+        ['Socket', ELYSIA_SOCKET_MODULES[0], ELYSIA_MATERIALS[0], ELYSIA_COLORS[0], '5', '5'],
+      ]
+
+      const rows = [getRecountHeaders(line), ...itemRows, ...exampleRows]
+      downloadCsv(`elysia-data-entry-template-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
+      return
+    }
+
+    // Vitrum: pre-filled with every current item so a physical recount just means filling in
+    // "Counted Stock" per row, instead of retyping the whole catalog from scratch.
     const itemRows = [...lineItems]
       .sort((a, b) => a.itemCode.localeCompare(b.itemCode))
-      .map(i => {
-        const row = [i.itemCode, i.category, i.itemName]
-        if (line === 'elysia') row.push(i.material || '', getItemColor(i) || '')
-        row.push(extractRackNumber(i.location), String(i.closingStock), String(i.reorderLevel))
-        return row
-      })
+      .map(i => [i.itemCode, i.category, i.itemName, extractRackNumber(i.location), String(i.closingStock), String(i.reorderLevel)])
 
-    const exampleCategory = CATEGORIES_BY_LINE[line ?? 'elysia']?.[0] ?? 'OTHER'
-    const exampleRow = ['NEW-ITEM-CODE', exampleCategory, 'New Item Found During Count']
-    if (line === 'elysia') exampleRow.push(ELYSIA_MATERIALS[0], 'White')
-    exampleRow.push('2', '0', '0')
+    const exampleCategory = CATEGORIES_BY_LINE[line ?? 'vitrum']?.[0] ?? 'OTHER'
+    const exampleRow = ['NEW-ITEM-CODE', exampleCategory, 'New Item Found During Count', '2', '0', '0']
 
     const rows = [getRecountHeaders(line), ...itemRows, exampleRow]
     downloadCsv(`${line ?? 'inventory'}-recount-template-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
@@ -767,6 +783,51 @@ export function InventoryPage() {
       }
       const header = rows[0].map(h => h.trim().toLowerCase())
       const idx = (name: string) => header.indexOf(name.toLowerCase())
+
+      // Elysia's simplified data-entry format: Product/Module/Material/Color/Rack/Opening Stock.
+      // Item Code and Item Name are derived the same way as the Add Item form.
+      if (line === 'elysia' && idx('product') !== -1 && idx('module') !== -1) {
+        const iProduct = idx('product'), iModule = idx('module'), iMat2 = idx('material')
+        const iColor2 = idx('color'), iRack2 = idx('rack'), iOpen2 = idx('opening stock')
+
+        let created2 = 0, updated2 = 0, skipped2 = 0
+        for (const row of rows.slice(1)) {
+          const productRaw = row[iProduct]?.trim().toLowerCase()
+          const product: 'switch' | 'socket' = productRaw === 'socket' ? 'socket' : 'switch'
+          const module = row[iModule]?.trim()
+          const color = row[iColor2]?.trim() ?? ''
+          if (!module || !color) { skipped2++; continue }
+
+          const material = row[iMat2]?.trim() ?? ''
+          const location = formatRack(row[iRack2]?.trim() ?? '')
+          const opening = Number(row[iOpen2]) || 0
+          const itemCode = buildElysiaItemCode(module, color, material)
+          const itemName = buildElysiaItemName(product, module, color)
+          const category = product === 'socket' ? 'SOCKET' : module
+
+          const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === 'elysia')
+          if (existing) {
+            await updateDoc(doc(db, 'inventory', existing.id), {
+              category, itemName, location, material, color,
+              openingStock: opening, importedQty: 0, issuedQty: 0,
+              closingStock: opening, stockStatus: computeStatus(opening, existing.reorderLevel), updatedAt: serverTimestamp(),
+            })
+            updated2++
+          } else {
+            await addDoc(collection(db, 'inventory'), {
+              itemCode, category, itemName, location, material, color, productLine: 'elysia',
+              openingStock: opening, importedQty: 0, issuedQty: 0,
+              closingStock: opening, reorderLevel: 0, stockStatus: computeStatus(opening, 0),
+              createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
+              createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+            })
+            created2++
+          }
+        }
+        toast.success(`Import done — ${created2} added, ${updated2} updated${skipped2 ? `, ${skipped2} skipped` : ''}`)
+        return
+      }
+
       const iCode = idx('item code'), iCat = idx('category'), iName = idx('item name')
       const iRack = idx('rack') !== -1 ? idx('rack') : idx('location')
       const iMat = idx('material')
