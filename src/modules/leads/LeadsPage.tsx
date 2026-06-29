@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2 } from 'lucide-react'
+import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, where, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, formatRelative,
   formatCurrency, canManageLeads,
@@ -18,6 +17,7 @@ import type { Lead, LeadStatus } from '../../types'
 import { cn } from '../../lib/utils'
 
 const PIPELINE_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent']
+const ALL_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent', 'won', 'lost']
 
 type ViewMode = 'kanban' | 'list'
 
@@ -26,10 +26,12 @@ export function LeadsPage() {
   const { user, role, isAdmin } = useAuth()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('kanban')
   const [showForm, setShowForm] = useState(false)
-  const [filterStatus, setFilterStatus] = useState<LeadStatus | 'all'>('all')
+  const [filterStage, setFilterStage] = useState<LeadStatus | 'all'>('all')
+  const [filterPlatform, setFilterPlatform] = useState<string>('all')
+  const [filterEmployee, setFilterEmployee] = useState<string>('all')
+  const [filterDate, setFilterDate] = useState<string>('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const canCreate = role ? canManageLeads(role) : false
@@ -47,10 +49,7 @@ export function LeadsPage() {
   useEffect(() => {
     if (!user || !role) return
 
-    const constraints = []
-    constraints.push(orderBy('updatedAt', 'desc'))
-
-    const q = query(collection(db, 'leads'), ...constraints, limit(100))
+    const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(100))
     const unsub = onSnapshot(q, snap => {
       setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
       setLoading(false)
@@ -62,13 +61,28 @@ export function LeadsPage() {
     return unsub
   }, [user, role])
 
+  const platformOptions = useMemo(() => {
+    const seen = new Set<string>()
+    leads.forEach(l => { if (l.source) seen.add(l.source) })
+    return Array.from(seen).sort()
+  }, [leads])
+
+  const employeeOptions = useMemo(() => {
+    const seen = new Set<string>()
+    leads.forEach(l => { if (l.assignedToName) seen.add(l.assignedToName) })
+    return Array.from(seen).sort()
+  }, [leads])
+
   const filtered = leads.filter(l => {
-    const matchSearch = !search ||
-      l.name.toLowerCase().includes(search.toLowerCase()) ||
-      l.phone.includes(search) ||
-      (l.email || '').toLowerCase().includes(search.toLowerCase())
-    const matchStatus = filterStatus === 'all' || l.status === filterStatus
-    return matchSearch && matchStatus
+    const matchStage = filterStage === 'all' || l.status === filterStage
+    const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
+    const matchEmployee = filterEmployee === 'all' || l.assignedToName === filterEmployee
+    const matchDate = !filterDate || (() => {
+      const ts = l.createdAt as any
+      const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+      return d.toISOString().slice(0, 10) === filterDate
+    })()
+    return matchStage && matchPlatform && matchEmployee && matchDate
   })
 
   const wonLost = leads.filter(l => ['won', 'lost'].includes(l.status))
@@ -94,35 +108,57 @@ export function LeadsPage() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-48 max-w-80">
-          <Input
-            placeholder="Search name, phone, email…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            leftIcon={<Search className="w-4 h-4" />}
-          />
-        </div>
-
-        {/* Status filter chips */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setFilterStatus('all')}
-            className={cn('text-xs px-3 py-1.5 rounded-full border transition-colors', filterStatus === 'all' ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:text-gray-200')}
-          >
-            All
-          </button>
-          {PIPELINE_STAGES.map(s => (
-            <button key={s}
-              onClick={() => setFilterStatus(s)}
-              className={cn('text-xs px-3 py-1.5 rounded-full border transition-colors',
-                filterStatus === s
-                  ? `${LEAD_STATUS_CONFIG[s].bg} ${LEAD_STATUS_CONFIG[s].color} border-transparent`
-                  : 'border-gray-700 text-gray-400 hover:text-gray-200'
-              )}
-            >
-              {LEAD_STATUS_CONFIG[s].label}
-            </button>
+        {/* Stage dropdown */}
+        <select
+          value={filterStage}
+          onChange={e => setFilterStage(e.target.value as LeadStatus | 'all')}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        >
+          <option value="all">All Stages</option>
+          {ALL_STAGES.map(s => (
+            <option key={s} value={s}>{LEAD_STATUS_CONFIG[s].label}</option>
           ))}
+        </select>
+
+        {/* Platform dropdown */}
+        <select
+          value={filterPlatform}
+          onChange={e => setFilterPlatform(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        >
+          <option value="all">All Platforms</option>
+          {platformOptions.map(p => (
+            <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>
+          ))}
+        </select>
+
+        {/* Employee dropdown */}
+        <select
+          value={filterEmployee}
+          onChange={e => setFilterEmployee(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        >
+          <option value="all">All Employees</option>
+          {employeeOptions.map(emp => (
+            <option key={emp} value={emp}>{emp}</option>
+          ))}
+        </select>
+
+        {/* Date added filter */}
+        <div className="relative">
+          <input
+            type="date"
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+            className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+          />
+          {filterDate && (
+            <button
+              onClick={() => setFilterDate('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+              title="Clear date"
+            >✕</button>
+          )}
         </div>
 
         <div className="flex items-center gap-1 ml-auto bg-gray-800 rounded-lg p-1">
@@ -144,7 +180,10 @@ export function LeadsPage() {
       {/* Kanban View */}
       {viewMode === 'kanban' && (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {PIPELINE_STAGES.map(status => {
+          {(filterStage !== 'all' && PIPELINE_STAGES.includes(filterStage as LeadStatus)
+            ? [filterStage as LeadStatus]
+            : PIPELINE_STAGES
+          ).map(status => {
             const stageLeads = filtered.filter(l => l.status === status)
             const cfg = LEAD_STATUS_CONFIG[status]
             return (
@@ -262,7 +301,7 @@ export function LeadsPage() {
                     <td colSpan={9}>
                       <EmptyState
                         title="No leads found"
-                        description={search ? 'Try a different search term.' : 'Add your first lead to get started.'}
+                        description={filterStage !== 'all' || filterPlatform !== 'all' || filterEmployee !== 'all' || filterDate ? 'Try adjusting the filters.' : 'Add your first lead to get started.'}
                         action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
                       />
                     </td>
@@ -283,7 +322,7 @@ export function LeadsPage() {
             return (
               <button
                 key={s}
-                onClick={() => setFilterStatus(s)}
+                onClick={() => setFilterStage(s)}
                 className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
                   cfg.bg, cfg.color, 'border-transparent hover:opacity-80')}
               >

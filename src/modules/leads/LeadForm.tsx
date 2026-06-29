@@ -8,6 +8,7 @@ import { Textarea } from '../../components/ui/Textarea'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, addDoc, getDocs, serverTimestamp } from '../../lib/firebase'
+import { Timestamp } from 'firebase/firestore'
 import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
 import type { User, Partner } from '../../types'
@@ -28,6 +29,7 @@ const schema = z.object({
   assignedTo: z.string().min(1, 'Assign to someone'),
   demoGiven: z.boolean().optional(),
   notes: z.string().optional(),
+  dateAdded: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -123,7 +125,9 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         aiScore,
         aiScoreNote: `Auto-scored based on source and budget.`,
         createdBy: user?.id,
-        createdAt: serverTimestamp(),
+        createdAt: data.dateAdded
+          ? Timestamp.fromDate(new Date(data.dateAdded))
+          : serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
 
@@ -233,6 +237,12 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
           {...register('estimatedBudget')}
         />
       </div>
+
+      <Input
+        label="Date Added"
+        type="date"
+        {...register('dateAdded')}
+      />
 
       {/* Demo toggle */}
   <div className="flex items-center justify-between p-3 rounded-xl border border-gray-700 bg-gray-800/40">

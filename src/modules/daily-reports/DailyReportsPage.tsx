@@ -130,7 +130,9 @@ export function DailyReportsPage() {
     async function fetchBD() {
       const allLeadsSnap = await getDocs(collection(db, 'leads'))
       const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
-      const myLeads = allLeadsData.filter(l => l.createdBy === user!.id)
+      const myLeads = allLeadsData.filter(
+        l => l.createdBy === user!.id || l.assignedTo === user!.id
+      )
 
       const leadsCreated = allLeadsData.filter(l => {
         if (l.createdBy !== user!.id && l.assignedTo !== user!.id) return false
@@ -139,13 +141,15 @@ export function DailyReportsPage() {
       const leadsProgressed = myLeads.filter(l => inToday(l.updatedAt) && !inToday(l.createdAt))
 
       const activityResults = await Promise.all(
-        myLeads.slice(0, 20).map(lead =>
+        myLeads.slice(0, 30).map(lead =>
           getDocs(collection(db, 'leads', lead.id, 'activities'))
             .then(snap => snap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
         )
       )
       const callsMade = activityResults.flat().filter(a =>
-        (a.type === 'call' || a.type === 'meeting') && inToday((a as any).createdAt)
+        (a.type === 'call' || a.type === 'meeting') &&
+        inToday((a as any).createdAt) &&
+        (!(a as any).performedBy || (a as any).performedBy === user!.id)
       )
 
       setTodayStats(prev => ({ ...prev, leadsCreated, leadsProgressed, callsMade }))

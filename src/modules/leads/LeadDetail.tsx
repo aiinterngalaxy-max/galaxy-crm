@@ -66,6 +66,8 @@ export function LeadDetail() {
   const [actOutcome, setActOutcome] = useState<CallOutcome | ''>('')
   const [actFollowUp, setActFollowUp] = useState('')
   const [actSubmitting, setActSubmitting] = useState(false)
+  const [actPerformedBy, setActPerformedBy] = useState<string>('')
+  const [bdUsers, setBdUsers] = useState<{ id: string; name: string }[]>([])
 
   const canEdit = role ? canManageLeads(role) : false
   const isWon = lead?.status === 'won'
@@ -103,6 +105,17 @@ export function LeadDetail() {
       .then(snap => setQuotations(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Quotation)))
       .catch(console.error)
   }, [id])
+
+  // Load BD team members for "performed by" selector
+  useEffect(() => {
+    getDocs(collection(db, 'users')).then(snap => {
+      const users = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as { id: string; name: string; role: string }))
+        .filter(u => ['bd_exec', 'dept_head', 'management', 'super_admin'].includes(u.role))
+        .map(u => ({ id: u.id, name: u.name }))
+      setBdUsers(users)
+    }).catch(console.error)
+  }, [])
 
   const updateStatus = async (newStatus: LeadStatus) => {
     if (!lead || !id) return
@@ -187,12 +200,13 @@ export function LeadDetail() {
     if (!actNote.trim() || !id) return
     setActSubmitting(true)
     try {
+      const performer = bdUsers.find(u => u.id === actPerformedBy) ?? { id: user?.id ?? '', name: user?.name ?? '' }
       const data: Partial<LeadActivity> = {
         leadId: id,
         type: actType,
         description: actNote,
-        performedBy: user?.id,
-        performedByName: user?.name,
+        performedBy: performer.id,
+        performedByName: performer.name,
         createdAt: serverTimestamp() as unknown as Timestamp,
       }
       if (actOutcome) data.outcome = actOutcome as CallOutcome
@@ -214,6 +228,7 @@ export function LeadDetail() {
       setActNote('')
       setActOutcome('')
       setActFollowUp('')
+      setActPerformedBy('')
     } catch (err) {
       toast.error('Failed to log activity')
       console.error(err)
@@ -523,6 +538,13 @@ export function LeadDetail() {
           )}
           <Textarea label="Notes *" placeholder="What happened? Key points discussed…"
             value={actNote} onChange={e => setActNote(e.target.value)} rows={3} />
+          <Select
+            label="Performed by"
+            value={actPerformedBy || user?.id || ''}
+            onChange={e => setActPerformedBy(e.target.value)}
+            options={bdUsers.map(u => ({ value: u.id, label: u.name }))}
+            placeholder={user?.name ?? 'Select team member'}
+          />
           <Input label="Schedule Follow-up" type="datetime-local"
             value={actFollowUp} onChange={e => setActFollowUp(e.target.value)} />
         </div>
