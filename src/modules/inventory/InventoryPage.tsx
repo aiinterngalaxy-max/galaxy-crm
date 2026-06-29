@@ -1400,7 +1400,15 @@ export function InventoryPage() {
                   <thead>
                     <tr className="border-b border-gray-800">
                       {['Code', 'Category', 'Item Name', 'Color', 'Material', 'Rack', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        <th
+                          key={h}
+                          className={cn(
+                            'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap',
+                            h === 'Code' && 'sticky left-0 z-20 bg-gray-900 border-r border-gray-800'
+                          )}
+                        >
+                          {h}
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -1409,7 +1417,7 @@ export function InventoryPage() {
                       const cfg = STATUS_CONFIG[item.stockStatus]
                       return (
                         <tr key={item.id} className="hover:bg-gray-800/30 transition-colors group">
-                          <td className="px-4 py-3 text-xs font-mono text-gray-300 whitespace-nowrap">{item.itemCode}</td>
+                          <td className="px-4 py-3 text-xs font-mono text-gray-300 whitespace-nowrap sticky left-0 z-10 bg-gray-900 group-hover:bg-gray-800 border-r border-gray-800 transition-colors">{item.itemCode}</td>
                           <td className="px-4 py-3">
                             <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-medium">{item.category}</span>
                           </td>
