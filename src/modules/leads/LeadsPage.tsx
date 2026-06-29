@@ -266,7 +266,7 @@ export function LeadsPage() {
                           <Phone className="w-3.5 h-3.5" />
                         </a>
                         <a
-                          href={`https://wa.me/91${lead.phone.replace(/\D/g, '')}`}
+                          href={`https://wa.me/91${(lead.phone ?? '').replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()}
