@@ -87,6 +87,14 @@ function getCsvHeaders(line?: string): string[] {
     : CSV_INPUT_HEADERS_BASE
 }
 
+// Recount template: one row per existing item with a single "Counted Stock" column, instead of the
+// Opening/Imported/Issued ledger columns used for day-to-day stock-in/out imports.
+function getRecountHeaders(line?: string): string[] {
+  return line === 'elysia'
+    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Rack', 'Counted Stock', 'Reorder Level']
+    : ['Item Code', 'Category', 'Item Name', 'Rack', 'Counted Stock', 'Reorder Level']
+}
+
 function csvEscape(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 }
@@ -560,12 +568,24 @@ export function InventoryPage() {
   }
 
   const handleDownloadTemplate = () => {
+    // Pre-filled with every current item so a physical recount just means filling in "Counted Stock"
+    // (and Material/Rack if changed) per row, instead of retyping the whole catalog from scratch.
+    const itemRows = [...lineItems]
+      .sort((a, b) => a.itemCode.localeCompare(b.itemCode))
+      .map(i => {
+        const row = [i.itemCode, i.category, i.itemName]
+        if (line === 'elysia') row.push(i.material || '')
+        row.push(extractRackNumber(i.location), String(i.closingStock), String(i.reorderLevel))
+        return row
+      })
+
     const exampleCategory = CATEGORIES_BY_LINE[line ?? 'elysia']?.[0] ?? 'OTHER'
-    const exampleRow = ['EXAMPLE-CODE', exampleCategory, 'Example Item Name']
+    const exampleRow = ['NEW-ITEM-CODE', exampleCategory, 'New Item Found During Count']
     if (line === 'elysia') exampleRow.push(ELYSIA_MATERIALS[0])
-    exampleRow.push('2', '1', '0', '0', '0')
-    const rows = [getCsvHeaders(line), exampleRow]
-    downloadCsv(`${line ?? 'inventory'}-import-template.csv`, buildCsv(rows))
+    exampleRow.push('2', '0', '0')
+
+    const rows = [getRecountHeaders(line), ...itemRows, exampleRow]
+    downloadCsv(`${line ?? 'inventory'}-recount-template-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
   }
 
   const handleImportFile = async (file: File) => {
@@ -586,7 +606,9 @@ export function InventoryPage() {
       const iCode = idx('item code'), iCat = idx('category'), iName = idx('item name')
       const iRack = idx('rack') !== -1 ? idx('rack') : idx('location')
       const iMat = idx('material')
+      const iCounted = idx('counted stock')
       const iOpen = idx('opening stock'), iImp = idx('imported qty'), iIss = idx('issued qty'), iReorder = idx('reorder level')
+      const isRecount = iCounted !== -1
 
       if (iCode === -1 || iName === -1) {
         toast.error('CSV must include Item Code and Item Name columns')
@@ -603,12 +625,37 @@ export function InventoryPage() {
         const rackRaw = iRack !== -1 ? (row[iRack]?.trim() ?? '') : ''
         const location = formatRack(extractRackNumber(rackRaw) || rackRaw)
         const material = line === 'elysia' && iMat !== -1 ? (row[iMat]?.trim() ?? '') : ''
+        const reorder = Number(row[iReorder]) || 0
+        const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === line)
+
+        if (isRecount) {
+          // Recount: Counted Stock is the actual physical count, so it fully replaces the running
+          // ledger — opening resets to the counted number and imported/issued reset to 0.
+          const counted = Number(row[iCounted]) || 0
+          if (existing) {
+            await updateDoc(doc(db, 'inventory', existing.id), {
+              category, itemName, location, material,
+              openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
+              closingStock: counted, stockStatus: computeStatus(counted, reorder), updatedAt: serverTimestamp(),
+            })
+            updated++
+          } else {
+            await addDoc(collection(db, 'inventory'), {
+              itemCode, category, itemName, location, material, productLine: line,
+              openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
+              closingStock: counted, stockStatus: computeStatus(counted, reorder),
+              createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
+              createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+            })
+            created++
+          }
+          continue
+        }
+
         const csvOpening = Number(row[iOpen]) || 0
         const csvImported = Number(row[iImp]) || 0
         const csvIssued = Number(row[iIss]) || 0
-        const reorder = Number(row[iReorder]) || 0
 
-        const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === line)
         if (existing) {
           // Imported/Issued from the CSV are deltas added on top of existing totals — opening stock is the
           // original baseline and isn't re-applied from the file on every import.
