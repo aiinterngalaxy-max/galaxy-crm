@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus, TrendingDown, TrendingUp, AlertTriangle,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2,
+  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil,
 } from 'lucide-react'
 import { Card, StatCard } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -450,6 +450,236 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
   )
 }
 
+// ─── Edit Item Modal ────────────────────────────────────────────────────────────
+
+interface EditItemModalProps {
+  item: InventoryItem
+  onClose: () => void
+}
+
+function EditItemModal({ item, onClose }: EditItemModalProps) {
+  const isElysia = (item.productLine ?? 'elysia') === 'elysia'
+  const initialType = getItemType(item)
+
+  const [elysiaForm, setElysiaForm] = useState({
+    product: (initialType === 'Socket' ? 'socket' : 'switch') as 'switch' | 'socket',
+    module: initialType === 'Switch'
+      ? item.category
+      : (ELYSIA_SOCKET_MODULES.find(m => item.itemName.toUpperCase().startsWith(m.toUpperCase())) ?? ELYSIA_SOCKET_MODULES[0]),
+    material: item.material || '',
+    color: getItemColor(item) || '',
+    rack: extractRackNumber(item.location),
+  })
+
+  const [genericForm, setGenericForm] = useState({
+    category: item.category,
+    itemName: item.itemName,
+    rack: extractRackNumber(item.location),
+    reorderLevel: String(item.reorderLevel),
+  })
+
+  const [saving, setSaving] = useState(false)
+  const genericCategories = CATEGORIES_BY_LINE[item.productLine ?? 'vitrum'] ?? CATEGORIES_BY_LINE.vitrum
+
+  const setElysiaProduct = (product: 'switch' | 'socket') => {
+    setElysiaForm(f => ({
+      ...f, product,
+      module: product === 'switch' ? ELYSIA_SWITCH_MODULES[0] : ELYSIA_SOCKET_MODULES[0],
+    }))
+  }
+
+  const handleSubmitElysia = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const { product, module, material, color, rack } = elysiaForm
+    if (!color.trim()) {
+      toast.error('Color is required')
+      return
+    }
+    setSaving(true)
+    try {
+      await updateDoc(doc(db, 'inventory', item.id), {
+        itemCode: buildElysiaItemCode(module, color, material),
+        category: product === 'socket' ? 'SOCKET' : module,
+        itemName: buildElysiaItemName(product, module, color),
+        location: formatRack(rack),
+        material, color: color.trim(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Item updated')
+      onClose()
+    } catch {
+      toast.error('Failed to update item')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSubmitGeneric = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!genericForm.itemName.trim()) {
+      toast.error('Item name is required')
+      return
+    }
+    setSaving(true)
+    try {
+      const reorder = Number(genericForm.reorderLevel) || 0
+      await updateDoc(doc(db, 'inventory', item.id), {
+        category: genericForm.category,
+        itemName: genericForm.itemName.trim(),
+        location: formatRack(genericForm.rack),
+        reorderLevel: reorder,
+        stockStatus: computeStatus(item.closingStock, reorder),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Item updated')
+      onClose()
+    } catch {
+      toast.error('Failed to update item')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+      <div className="glass-card w-full max-w-md rounded-2xl p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-100">Edit Inventory Item</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
+        </div>
+
+        {isElysia ? (
+          <form onSubmit={handleSubmitElysia} className="space-y-4">
+            <div>
+              <label className="form-label">Product</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['switch', 'socket'] as const).map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setElysiaProduct(p)}
+                    className={cn(
+                      'text-sm px-3 py-2 rounded-lg font-medium border capitalize transition-colors',
+                      elysiaForm.product === p
+                        ? 'border-pink-500 text-pink-400 bg-pink-900/20'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Module</label>
+                <select
+                  className="form-input"
+                  value={elysiaForm.module}
+                  onChange={e => setElysiaForm(f => ({ ...f, module: e.target.value }))}
+                >
+                  {(elysiaForm.product === 'switch' ? ELYSIA_SWITCH_MODULES : ELYSIA_SOCKET_MODULES).map(m => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Material</label>
+                <select
+                  className="form-input"
+                  value={elysiaForm.material}
+                  onChange={e => setElysiaForm(f => ({ ...f, material: e.target.value }))}
+                >
+                  <option value="">—</option>
+                  {ELYSIA_MATERIALS.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="form-label">Color *</label>
+              <select
+                className="form-input"
+                value={elysiaForm.color}
+                onChange={e => setElysiaForm(f => ({ ...f, color: e.target.value }))}
+              >
+                <option value="">—</option>
+                {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Rack</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                placeholder="e.g. 2"
+                value={elysiaForm.rack}
+                onChange={e => setElysiaForm(f => ({ ...f, rack: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" variant="primary" className="flex-1" loading={saving}>Save Changes</Button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmitGeneric} className="space-y-4">
+            <div>
+              <label className="form-label">Item Code</label>
+              <div className="form-input flex items-center text-gray-500">{item.itemCode}</div>
+            </div>
+            <div>
+              <label className="form-label">Category</label>
+              <select
+                className="form-input"
+                value={genericForm.category}
+                onChange={e => setGenericForm(f => ({ ...f, category: e.target.value }))}
+              >
+                {genericCategories.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Item Name *</label>
+              <input
+                className="form-input"
+                value={genericForm.itemName}
+                onChange={e => setGenericForm(f => ({ ...f, itemName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Rack</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 2"
+                  value={genericForm.rack}
+                  onChange={e => setGenericForm(f => ({ ...f, rack: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="form-label">Reorder Level</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  value={genericForm.reorderLevel}
+                  onChange={e => setGenericForm(f => ({ ...f, reorderLevel: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" variant="primary" className="flex-1" loading={saving}>Save Changes</Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Stock Transaction Modal ───────────────────────────────────────────────────
 
 interface StockModalProps {
@@ -642,6 +872,7 @@ export function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | StockStatus>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editingLocation, setEditingLocation] = useState<{ id: string; value: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1281,6 +1512,15 @@ export function InventoryPage() {
                                   <ArrowUpCircle className="w-3.5 h-3.5" /> Out
                                 </button>
                               )}
+                              {canManage && (
+                                <button
+                                  onClick={() => setEditingItem(item)}
+                                  title="Edit Item"
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-800 text-gray-400 hover:bg-indigo-900/50 hover:text-indigo-400 transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               {canDelete && (
                                 <button
                                   onClick={() => handleDeleteItem(item)}
@@ -1315,6 +1555,9 @@ export function InventoryPage() {
           userId={user.id}
           userName={user.name}
         />
+      )}
+      {editingItem && (
+        <EditItemModal item={editingItem} onClose={() => setEditingItem(null)} />
       )}
     </div>
   )
