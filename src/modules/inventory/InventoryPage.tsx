@@ -39,8 +39,25 @@ const KNOWN_COLORS = [
   'Blue', 'Red', 'Green', 'Copper', 'Brass', 'Cream', 'Pearl', 'Matt', 'Glossy',
 ]
 
-function extractColor(itemName: string): string | null {
-  const lower = itemName.toLowerCase()
+// Vitrum two-tone finish codes, e.g. "B/G" = Black/Gold, "W/S" = White/Silver
+const FINISH_CODE_MAP: Record<string, string> = { B: 'Black', W: 'White', G: 'Gold', S: 'Silver' }
+const FINISH_CODE_RE = /\b([BWGS])\s*\/\s*([BWGS])\b/i
+const COMBO_COLOR_RE = /\b(white|black|silver|gold|grey|gray)\s*\/\s*(white|black|silver|gold|grey|gray)\b/i
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+
+function extractColor(text: string): string | null {
+  const combo = text.match(COMBO_COLOR_RE)
+  if (combo) return `${cap(combo[1])} / ${cap(combo[2])}`
+
+  const code = text.match(FINISH_CODE_RE)
+  if (code) {
+    const a = FINISH_CODE_MAP[code[1].toUpperCase()]
+    const b = FINISH_CODE_MAP[code[2].toUpperCase()]
+    if (a && b) return `${a} / ${b}`
+  }
+
+  const lower = text.toLowerCase()
   for (const c of KNOWN_COLORS) {
     if (lower.includes(c.toLowerCase())) return c
   }
@@ -48,7 +65,7 @@ function extractColor(itemName: string): string | null {
 }
 
 function getItemColor(item: InventoryItem): string | null {
-  return item.color || extractColor(item.itemName)
+  return item.color || extractColor(item.itemName) || extractColor(item.itemCode)
 }
 
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
