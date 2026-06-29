@@ -72,6 +72,13 @@ function getItemType(item: InventoryItem): 'Switch' | 'Socket' {
   return item.category?.toUpperCase() === 'SOCKET' ? 'Socket' : 'Switch'
 }
 
+// Switch items store their module directly as category. Socket items all share category "SOCKET",
+// so the specific module (Single Socket USB C, etc) is recovered from the item name prefix instead.
+function getItemModule(item: InventoryItem): string {
+  if (getItemType(item) === 'Switch') return item.category
+  return ELYSIA_SOCKET_MODULES.find(m => item.itemName.toUpperCase().startsWith(m.toUpperCase())) ?? ''
+}
+
 function extractRackNumber(location: string | undefined): string {
   return location?.match(/\d+/)?.[0] ?? ''
 }
@@ -919,17 +926,18 @@ export function InventoryPage() {
     const typs = Array.from(new Set(scoped.map(getItemType))).sort()
     const mats = Array.from(new Set(scoped.map(i => i.material).filter((m): m is string => !!m))).sort()
     const cols = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
-    // Modules are switch sub-categories (1T, 4T, CITRUM, etc) — Socket is its own Type, not a module.
-    // Scoped to the currently selected Type so picking Socket doesn't show switch modules and vice versa.
+    // Modules: switch sub-categories (1T, 4T, CITRUM, etc) for Switch, or the Single/Double Socket
+    // variant recovered from the item name for Socket. Scoped to the selected Type so picking Socket
+    // shows socket modules and Switch shows switch modules, never both.
     const typeScoped = typeFilter === 'ALL' ? scoped : scoped.filter(i => getItemType(i) === typeFilter)
-    const mods = Array.from(new Set(typeScoped.map(i => i.category).filter(c => c.toUpperCase() !== 'SOCKET'))).sort()
+    const mods = Array.from(new Set(typeScoped.map(getItemModule).filter(Boolean))).sort()
     const rcks = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
 
     const rows = scoped.filter(item => {
       if (typeFilter !== 'ALL' && getItemType(item) !== typeFilter) return false
       if (materialFilter !== 'ALL' && item.material !== materialFilter) return false
       if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
-      if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
+      if (categoryFilter !== 'ALL' && getItemModule(item) !== categoryFilter) return false
       if (rackFilter !== 'ALL' && item.location !== rackFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
