@@ -153,18 +153,19 @@ function downloadCsv(filename: string, csv: string) {
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 const CATEGORIES_BY_LINE: Record<string, string[]> = {
-  elysia: ['1T', '2T', '3T', '4T', '4T KNOB', '6T', '8T', 'CITRUM', 'SOCKET', 'OTHER'],
+  elysia: ['1T', '2T', '3T', '4T', '4T KNOB', '4T LCD', '6T', '8T', 'CITRUM', 'SOCKET', 'OTHER'],
   vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'OTHER'],
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
-const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', '4T KNOB', '6T', '8T']
+const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', '4T KNOB', '4T LCD', '6T', '8T']
 const ELYSIA_SOCKET_MODULES = ['Single', 'Double']
 
 function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
   const c = color.trim()
   if (product === 'socket') return `${module.toUpperCase()} SKT ${c}`.trim()
   if (module === '4T KNOB') return `4 TOUCH KNOB ${c}`.trim()
+  if (module === '4T LCD') return `4 TOUCH LCD ${c}`.trim()
   const n = module.replace(/[^0-9]/g, '')
   return `${n} TOUCH ${c}`.trim()
 }
@@ -191,13 +192,14 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
     openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'vitrum',
   })
 
-  // Simplified Elysia form: Product (Switch/Socket) + Module + Material + Color + Opening Stock only —
-  // Item Code/Name are derived, Rack and Reorder Level are set later (rack via inline edit, reorder via Stock In/Out).
+  // Simplified Elysia form: Product (Switch/Socket) + Module + Material + Color + Rack + Opening Stock —
+  // Item Code/Name are derived; Reorder Level is set later via Stock In/Out.
   const [elysiaForm, setElysiaForm] = useState({
     product: 'switch' as 'switch' | 'socket',
     module: ELYSIA_SWITCH_MODULES[0],
     material: '',
     color: '',
+    rack: '',
     openingStock: '',
   })
 
@@ -214,7 +216,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
 
   const handleSubmitElysia = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { product, module, material, color, openingStock } = elysiaForm
+    const { product, module, material, color, rack, openingStock } = elysiaForm
     if (!color.trim()) {
       toast.error('Color is required')
       return
@@ -226,7 +228,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
         itemCode: buildElysiaItemCode(module, color, material),
         category: product === 'socket' ? 'SOCKET' : module,
         itemName: buildElysiaItemName(product, module, color),
-        location: '',
+        location: formatRack(rack),
         material, color: color.trim(), productLine: 'elysia',
         openingStock: opening,
         importedQty: 0,
@@ -349,16 +351,29 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
                 onChange={e => setElysiaForm(f => ({ ...f, color: e.target.value }))}
               />
             </div>
-            <div>
-              <label className="form-label">Opening Stock</label>
-              <input
-                className="form-input"
-                type="number"
-                min="0"
-                placeholder="0"
-                value={elysiaForm.openingStock}
-                onChange={e => setElysiaForm(f => ({ ...f, openingStock: e.target.value }))}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Rack</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 2"
+                  value={elysiaForm.rack}
+                  onChange={e => setElysiaForm(f => ({ ...f, rack: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="form-label">Opening Stock</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={elysiaForm.openingStock}
+                  onChange={e => setElysiaForm(f => ({ ...f, openingStock: e.target.value }))}
+                />
+              </div>
             </div>
             <div className="flex gap-3 pt-1">
               <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
