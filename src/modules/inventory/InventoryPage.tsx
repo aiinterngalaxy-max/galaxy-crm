@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus, TrendingDown, TrendingUp, AlertTriangle,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X,
+  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet,
 } from 'lucide-react'
 import { Card, StatCard } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -68,6 +68,70 @@ function getItemColor(item: InventoryItem): string | null {
   return item.color || extractColor(item.itemName) || extractColor(item.itemCode)
 }
 
+function extractRackNumber(location: string | undefined): string {
+  return location?.match(/\d+/)?.[0] ?? ''
+}
+
+function formatRack(value: string): string {
+  const n = value.trim()
+  return n ? `Rack ${n}` : ''
+}
+
+// ─── CSV Import/Export ──────────────────────────────────────────────────────────
+
+const CSV_INPUT_HEADERS = ['Item Code', 'Category', 'Item Name', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+
+function csvEscape(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+function buildCsv(rows: string[][]): string {
+  return rows.map(r => r.map(csvEscape).join(',')).join('\r\n')
+}
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
+      } else field += c
+    } else if (c === '"') {
+      inQuotes = true
+    } else if (c === ',') {
+      row.push(field); field = ''
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++
+      row.push(field); field = ''
+      if (row.some(v => v !== '')) rows.push(row)
+      row = []
+    } else {
+      field += c
+    }
+  }
+  if (field !== '' || row.length) {
+    row.push(field)
+    if (row.some(v => v !== '')) rows.push(row)
+  }
+  return rows
+}
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 const CATEGORIES_BY_LINE: Record<string, string[]> = {
@@ -108,7 +172,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
         itemCode: form.itemCode.trim().toUpperCase(),
         category: form.category,
         itemName: form.itemName.trim(),
-        location: form.location.trim(),
+        location: formatRack(form.location),
         productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
@@ -176,8 +240,8 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
             <input className="form-input" placeholder="e.g. 4 TOUCH WHITE" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">Location / Warehouse</label>
-            <input className="form-input" placeholder="e.g. Rack 2" value={form.location} onChange={e => set('location', e.target.value)} />
+            <label className="form-label">Rack</label>
+            <input className="form-input" type="number" min="0" placeholder="e.g. 2" value={form.location} onChange={e => set('location', e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -390,11 +454,13 @@ export function InventoryPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
   const [editingLocation, setEditingLocation] = useState<{ id: string; value: string } | null>(null)
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const saveLocation = async (itemId: string, value: string) => {
     try {
-      await updateDoc(doc(db, 'inventory', itemId), { location: value.trim(), updatedAt: serverTimestamp() })
-      toast.success('Location updated')
+      await updateDoc(doc(db, 'inventory', itemId), { location: formatRack(value), updatedAt: serverTimestamp() })
+      toast.success('Rack updated')
     } catch {
       toast.error('Failed to update location')
     } finally {
@@ -452,6 +518,92 @@ export function InventoryPage() {
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
+  const handleExport = () => {
+    const rows = [
+      [...CSV_INPUT_HEADERS, 'Closing Stock', 'Stock Status'],
+      ...lineItems.map(i => [
+        i.itemCode, i.category, i.itemName, extractRackNumber(i.location),
+        String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
+        String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
+      ]),
+    ]
+    downloadCsv(`${line ?? 'inventory'}-export-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
+  }
+
+  const handleDownloadTemplate = () => {
+    const exampleCategory = CATEGORIES_BY_LINE[line ?? 'elysia']?.[0] ?? 'OTHER'
+    const rows = [CSV_INPUT_HEADERS, ['EXAMPLE-CODE', exampleCategory, 'Example Item Name', '2', '1', '0', '0', '0']]
+    downloadCsv(`${line ?? 'inventory'}-import-template.csv`, buildCsv(rows))
+  }
+
+  const handleImportFile = async (file: File) => {
+    if (!line) {
+      toast.error('Open the Elysia or Vitrum page to import')
+      return
+    }
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+      if (rows.length < 2) {
+        toast.error('CSV has no data rows')
+        return
+      }
+      const header = rows[0].map(h => h.trim().toLowerCase())
+      const idx = (name: string) => header.indexOf(name.toLowerCase())
+      const iCode = idx('item code'), iCat = idx('category'), iName = idx('item name')
+      const iRack = idx('rack') !== -1 ? idx('rack') : idx('location')
+      const iOpen = idx('opening stock'), iImp = idx('imported qty'), iIss = idx('issued qty'), iReorder = idx('reorder level')
+
+      if (iCode === -1 || iName === -1) {
+        toast.error('CSV must include Item Code and Item Name columns')
+        return
+      }
+
+      let created = 0, updated = 0, skipped = 0
+      for (const row of rows.slice(1)) {
+        const itemCode = row[iCode]?.trim().toUpperCase()
+        if (!itemCode) { skipped++; continue }
+
+        const itemName = row[iName]?.trim() || itemCode
+        const category = (iCat !== -1 ? row[iCat]?.trim() : '') || (CATEGORIES_BY_LINE[line]?.[0] ?? 'OTHER')
+        const rackRaw = iRack !== -1 ? (row[iRack]?.trim() ?? '') : ''
+        const location = formatRack(extractRackNumber(rackRaw) || rackRaw)
+        const opening = Number(row[iOpen]) || 0
+        const imported = Number(row[iImp]) || 0
+        const issued = Number(row[iIss]) || 0
+        const reorder = Number(row[iReorder]) || 0
+        const closing = opening + imported - issued
+        const stockStatus = computeStatus(closing, reorder)
+
+        const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === line)
+        if (existing) {
+          await updateDoc(doc(db, 'inventory', existing.id), {
+            category, itemName, location,
+            openingStock: opening, importedQty: imported, issuedQty: issued, reorderLevel: reorder,
+            closingStock: closing, stockStatus, updatedAt: serverTimestamp(),
+          })
+          updated++
+        } else {
+          await addDoc(collection(db, 'inventory'), {
+            itemCode, category, itemName, location, productLine: line,
+            openingStock: opening, importedQty: imported, issuedQty: issued, reorderLevel: reorder,
+            closingStock: closing, stockStatus,
+            createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+          })
+          created++
+        }
+      }
+      toast.success(`Import done — ${created} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}`)
+    } catch (err) {
+      toast.error('Import failed')
+      console.error(err)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -461,9 +613,41 @@ export function InventoryPage() {
           <p className="text-sm text-gray-500 mt-0.5">{lineLabel} · {lineItems.length} items tracked</p>
         </div>
         {canManage && (
-          <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
-            Add Item
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Button variant="ghost" size="sm" icon={<Download className="w-4 h-4" />} onClick={handleExport}>
+              Export CSV
+            </Button>
+            {line && (
+              <>
+                <Button variant="ghost" size="sm" icon={<FileSpreadsheet className="w-4 h-4" />} onClick={handleDownloadTemplate}>
+                  Template
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Upload className="w-4 h-4" />}
+                  loading={importing}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Import CSV
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) handleImportFile(f)
+                    e.target.value = ''
+                  }}
+                />
+              </>
+            )}
+            <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
+              Add Item
+            </Button>
+          </div>
         )}
       </div>
 
@@ -629,7 +813,7 @@ export function InventoryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-800">
-                      {['Code', 'Category', 'Item Name', 'Color', 'Location', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
+                      {['Code', 'Category', 'Item Name', 'Color', 'Rack', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -649,7 +833,9 @@ export function InventoryPage() {
                             {editingLocation?.id === item.id ? (
                               <input
                                 autoFocus
-                                className="form-input py-0.5 px-2 text-xs w-28"
+                                type="number"
+                                min="0"
+                                className="form-input py-0.5 px-2 text-xs w-20"
                                 value={editingLocation.value}
                                 onChange={e => setEditingLocation({ id: item.id, value: e.target.value })}
                                 onBlur={() => saveLocation(item.id, editingLocation.value)}
@@ -660,9 +846,9 @@ export function InventoryPage() {
                               />
                             ) : (
                               <span
-                                onClick={() => setEditingLocation({ id: item.id, value: item.location || '' })}
+                                onClick={() => setEditingLocation({ id: item.id, value: extractRackNumber(item.location) })}
                                 className="cursor-pointer hover:text-gray-300 border-b border-dashed border-gray-700 hover:border-gray-500 transition-colors"
-                                title="Click to edit location"
+                                title="Click to edit rack"
                               >
                                 {item.location || '—'}
                               </span>
