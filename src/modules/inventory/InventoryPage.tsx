@@ -2,14 +2,14 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus, TrendingDown, TrendingUp, AlertTriangle,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet,
+  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2,
 } from 'lucide-react'
 import { Card, StatCard } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc,
+  db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc,
   serverTimestamp, limit, runTransaction,
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
@@ -659,6 +659,17 @@ export function InventoryPage() {
 
   const canManage = role ? ['super_admin', 'management', 'dept_head'].includes(role) : false
   const canIssue  = role ? ['super_admin', 'management', 'dept_head', 'project_manager'].includes(role) : false
+  const canDelete = role === 'super_admin'
+
+  const handleDeleteItem = async (item: InventoryItem) => {
+    if (!window.confirm(`Delete "${item.itemName}" (${item.itemCode})? This cannot be undone.`)) return
+    try {
+      await deleteDoc(doc(db, 'inventory', item.id))
+      toast.success('Item deleted')
+    } catch {
+      toast.error('Failed to delete item')
+    }
+  }
 
   useEffect(() => {
     const q = query(collection(db, 'inventory'), orderBy('itemCode', 'asc'), limit(1000))
@@ -1268,6 +1279,15 @@ export function InventoryPage() {
                                   )}
                                 >
                                   <ArrowUpCircle className="w-3.5 h-3.5" /> Out
+                                </button>
+                              )}
+                              {canDelete && (
+                                <button
+                                  onClick={() => handleDeleteItem(item)}
+                                  title="Delete Item"
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-800 text-gray-400 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               )}
                             </div>
