@@ -158,6 +158,7 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
+const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold']
 const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
 const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Double Socket USB C', 'Double Socket 5Pin']
 
@@ -347,12 +348,14 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
             </div>
             <div>
               <label className="form-label">Color *</label>
-              <input
+              <select
                 className="form-input"
-                placeholder="e.g. White"
                 value={elysiaForm.color}
                 onChange={e => setElysiaForm(f => ({ ...f, color: e.target.value }))}
-              />
+              >
+                <option value="">—</option>
+                {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
