@@ -370,6 +370,7 @@ export function InventoryPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
   const [colorFilter, setColorFilter] = useState('ALL')
+  const [rackFilter, setRackFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState<'all' | StockStatus>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
@@ -398,17 +399,19 @@ export function InventoryPage() {
   }, [])
 
   // single memo — deps are all primitives + items array, no chained memos
-  const { lineItems, categories, colors, filtered, stats } = useMemo(() => {
+  const { lineItems, categories, colors, racks, filtered, stats } = useMemo(() => {
     const scoped = line
       ? items.filter(i => (i.productLine ?? 'elysia') === line)
       : items
 
-    const cats = Array.from(new Set(scoped.map(i => i.category))).sort()
-    const cols = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
+    const cats  = Array.from(new Set(scoped.map(i => i.category))).sort()
+    const cols  = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
+    const rcks  = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
 
     const rows = scoped.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
       if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
+      if (rackFilter !== 'ALL' && item.location !== rackFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
         const s = search.toLowerCase()
@@ -421,6 +424,7 @@ export function InventoryPage() {
       lineItems: scoped,
       categories: [...STATIC_CATEGORIES, ...cats],
       colors: [...STATIC_CATEGORIES, ...cols],
+      racks: [...STATIC_CATEGORIES, ...rcks],
       filtered: rows,
       stats: {
         total:      scoped.length,
@@ -429,7 +433,7 @@ export function InventoryPage() {
         outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
       },
     }
-  }, [items, line, categoryFilter, colorFilter, statusFilter, search])
+  }, [items, line, categoryFilter, colorFilter, rackFilter, statusFilter, search])
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
@@ -570,6 +574,26 @@ export function InventoryPage() {
                   )}
                 >
                   {col}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Rack chips */}
+          {racks.length > 1 && (
+            <div className="flex gap-2 flex-wrap">
+              {racks.map(rack => (
+                <button
+                  key={rack}
+                  onClick={() => setRackFilter(rack)}
+                  className={cn(
+                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                    rackFilter === rack
+                      ? 'border-green-500 text-green-400 bg-green-900/20'
+                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                  )}
+                >
+                  {rack}
                 </button>
               ))}
             </div>
