@@ -88,8 +88,8 @@ describe('canAccess', () => {
     expect(canAccess('bd_exec', 'partners')).toBe(true)
   })
 
-  it('bd_exec cannot access customers or quotations', () => {
-    expect(canAccess('bd_exec', 'customers')).toBe(false)
+  it('bd_exec can access customers but not quotations', () => {
+    expect(canAccess('bd_exec', 'customers')).toBe(true)
     expect(canAccess('bd_exec', 'quotations')).toBe(false)
   })
 

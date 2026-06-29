@@ -32,6 +32,8 @@ export function LeadsPage() {
   const [filterPlatform, setFilterPlatform] = useState<string>('all')
   const [filterEmployee, setFilterEmployee] = useState<string>('all')
   const [filterDate, setFilterDate] = useState<string>('')
+  const [filterMonth, setFilterMonth] = useState<string>('all')
+  const [sortScore, setSortScore] = useState<'none' | 'high' | 'low'>('none')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const canCreate = role ? canManageLeads(role) : false
@@ -73,17 +75,59 @@ export function LeadsPage() {
     return Array.from(seen).sort()
   }, [leads])
 
-  const filtered = leads.filter(l => {
-    const matchStage = filterStage === 'all' || l.status === filterStage
-    const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
-    const matchEmployee = filterEmployee === 'all' || l.assignedToName === filterEmployee
-    const matchDate = !filterDate || (() => {
+  // Month options derived from createdAt of all leads, sorted newest first
+  const monthOptions = useMemo(() => {
+    const seen = new Map<string, string>() // key: "2025-05", label: "May 2025"
+    leads.forEach(l => {
       const ts = l.createdAt as any
       const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-      return d.toISOString().slice(0, 10) === filterDate
-    })()
-    return matchStage && matchPlatform && matchEmployee && matchDate
-  })
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!seen.has(key)) {
+        seen.set(key, d.toLocaleString('en-IN', { month: 'long', year: 'numeric' }))
+      }
+    })
+    return Array.from(seen.entries()).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [leads])
+
+  const getLeadMonth = (lead: Lead): string => {
+    const ts = lead.createdAt as any
+    const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  const filtered = useMemo(() => {
+    let list = leads.filter(l => {
+      const matchStage = filterStage === 'all' || l.status === filterStage
+      const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
+      const matchEmployee = filterEmployee === 'all' || l.assignedToName === filterEmployee
+      const matchDate = !filterDate || (() => {
+        const ts = l.createdAt as any
+        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+        return d.toISOString().slice(0, 10) === filterDate
+      })()
+      const matchMonth = filterMonth === 'all' || getLeadMonth(l) === filterMonth
+      return matchStage && matchPlatform && matchEmployee && matchDate && matchMonth
+    })
+    if (sortScore === 'high') list = [...list].sort((a, b) => b.aiScore - a.aiScore)
+    else if (sortScore === 'low') list = [...list].sort((a, b) => a.aiScore - b.aiScore)
+    return list
+  }, [leads, filterStage, filterPlatform, filterEmployee, filterDate, filterMonth, sortScore])
+
+  // Group filtered leads by month for list view
+  const groupedByMonth = useMemo(() => {
+    const map = new Map<string, { label: string; leads: Lead[] }>()
+    filtered.forEach(l => {
+      const key = getLeadMonth(l)
+      if (!map.has(key)) {
+        const ts = l.createdAt as any
+        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+        const label = d.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+        map.set(key, { label, leads: [] })
+      }
+      map.get(key)!.leads.push(l)
+    })
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [filtered])
 
   const wonLost = leads.filter(l => ['won', 'lost'].includes(l.status))
 
@@ -147,6 +191,29 @@ export function LeadsPage() {
           {employeeOptions.map(emp => (
             <option key={emp} value={emp}>{emp}</option>
           ))}
+        </select>
+
+        {/* Month filter */}
+        <select
+          value={filterMonth}
+          onChange={e => setFilterMonth(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        >
+          <option value="all">All Months</option>
+          {monthOptions.map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+
+        {/* Score sort */}
+        <select
+          value={sortScore}
+          onChange={e => setSortScore(e.target.value as 'none' | 'high' | 'low')}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        >
+          <option value="none">Score: Default</option>
+          <option value="high">Score: High → Low</option>
+          <option value="low">Score: Low → High</option>
         </select>
 
         {/* Date added filter */}
@@ -215,108 +282,105 @@ export function LeadsPage() {
         </div>
       )}
 
-      {/* List View */}
+      {/* List View — grouped by month */}
       {viewMode === 'list' && (
-        <Card padding="none">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
-                    <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {loading && (
-                  <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-600">Loading…</td></tr>
-                )}
-                {filtered.map(lead => (
-                  <tr
-                    key={lead.id}
-                    onClick={() => navigate(`/leads/${lead.id}`)}
-                    className="hover:bg-gray-800/50 cursor-pointer transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-200">{lead.name}</div>
-                      {lead.address && <div className="text-xs text-gray-500 truncate max-w-36">{lead.address}</div>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">{lead.phone}</td>
-                    <td className="px-4 py-3 text-gray-400 capitalize">{lead.source?.replace('_', ' ')}</td>
-                    <td className="px-4 py-3">
-                      <Badge color={LEAD_STATUS_CONFIG[lead.status]?.color} bg={LEAD_STATUS_CONFIG[lead.status]?.bg}>
-                        {LEAD_STATUS_CONFIG[lead.status]?.label}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`font-bold ${getScoreColor(lead.aiScore)}`}>{lead.aiScore}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {lead.demoGiven
-                        ? <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">Yes</span>
-                        : <span className="text-xs text-gray-600">No</span>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(lead.createdAt)}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center gap-2 justify-end">
-                        <a
-                          href={`tel:${lead.phone}`}
-                          onClick={e => e.stopPropagation()}
-                          className="text-gray-600 hover:text-gray-300 p-1"
-                          title={`Call ${lead.phone}`}
+        <div className="space-y-4">
+          {loading && (
+            <Card padding="none">
+              <div className="px-4 py-8 text-center text-sm text-gray-600">Loading…</div>
+            </Card>
+          )}
+          {!loading && filtered.length === 0 && (
+            <EmptyState
+              title="No leads found"
+              description={filterStage !== 'all' || filterPlatform !== 'all' || filterEmployee !== 'all' || filterDate || filterMonth !== 'all' ? 'Try adjusting the filters.' : 'Add your first lead to get started.'}
+              action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
+            />
+          )}
+          {groupedByMonth.map(([monthKey, { label, leads: monthLeads }]) => (
+            <div key={monthKey}>
+              {/* Month header */}
+              <div className="flex items-center gap-3 mb-2 px-1">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
+                <span className="text-xs bg-gray-800 text-gray-500 rounded-full px-2 py-0.5">{monthLeads.length}</span>
+                <div className="flex-1 h-px bg-gray-800" />
+              </div>
+              <Card padding="none">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
+                          <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {monthLeads.map(lead => (
+                        <tr
+                          key={lead.id}
+                          onClick={() => navigate(`/leads/${lead.id}`)}
+                          className="hover:bg-gray-800/50 cursor-pointer transition-colors"
                         >
-                          <Phone className="w-3.5 h-3.5" />
-                        </a>
-                        <a
-                          href={`https://wa.me/91${(lead.phone ?? '').replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          className="text-gray-600 hover:text-green-400 p-1"
-                          title="WhatsApp"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                        </a>
-                        {isAdmin && (
-                          confirmDelete === lead.id ? (
-                            <button
-                              onClick={e => handleDelete(lead.id, e)}
-                              className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
-                            >
-                              Confirm?
-                            </button>
-                          ) : (
-                            <button
-                              onClick={e => handleDelete(lead.id, e)}
-                              className="p-1 text-gray-700 hover:text-red-400 transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={9}>
-                      <EmptyState
-                        title="No leads found"
-                        description={filterStage !== 'all' || filterPlatform !== 'all' || filterEmployee !== 'all' || filterDate ? 'Try adjusting the filters.' : 'Add your first lead to get started.'}
-                        action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-200">{lead.name}</div>
+                            {lead.address && <div className="text-xs text-gray-500 truncate max-w-36">{lead.address}</div>}
+                          </td>
+                          <td className="px-4 py-3 text-gray-400">{lead.phone}</td>
+                          <td className="px-4 py-3 text-gray-400 capitalize">{lead.source?.replace('_', ' ')}</td>
+                          <td className="px-4 py-3">
+                            <Badge color={LEAD_STATUS_CONFIG[lead.status]?.color} bg={LEAD_STATUS_CONFIG[lead.status]?.bg}>
+                              {LEAD_STATUS_CONFIG[lead.status]?.label}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`font-bold ${getScoreColor(lead.aiScore)}`}>{lead.aiScore}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {lead.demoGiven
+                              ? <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">Yes</span>
+                              : <span className="text-xs text-gray-600">No</span>}
+                          </td>
+                          <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(lead.createdAt)}</td>
+                          <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center gap-2 justify-end">
+                              <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}
+                                className="text-gray-600 hover:text-gray-300 p-1" title={`Call ${lead.phone}`}>
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                              <a href={`https://wa.me/91${(lead.phone ?? '').replace(/\D/g, '')}`}
+                                target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                className="text-gray-600 hover:text-green-400 p-1" title="WhatsApp">
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </a>
+                              {isAdmin && (
+                                confirmDelete === lead.id ? (
+                                  <button onClick={e => handleDelete(lead.id, e)}
+                                    className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">
+                                    Confirm?
+                                  </button>
+                                ) : (
+                                  <button onClick={e => handleDelete(lead.id, e)}
+                                    className="p-1 text-gray-700 hover:text-red-400 transition-colors">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Won/Lost summary */}

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   ClipboardList, Sparkles, Bell, Settings,
-  Building2, ChevronRight, LogOut, Package, ChevronDown, Clock,
+  Building2, ChevronRight, LogOut, Package, ChevronDown,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -27,7 +27,6 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',      icon: <LayoutDashboard className="w-4 h-4" />, path: '/',                module: 'dashboard' },
   { label: 'Leads',          icon: <Users2 className="w-4 h-4" />,          path: '/leads',           module: 'leads' },
-  { label: 'Follow-ups',     icon: <Clock className="w-4 h-4" />,           path: '/follow-ups',      module: 'follow-ups' },
   { label: 'B2B Partners',   icon: <Building2 className="w-4 h-4" />,       path: '/partners',        module: 'partners' },
   { label: 'Customers',      icon: <UserSquare2 className="w-4 h-4" />,     path: '/customers',       module: 'customers' },
   { label: 'Quotations',     icon: <FileText className="w-4 h-4" />,        path: '/quotations',      module: 'quotations' },

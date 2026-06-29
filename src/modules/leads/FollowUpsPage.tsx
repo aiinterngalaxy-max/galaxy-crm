@@ -34,6 +34,7 @@ export function FollowUpsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(new Date())
+  const [tab, setTab] = useState<'today' | 'tomorrow' | 'upcoming'>('today')
 
   // Refresh the clock every minute so overdue vs upcoming updates live
   useEffect(() => {
@@ -79,8 +80,14 @@ export function FollowUpsPage() {
     return <div className="flex items-center justify-center h-64 text-sm text-gray-600">Loading follow-ups…</div>
   }
 
+  const TABS = [
+    { key: 'today',    label: 'Today',    count: todayList.length + overdue.length },
+    { key: 'tomorrow', label: 'Tomorrow', count: tomorrowList.length },
+    { key: 'upcoming', label: 'Upcoming', count: upcoming.length },
+  ] as const
+
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-5 max-w-3xl">
       {/* Header */}
       <div>
         <h1 className="page-title flex items-center gap-2">
@@ -95,63 +102,69 @@ export function FollowUpsPage() {
         </p>
       </div>
 
-      {active.length === 0 && (
-        <div className="glass-card p-12 text-center">
-          <CheckCircle2 className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-          <p className="text-sm text-gray-500">No scheduled follow-ups</p>
-          <p className="text-xs text-gray-700 mt-1">When you schedule follow-ups on leads, they appear here.</p>
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-gray-800/60 rounded-xl w-fit">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === t.key
+                ? 'bg-gray-700 text-white shadow'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {t.label}
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+              tab === t.key ? 'bg-gold-500/20 text-gold-400' : 'bg-gray-700 text-gray-500'
+            }`}>
+              {t.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {tab === 'today' && (
+        <div className="space-y-4">
+          {overdue.length > 0 && (
+            <Section title="Overdue" icon={<AlertCircle className="w-4 h-4 text-red-400" />}
+              color="text-red-400" leads={overdue} now={now} navigate={navigate} showDate />
+          )}
+          {todayList.length > 0 && (
+            <Section title="Today" icon={<Clock className="w-4 h-4 text-yellow-400" />}
+              color="text-yellow-400" leads={todayList} now={now} navigate={navigate} />
+          )}
+          {overdue.length === 0 && todayList.length === 0 && <Empty />}
         </div>
       )}
 
-      {/* Overdue */}
-      {overdue.length > 0 && (
-        <Section
-          title="Overdue"
-          icon={<AlertCircle className="w-4 h-4 text-red-400" />}
-          color="text-red-400"
-          leads={overdue}
-          now={now}
-          navigate={navigate}
-          showDate
-        />
+      {tab === 'tomorrow' && (
+        <div>
+          {tomorrowList.length > 0
+            ? <Section title="Tomorrow" icon={<Calendar className="w-4 h-4 text-blue-400" />}
+                color="text-blue-400" leads={tomorrowList} now={now} navigate={navigate} />
+            : <Empty />}
+        </div>
       )}
 
-      {/* Today */}
-      {todayList.length > 0 && (
-        <Section
-          title="Today"
-          icon={<Clock className="w-4 h-4 text-yellow-400" />}
-          color="text-yellow-400"
-          leads={todayList}
-          now={now}
-          navigate={navigate}
-        />
+      {tab === 'upcoming' && (
+        <div>
+          {upcoming.length > 0
+            ? <Section title="Upcoming" icon={<Calendar className="w-4 h-4 text-gray-400" />}
+                color="text-gray-400" leads={upcoming} now={now} navigate={navigate} showDate />
+            : <Empty />}
+        </div>
       )}
+    </div>
+  )
+}
 
-      {/* Tomorrow */}
-      {tomorrowList.length > 0 && (
-        <Section
-          title="Tomorrow"
-          icon={<Calendar className="w-4 h-4 text-blue-400" />}
-          color="text-blue-400"
-          leads={tomorrowList}
-          now={now}
-          navigate={navigate}
-        />
-      )}
-
-      {/* Upcoming */}
-      {upcoming.length > 0 && (
-        <Section
-          title="Upcoming"
-          icon={<Calendar className="w-4 h-4 text-gray-400" />}
-          color="text-gray-400"
-          leads={upcoming}
-          now={now}
-          navigate={navigate}
-          showDate
-        />
-      )}
+function Empty() {
+  return (
+    <div className="glass-card p-12 text-center">
+      <CheckCircle2 className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+      <p className="text-sm text-gray-500">No follow-ups here</p>
     </div>
   )
 }
