@@ -920,7 +920,9 @@ export function InventoryPage() {
     const mats = Array.from(new Set(scoped.map(i => i.material).filter((m): m is string => !!m))).sort()
     const cols = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
     // Modules are switch sub-categories (1T, 4T, CITRUM, etc) — Socket is its own Type, not a module.
-    const mods = Array.from(new Set(scoped.map(i => i.category).filter(c => c.toUpperCase() !== 'SOCKET'))).sort()
+    // Scoped to the currently selected Type so picking Socket doesn't show switch modules and vice versa.
+    const typeScoped = typeFilter === 'ALL' ? scoped : scoped.filter(i => getItemType(i) === typeFilter)
+    const mods = Array.from(new Set(typeScoped.map(i => i.category).filter(c => c.toUpperCase() !== 'SOCKET'))).sort()
     const rcks = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
 
     const rows = scoped.filter(item => {
