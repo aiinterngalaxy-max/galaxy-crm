@@ -14,6 +14,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/daily-reports':  'Daily Reports',
   '/content-studio': 'Content Studio',
   '/notifications':  'Notifications',
+  '/inventory':      'Inventory',
   '/settings':       'Settings',
 }
 

@@ -180,6 +180,19 @@ service cloud.firestore {
       allow delete: if isManagement();
     }
 
+    // Inventory
+    match /inventory/{itemId} {
+      allow read: if isAuth() && isNotPending();
+      allow create, update: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      allow delete: if isManagement();
+    }
+
+    match /stockTransactions/{txId} {
+      allow read: if isAuth() && isNotPending();
+      allow create: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      allow update, delete: if false;
+    }
+
     // Audit Logs — read management only, no client writes
     match /auditLogs/{logId} {
       allow read: if isAuth() && isManagement();

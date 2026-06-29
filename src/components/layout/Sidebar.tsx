@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   ClipboardList, Sparkles, Bell, Settings,
-  Building2, ChevronRight, LogOut,
+  Building2, ChevronRight, LogOut, Package,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Projects',       icon: <FolderKanban className="w-4 h-4" />,    path: '/projects',        module: 'projects' },
   { label: 'Daily Reports',  icon: <ClipboardList className="w-4 h-4" />,   path: '/daily-reports',   module: 'daily-reports' },
   { label: 'Content Studio', icon: <Sparkles className="w-4 h-4" />,        path: '/content-studio',  module: 'content-studio' },
+  { label: 'Inventory',       icon: <Package className="w-4 h-4" />,         path: '/inventory',       module: 'inventory' },
   { label: 'Notifications',  icon: <Bell className="w-4 h-4" />,            path: '/notifications',   module: 'notifications' },
   { label: 'Settings',       icon: <Settings className="w-4 h-4" />,        path: '/settings',        module: 'settings' },
 ]

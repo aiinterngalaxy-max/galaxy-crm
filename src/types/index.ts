@@ -353,6 +353,41 @@ export interface SiteIssue {
   resolvedAt?: Timestamp
 }
 
+// ─── Inventory ─────────────────────────────────────────────────────────────────
+
+export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock'
+
+export interface InventoryItem {
+  id: string
+  itemCode: string
+  category: string
+  itemName: string
+  location: string
+  openingStock: number
+  importedQty: number
+  issuedQty: number
+  closingStock: number
+  reorderLevel: number
+  stockStatus: StockStatus
+  createdBy?: string
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+export interface StockTransaction {
+  id: string
+  itemId: string
+  itemCode: string
+  itemName: string
+  type: 'import' | 'issue'
+  quantity: number
+  note?: string
+  projectRef?: string
+  recordedBy: string
+  recordedByName?: string
+  createdAt: Timestamp
+}
+
 // ─── Invoices & Payments ───────────────────────────────────────────────────────
 
 export type InvoiceStatus =

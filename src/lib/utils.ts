@@ -155,6 +155,7 @@ export function canAccess(role: UserRole, module: string): boolean {
     notifications:   ['bd_exec', 'project_manager', 'marketing', 'dept_head'],
     // Role-specific
     'content-studio':['marketing'],
+    inventory:       ['dept_head', 'project_manager'],
     settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
 

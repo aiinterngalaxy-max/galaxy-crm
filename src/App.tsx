@@ -38,6 +38,7 @@ const NotificationsPage = lazy(() => import('./modules/notifications/Notificatio
 const PartnersPage = lazy(() => import('./modules/partners/PartnersPage').then(m => ({ default: m.PartnersPage })))
 const PartnerDetail = lazy(() => import('./modules/partners/PartnerDetail').then(m => ({ default: m.PartnerDetail })))
 const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').then(m => ({ default: m.InventoryPage })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -132,6 +133,9 @@ function AppRoutes() {
 
           {/* Notifications — everyone */}
           <Route path="notifications" element={<NotificationsPage />} />
+
+          {/* Inventory */}
+          <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
 
           {/* Settings */}
           <Route path="settings" element={<RequireRole module="settings"><SettingsPage /></RequireRole>} />
