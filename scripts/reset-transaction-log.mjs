@@ -1,0 +1,26 @@
+import { initializeApp } from 'firebase/app'
+import { getFirestore, collection, getDocs, deleteDoc } from 'firebase/firestore'
+
+const firebaseConfig = {
+  apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
+  authDomain:        'galaxy-crm-7d4dc.firebaseapp.com',
+  projectId:         'galaxy-crm-7d4dc',
+  storageBucket:     'galaxy-crm-7d4dc.firebasestorage.app',
+  messagingSenderId: '934034711347',
+  appId:             '1:934034711347:web:9a43f300fcd86ebab8d446',
+}
+
+const app = initializeApp(firebaseConfig)
+const db  = getFirestore(app)
+
+async function run() {
+  console.log('Deleting all stock transaction log records…')
+  const snap = await getDocs(collection(db, 'stockTransactions'))
+  for (const d of snap.docs) {
+    await deleteDoc(d.ref)
+  }
+  console.log(`Deleted ${snap.size} stockTransactions documents.`)
+  process.exit(0)
+}
+
+run().catch(err => { console.error(err); process.exit(1) })
