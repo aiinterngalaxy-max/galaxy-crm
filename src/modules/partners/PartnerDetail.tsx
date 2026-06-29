@@ -22,6 +22,7 @@ const PARTNER_TYPE_OPTIONS = [
   { value: 'interior_designer', label: 'Interior Designer' },
   { value: 'builder', label: 'Builder' },
   { value: 'consultant', label: 'Consultant' },
+  { value: 'dealer', label: 'Dealer' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -30,6 +31,7 @@ const PARTNER_TYPE_LABELS: Record<PartnerType, string> = {
   interior_designer: 'Interior Designer',
   builder: 'Builder',
   consultant: 'Consultant',
+  dealer: 'Dealer',
   other: 'Other',
 }
 

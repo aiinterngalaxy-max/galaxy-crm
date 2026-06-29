@@ -21,7 +21,7 @@ const schema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
-  source: z.enum(['referral', 'partner', 'google_ads', 'linkedin', 'meta_ads', 'justdial', 'indiamart', 'cold_call', 'other']),
+  source: z.enum(['referral', 'partner', 'google_ads', 'linkedin', 'meta_ads', 'instagram', 'facebook', 'justdial', 'indiamart', 'cold_call', 'other']),
   partnerId: z.string().optional(),
   projectType: z.string().optional(),
   propertySize: z.string().optional(),
@@ -29,7 +29,7 @@ const schema = z.object({
   assignedTo: z.string().min(1, 'Assign to someone'),
   demoGiven: z.boolean().optional(),
   notes: z.string().optional(),
-  dateAdded: z.string().optional(),
+  dateAdded: z.string().min(1, 'Date is required'),
 })
 
 type FormData = z.infer<typeof schema>
@@ -45,7 +45,8 @@ const SOURCE_OPTIONS = [
   { value: 'partner',    label: 'B2B Partner' },
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'linkedin',   label: 'LinkedIn' },
-  { value: 'meta_ads',   label: 'Meta Ads (Instagram / Facebook)' },
+  { value: 'instagram',  label: 'Instagram' },
+  { value: 'facebook',   label: 'Facebook' },
   { value: 'justdial',   label: 'JustDial' },
   { value: 'indiamart',  label: 'IndiaMART' },
   { value: 'cold_call',  label: 'Cold Calls / Msgs' },
@@ -80,6 +81,11 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
       setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Partner))
     }).catch(console.error)
   }, [])
+
+  // Set assignedTo to logged-in user once user is available
+  useEffect(() => {
+    if (user?.id) setValue('assignedTo', user.id)
+  }, [user?.id, setValue])
 
   // When switching to B2B, auto-set source to 'partner'
   useEffect(() => {
@@ -239,8 +245,9 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
       </div>
 
       <Input
-        label="Date Added"
+        label="Date Added *"
         type="date"
+        error={errors.dateAdded?.message}
         {...register('dateAdded')}
       />
 

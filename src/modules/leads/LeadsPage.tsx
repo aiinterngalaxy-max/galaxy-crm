@@ -10,7 +10,7 @@ import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
-  LEAD_STATUS_CONFIG, getScoreColor, formatRelative,
+  LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
   formatCurrency, canManageLeads,
 } from '../../lib/utils'
 import type { Lead, LeadStatus } from '../../types'
@@ -26,7 +26,7 @@ export function LeadsPage() {
   const { user, role, isAdmin } = useAuth()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<ViewMode>('kanban')
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [showForm, setShowForm] = useState(false)
   const [filterStage, setFilterStage] = useState<LeadStatus | 'all'>('all')
   const [filterPlatform, setFilterPlatform] = useState<string>('all')
@@ -217,7 +217,7 @@ export function LeadsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Last Updated', ''].map(h => (
+                  {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
                     <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
                       {h}
                     </th>
@@ -226,7 +226,7 @@ export function LeadsPage() {
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {loading && (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-600">Loading…</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-600">Loading…</td></tr>
                 )}
                 {filtered.map(lead => (
                   <tr
@@ -254,6 +254,7 @@ export function LeadsPage() {
                         : <span className="text-xs text-gray-600">No</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(lead.createdAt)}</td>
                     <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center gap-2 justify-end">

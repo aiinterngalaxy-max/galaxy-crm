@@ -63,8 +63,8 @@ export const LEAD_STATUS_CONFIG: Record<LeadStatus, { label: string; color: stri
   qualified:   { label: 'Qualified',     color: 'text-indigo-400', bg: 'bg-indigo-900/30' },
   floor_plan:  { label: 'Floor Plan',    color: 'text-violet-400', bg: 'bg-violet-900/30' },
   quote_sent:  { label: 'Quote Sent',    color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
-  won:         { label: 'Won ✓',         color: 'text-green-400',  bg: 'bg-green-900/30' },
-  lost:        { label: 'Lost',          color: 'text-red-400',    bg: 'bg-red-900/30' },
+  won:         { label: 'Confirm',        color: 'text-green-400',  bg: 'bg-green-900/30' },
+  lost:        { label: 'Not Required',  color: 'text-red-400',    bg: 'bg-red-900/30' },
 }
 
 export const QUOTATION_STATUS_CONFIG: Record<QuotationStatus, { label: string; color: string; bg: string }> = {
@@ -147,7 +147,7 @@ export function canAccess(role: UserRole, module: string): boolean {
     leads:           ['bd_exec', 'dept_head'],
     partners:        ['bd_exec', 'dept_head'],
     // PM only
-    customers:       ['project_manager', 'dept_head'],
+    customers:       ['project_manager', 'dept_head', 'bd_exec'],
     quotations:      ['project_manager', 'dept_head'],
     projects:        ['project_manager', 'dept_head'],
     // Everyone
@@ -200,6 +200,8 @@ const SOURCE_SCORE: Record<string, number> = {
   google_ads: 15,
   linkedin:   12,
   meta_ads:   10,
+  instagram:  10,
+  facebook:   10,
   justdial:    7,
   indiamart:   7,
   cold_call:   3,

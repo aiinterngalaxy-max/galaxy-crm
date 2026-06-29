@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { StatCard } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, deleteDocument, limit } from '../../lib/firebase'
+import { Timestamp } from 'firebase/firestore'
 import { formatCurrency, formatCurrencyShort, canAccess } from '../../lib/utils'
 import type { Partner, PartnerType, Lead } from '../../types'
 import toast from 'react-hot-toast'
@@ -26,6 +27,7 @@ const PARTNER_TYPE_LABELS: Record<PartnerType, string> = {
   interior_designer: 'Interior Designer',
   builder: 'Builder',
   consultant: 'Consultant',
+  dealer: 'Dealer',
   other: 'Other',
 }
 
@@ -34,19 +36,21 @@ const PARTNER_TYPE_COLORS: Record<PartnerType, { color: string; bg: string }> = 
   interior_designer: { color: 'text-violet-400', bg: 'bg-violet-900/30' },
   builder:           { color: 'text-orange-400', bg: 'bg-orange-900/30' },
   consultant:        { color: 'text-cyan-400',   bg: 'bg-cyan-900/30' },
+  dealer:            { color: 'text-green-400',  bg: 'bg-green-900/30' },
   other:             { color: 'text-gray-400',   bg: 'bg-gray-800' },
 }
 
 const schema = z.object({
   name: z.string().min(2, 'Name required'),
   firmName: z.string().optional(),
-  type: z.enum(['architect', 'interior_designer', 'builder', 'consultant', 'other']),
+  type: z.enum(['architect', 'interior_designer', 'builder', 'consultant', 'dealer', 'other']),
   phone: z.string().min(10, 'Valid phone required'),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   city: z.string().optional(),
-  gstNo: z.string().min(15, 'Enter valid 15-digit GST number').max(15, 'GST number must be 15 characters'),
+  gstNo: z.string().optional(),
   notes: z.string().optional(),
+  dateAdded: z.string().min(1, 'Date is required'),
 })
 type FormData = z.infer<typeof schema>
 
@@ -55,6 +59,7 @@ const TYPE_OPTIONS = [
   { value: 'interior_designer', label: 'Interior Designer' },
   { value: 'builder', label: 'Builder' },
   { value: 'consultant', label: 'Consultant' },
+  { value: 'dealer', label: 'Dealer' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -111,13 +116,13 @@ export function PartnersPage() {
         email: data.email || null,
         whatsapp: data.whatsapp || null,
         city: data.city || null,
-        gstNo: data.gstNo.toUpperCase(),
+        gstNo: data.gstNo ? data.gstNo.toUpperCase() : null,
         notes: data.notes || null,
         status: 'active',
         totalLeads: 0,
         totalRevenue: 0,
         createdBy: user?.id,
-        createdAt: serverTimestamp(),
+        createdAt: Timestamp.fromDate(new Date(data.dateAdded)),
         updatedAt: serverTimestamp(),
       })
       toast.success('Partner added!')
@@ -321,11 +326,18 @@ export function PartnersPage() {
           <Input label="Email" placeholder="rajesh@example.com" type="email" error={errors.email?.message} {...register('email')} />
 
           <Input
-            label="GST Number *"
+            label="GST Number"
             placeholder="22AAAAA0000A1Z5"
             error={errors.gstNo?.message}
-            {...register('gstNo', { setValueAs: v => v.toUpperCase() })}
+            {...register('gstNo', { setValueAs: v => v?.toUpperCase() })}
             style={{ textTransform: 'uppercase' }}
+          />
+
+          <Input
+            label="Date Added *"
+            type="date"
+            error={errors.dateAdded?.message}
+            {...register('dateAdded')}
           />
 
           <Textarea label="Notes" placeholder="Any notes about this partner…" rows={2} {...register('notes')} />

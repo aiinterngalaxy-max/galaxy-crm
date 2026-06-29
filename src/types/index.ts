@@ -49,6 +49,8 @@ export type LeadSource =
   | 'google_ads'
   | 'linkedin'
   | 'meta_ads'
+  | 'instagram'
+  | 'facebook'
   | 'justdial'
   | 'indiamart'
   | 'cold_call'
@@ -106,6 +108,7 @@ export type ActivityType =
 
 export type CallOutcome =
   | 'answered'
+  | 'ringing'
   | 'voicemail'
   | 'no_answer'
   | 'callback_requested'
@@ -525,7 +528,7 @@ export interface AiDigest {
 
 // ─── Partners (B2B) ────────────────────────────────────────────────────────────
 
-export type PartnerType = 'architect' | 'interior_designer' | 'builder' | 'consultant' | 'other'
+export type PartnerType = 'architect' | 'interior_designer' | 'builder' | 'consultant' | 'dealer' | 'other'
 export type PartnerStatus = 'active' | 'inactive'
 
 export interface Partner {

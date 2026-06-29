@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, MapPin, Edit2, Calendar, FileText,
   CheckCircle2, XCircle, Upload, Plus, Clock, UserCheck, ExternalLink,
-  FileText as QuoteIcon, FolderOpen
+  FileText as QuoteIcon, FolderOpen, Trash2
 } from 'lucide-react'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -16,7 +16,7 @@ import { ActivityLog } from './ActivityLog'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp
+  serverTimestamp, Timestamp, deleteDocument, uploadFile
 } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
@@ -40,6 +40,7 @@ const ACTIVITY_TYPE_OPTIONS = [
 
 const CALL_OUTCOME_OPTIONS = [
   { value: 'answered', label: 'Answered' },
+  { value: 'ringing', label: 'Ringing' },
   { value: 'voicemail', label: 'Voicemail' },
   { value: 'no_answer', label: 'No Answer' },
   { value: 'callback_requested', label: 'Callback Requested' },
@@ -50,7 +51,7 @@ const CALL_OUTCOME_OPTIONS = [
 export function LeadDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { user, role } = useAuth()
+  const { user, role, isAdmin } = useAuth()
   const [lead, setLead] = useState<Lead | null>(null)
   const [activities, setActivities] = useState<LeadActivity[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
@@ -59,6 +60,12 @@ export function LeadDetail() {
   const [showConvertModal, setShowConvertModal] = useState(false)
   const [converting, setConverting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [uploadingFloorPlan, setUploadingFloorPlan] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editData, setEditData] = useState<Partial<Lead>>({})
+  const [editSaving, setEditSaving] = useState(false)
 
   // Activity form state
   const [actType, setActType] = useState<ActivityType>('call')
@@ -237,6 +244,96 @@ export function LeadDetail() {
     }
   }
 
+  const handleFloorPlanUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !id) return
+
+    setUploadingFloorPlan(true)
+    try {
+      const ext = file.name.split('.').pop() ?? 'file'
+      const uploadPromise = uploadFile(`leads/${id}/floor-plan-${Date.now()}.${ext}`, file)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Upload timed out after 30s')), 30000)
+      )
+      const url = await Promise.race([uploadPromise, timeout])
+      await updateDoc(doc(db, 'leads', id), { floorPlanUrl: url, updatedAt: serverTimestamp() })
+      setLead(prev => prev ? { ...prev, floorPlanUrl: url } : null)
+      await addDoc(collection(db, 'leads', id, 'activities'), {
+        leadId: id,
+        type: 'floor_plan_upload',
+        description: `Floor plan uploaded: ${file.name}`,
+        performedBy: user?.id,
+        performedByName: user?.name,
+        createdAt: serverTimestamp(),
+      })
+      toast.success('Floor plan uploaded!')
+    } catch (err: any) {
+      console.error('Floor plan upload error:', err)
+      toast.error(err?.message ?? 'Upload failed — check Storage rules or CORS config')
+    } finally {
+      setUploadingFloorPlan(false)
+      e.target.value = ''
+    }
+  }
+
+  const openEditModal = () => {
+    setEditData({
+      name: lead?.name,
+      phone: lead?.phone,
+      email: lead?.email,
+      whatsapp: lead?.whatsapp,
+      address: lead?.address,
+      source: lead?.source,
+      projectType: lead?.projectType,
+      propertySize: lead?.propertySize,
+      estimatedBudget: lead?.estimatedBudget,
+      assignedTo: lead?.assignedTo,
+      assignedToName: lead?.assignedToName,
+    })
+    setShowEditModal(true)
+  }
+
+  const saveEdit = async () => {
+    if (!id || !lead) return
+    setEditSaving(true)
+    try {
+      const assignedUser = bdUsers.find(u => u.id === editData.assignedTo)
+      await updateDoc(doc(db, 'leads', id), {
+        ...editData,
+        assignedToName: assignedUser?.name ?? lead.assignedToName,
+        updatedAt: serverTimestamp(),
+      })
+      setLead(prev => prev ? {
+        ...prev,
+        ...editData,
+        assignedToName: assignedUser?.name ?? prev.assignedToName,
+      } : null)
+      toast.success('Lead updated!')
+      setShowEditModal(false)
+    } catch (err) {
+      toast.error('Failed to save')
+      console.error(err)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const handleDeleteLead = async () => {
+    if (!id) return
+    setDeleting(true)
+    try {
+      await deleteDocument('leads', id)
+      toast.success('Lead deleted')
+      navigate('/leads')
+    } catch (err) {
+      toast.error('Failed to delete lead')
+      console.error(err)
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="text-sm text-gray-600">Loading lead…</div></div>
   }
@@ -276,10 +373,30 @@ export function LeadDetail() {
         </div>
         <div className="flex gap-2 flex-wrap">
           {canEdit && (
+            <Button variant="secondary" size="sm" icon={<Edit2 className="w-3.5 h-3.5" />}
+              onClick={openEditModal}>
+              Edit
+            </Button>
+          )}
+          {canEdit && (
             <Button variant="secondary" size="sm" icon={<Plus className="w-3.5 h-3.5" />}
               onClick={() => setShowActivityForm(true)}>
               Log Activity
             </Button>
+          )}
+          {isAdmin && (
+            confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-400">Delete this lead?</span>
+                <Button size="sm" variant="danger" loading={deleting} onClick={handleDeleteLead}>Yes, Delete</Button>
+                <Button size="sm" variant="secondary" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />}
+                onClick={() => setConfirmDelete(true)}>
+                Delete
+              </Button>
+            )
           )}
           {isWon && !isConverted && canEdit && (
             <Button size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
@@ -463,15 +580,31 @@ export function LeadDetail() {
           <Card>
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Documents</h3>
             {lead.floorPlanUrl ? (
-              <a href={lead.floorPlanUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300">
-                <FileText className="w-4 h-4" />Floor Plan ↗
-              </a>
+              <div className="flex items-center justify-between gap-2">
+                <a href={lead.floorPlanUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300">
+                  <FileText className="w-4 h-4" />Floor Plan ↗
+                </a>
+                {canEdit && (
+                  <label className="cursor-pointer text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                    <Upload className="w-3.5 h-3.5 inline mr-1" />Replace
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="sr-only"
+                      onChange={handleFloorPlanUpload} disabled={uploadingFloorPlan} />
+                  </label>
+                )}
+              </div>
             ) : (
               <div className="text-center py-4">
                 <Upload className="w-6 h-6 text-gray-700 mx-auto mb-2" />
                 <p className="text-xs text-gray-600">No floor plan uploaded</p>
-                {canEdit && <Button variant="ghost" size="sm" className="mt-2">Upload Floor Plan</Button>}
+                {canEdit && (
+                  <label className={`mt-2 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 cursor-pointer transition-colors ${uploadingFloorPlan ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <Upload className="w-3.5 h-3.5" />
+                    {uploadingFloorPlan ? 'Uploading…' : 'Upload Floor Plan'}
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="sr-only"
+                      onChange={handleFloorPlanUpload} disabled={uploadingFloorPlan} />
+                  </label>
+                )}
               </div>
             )}
           </Card>
@@ -547,6 +680,63 @@ export function LeadDetail() {
           />
           <Input label="Schedule Follow-up" type="datetime-local"
             value={actFollowUp} onChange={e => setActFollowUp(e.target.value)} />
+        </div>
+      </Modal>
+
+      {/* Edit Lead Modal */}
+      <Modal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit Lead"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowEditModal(false)}>Cancel</Button>
+            <Button onClick={saveEdit} loading={editSaving}>Save Changes</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Full Name *" value={editData.name ?? ''} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} />
+            <Input label="Phone" value={editData.phone ?? ''} onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Email" type="email" value={editData.email ?? ''} onChange={e => setEditData(d => ({ ...d, email: e.target.value }))} />
+            <Input label="WhatsApp" value={editData.whatsapp ?? ''} onChange={e => setEditData(d => ({ ...d, whatsapp: e.target.value }))} />
+          </div>
+          <Input label="Address / Location" value={editData.address ?? ''} onChange={e => setEditData(d => ({ ...d, address: e.target.value }))} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select
+              label="Lead Source"
+              value={editData.source ?? ''}
+              onChange={e => setEditData(d => ({ ...d, source: e.target.value as Lead['source'] }))}
+              options={[
+                { value: 'referral', label: 'Word of Mouth / Referral' },
+                { value: 'partner', label: 'B2B Partner' },
+                { value: 'google_ads', label: 'Google Ads' },
+                { value: 'linkedin', label: 'LinkedIn' },
+                { value: 'instagram', label: 'Instagram' },
+                { value: 'facebook', label: 'Facebook' },
+                { value: 'justdial', label: 'JustDial' },
+                { value: 'indiamart', label: 'IndiaMART' },
+                { value: 'cold_call', label: 'Cold Call' },
+                { value: 'other', label: 'Other' },
+              ]}
+            />
+            <Select
+              label="Assign To"
+              value={editData.assignedTo ?? ''}
+              onChange={e => setEditData(d => ({ ...d, assignedTo: e.target.value }))}
+              options={bdUsers.map(u => ({ value: u.id, label: u.name }))}
+              placeholder="Select team member"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Input label="Project Type" value={editData.projectType ?? ''} onChange={e => setEditData(d => ({ ...d, projectType: e.target.value }))} />
+            <Input label="Property Size" value={editData.propertySize ?? ''} onChange={e => setEditData(d => ({ ...d, propertySize: e.target.value }))} />
+            <Input label="Estimated Budget (₹)" type="number" value={editData.estimatedBudget ?? ''} onChange={e => setEditData(d => ({ ...d, estimatedBudget: Number(e.target.value) || undefined }))} />
+          </div>
         </div>
       </Modal>
     </div>
