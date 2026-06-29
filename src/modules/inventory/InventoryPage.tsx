@@ -391,7 +391,7 @@ export function InventoryPage() {
   const canIssue  = role ? ['super_admin', 'management', 'dept_head', 'project_manager'].includes(role) : false
 
   useEffect(() => {
-    const q = query(collection(db, 'inventory'), orderBy('itemCode', 'asc'), limit(100))
+    const q = query(collection(db, 'inventory'), orderBy('itemCode', 'asc'), limit(1000))
     return onSnapshot(q, snap => {
       setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }) as InventoryItem))
       setLoading(false)
