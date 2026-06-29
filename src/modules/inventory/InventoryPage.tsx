@@ -361,7 +361,7 @@ export function InventoryPage() {
       }
       return true
     })
-  }, [items, categoryFilter, statusFilter, search])
+  }, [lineItems, categoryFilter, statusFilter, search])
 
   const stats = useMemo(() => ({
     total:       lineItems.length,
