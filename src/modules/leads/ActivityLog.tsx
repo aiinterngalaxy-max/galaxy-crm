@@ -1,4 +1,4 @@
-import { Phone, MessageSquare, Users, FileText, Clock, Mail, AlertCircle } from 'lucide-react'
+import { Phone, MessageSquare, Users, FileText, Clock, Mail, AlertCircle, Trash2 } from 'lucide-react'
 import { formatDateTime } from '../../lib/utils'
 import type { LeadActivity, ActivityType } from '../../types'
 import { cn } from '../../lib/utils'
@@ -16,9 +16,10 @@ const TYPE_CONFIG: Record<ActivityType, { icon: React.ReactNode; color: string; 
 
 interface ActivityLogProps {
   activities: LeadActivity[]
+  onDelete?: (activityId: string) => void
 }
 
-export function ActivityLog({ activities }: ActivityLogProps) {
+export function ActivityLog({ activities, onDelete }: ActivityLogProps) {
   if (activities.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -53,9 +54,20 @@ export function ActivityLog({ activities }: ActivityLogProps) {
                       <span className="ml-2 text-xs text-gray-500">· {act.outcome.replace('_', ' ')}</span>
                     )}
                   </div>
-                  <span className="text-xs text-gray-600 shrink-0 whitespace-nowrap">
-                    {formatDateTime(act.createdAt)}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-600 whitespace-nowrap">
+                      {formatDateTime(act.createdAt)}
+                    </span>
+                    {onDelete && (
+                      <button
+                        onClick={() => onDelete(act.id)}
+                        className="p-1 text-gray-700 hover:text-red-400 transition-colors"
+                        title="Delete activity"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-gray-300 mt-0.5">{act.description}</p>
                 <div className="flex items-center gap-3 mt-1">

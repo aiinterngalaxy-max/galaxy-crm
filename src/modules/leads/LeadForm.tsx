@@ -7,7 +7,7 @@ import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, addDoc, getDocs, serverTimestamp } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp, query, where } from '../../lib/firebase'
 import { Timestamp } from 'firebase/firestore'
 import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
@@ -17,7 +17,9 @@ import toast from 'react-hot-toast'
 const schema = z.object({
   businessType: z.enum(['b2c', 'b2b']),
   name: z.string().min(2, 'Name required'),
-  phone: z.string().optional().or(z.literal('')),
+  phone: z.string()
+    .transform(v => v.replace(/\D/g, ''))
+    .pipe(z.string().length(10, 'Phone must be exactly 10 digits')),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
@@ -100,6 +102,20 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     }
     setLoading(true)
     try {
+      // Uniqueness check — normalize both sides to digits only (handles legacy spaced numbers)
+      const normalizedPhone = data.phone.replace(/\D/g, '')
+      const allLeadsSnap = await getDocs(collection(db, 'leads'))
+      const duplicate = allLeadsSnap.docs.find(d => {
+        const stored = (d.data().phone ?? '').replace(/\D/g, '')
+        return stored === normalizedPhone
+      })
+      if (duplicate) {
+        const name = duplicate.data().name
+        toast.error(`Phone ${normalizedPhone} is already used by lead "${name}"`)
+        setLoading(false)
+        return
+      }
+
       const leadCode = await nextLeadCode()
 
       const assignedUser = bdUsers.find(u => u.id === data.assignedTo)
@@ -199,10 +215,16 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
           {...register('name')}
         />
         <Input
-          label={businessType === 'b2b' ? 'Phone (optional)' : 'Phone *'}
+          label="Phone *"
           placeholder="9876543210"
+          type="tel"
+          maxLength={10}
           error={errors.phone?.message}
-          {...register('phone')}
+          {...register('phone', {
+            onChange: e => {
+              e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10)
+            }
+          })}
         />
         {businessType === 'b2c' && (
           <>

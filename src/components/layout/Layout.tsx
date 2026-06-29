@@ -5,12 +5,16 @@ import { Header } from './Header'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, where, onSnapshot } from '../../lib/firebase'
+import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
-  const { user } = useAuth()
+  const { user, role } = useAuth()
+
+  const isBD = ['super_admin', 'management', 'bd_exec', 'dept_head'].includes(role ?? '')
+  useFollowUpNotifier(user?.id, isBD)
 
   useEffect(() => {
     if (!user) return

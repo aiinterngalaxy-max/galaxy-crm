@@ -35,6 +35,7 @@ const ReportsPage = lazy(() => import('./pages/content-studio/ReportsPage').then
 const ConnectionsPage = lazy(() => import('./pages/content-studio/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })))
 const ActivityPage = lazy(() => import('./pages/content-studio/ActivityPage').then(m => ({ default: m.ActivityPage })))
 const NotificationsPage = lazy(() => import('./modules/notifications/NotificationsPage').then(m => ({ default: m.NotificationsPage })))
+const FollowUpsPage = lazy(() => import('./modules/leads/FollowUpsPage').then(m => ({ default: m.FollowUpsPage })))
 const PartnersPage = lazy(() => import('./modules/partners/PartnersPage').then(m => ({ default: m.PartnersPage })))
 const PartnerDetail = lazy(() => import('./modules/partners/PartnerDetail').then(m => ({ default: m.PartnerDetail })))
 const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
@@ -92,6 +93,9 @@ function AppRoutes() {
           {/* Leads */}
           <Route path="leads" element={<RequireRole module="leads"><LeadsPage /></RequireRole>} />
           <Route path="leads/:id" element={<RequireRole module="leads"><LeadDetail /></RequireRole>} />
+
+          {/* Follow-ups */}
+          <Route path="follow-ups" element={<RequireRole module="follow-ups"><FollowUpsPage /></RequireRole>} />
 
           {/* Partners (B2B) */}
           <Route path="partners" element={<RequireRole module="partners"><PartnersPage /></RequireRole>} />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2 } from 'lucide-react'
+import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
@@ -99,11 +99,16 @@ export function LeadsPage() {
             {leads.filter(l => l.status === 'lost').length} lost
           </p>
         </div>
-        {canCreate && (
-          <Button onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
-            New Lead
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" icon={<Clock className="w-4 h-4" />} onClick={() => navigate('/follow-ups')}>
+            Follow-ups
           </Button>
-        )}
+          {canCreate && (
+            <Button onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
+              New Lead
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Toolbar */}

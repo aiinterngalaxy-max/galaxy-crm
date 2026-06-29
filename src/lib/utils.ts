@@ -146,6 +146,7 @@ export function canAccess(role: UserRole, module: string): boolean {
     // BD only
     leads:           ['bd_exec', 'dept_head'],
     partners:        ['bd_exec', 'dept_head'],
+    'follow-ups':    ['bd_exec', 'dept_head'],
     // PM only
     customers:       ['project_manager', 'dept_head', 'bd_exec'],
     quotations:      ['project_manager', 'dept_head'],

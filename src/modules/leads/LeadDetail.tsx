@@ -18,6 +18,7 @@ import {
   db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
   serverTimestamp, Timestamp, deleteDocument, uploadFile
 } from '../../lib/firebase'
+import { deleteDoc } from 'firebase/firestore'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
   formatCurrency, canManageLeads
@@ -334,6 +335,17 @@ export function LeadDetail() {
     }
   }
 
+  const deleteActivity = async (activityId: string) => {
+    if (!id) return
+    try {
+      await deleteDoc(doc(db, 'leads', id, 'activities', activityId))
+      setActivities(prev => prev.filter(a => a.id !== activityId))
+      toast.success('Activity deleted')
+    } catch {
+      toast.error('Failed to delete activity')
+    }
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="text-sm text-gray-600">Loading lead…</div></div>
   }
@@ -616,7 +628,7 @@ export function LeadDetail() {
             <div className="p-5 border-b border-gray-800 flex items-center justify-between">
               <h3 className="section-header">Activity Timeline</h3>
             </div>
-            <ActivityLog activities={activities} />
+            <ActivityLog activities={activities} onDelete={canEdit ? deleteActivity : undefined} />
           </Card>
         </div>
       </div>
