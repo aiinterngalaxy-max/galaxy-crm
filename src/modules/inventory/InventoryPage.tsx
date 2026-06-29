@@ -159,11 +159,11 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
 const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
-const ELYSIA_SOCKET_MODULES = ['Single', 'Double']
+const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Double Socket USB C', 'Double Socket 5Pin']
 
 function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
   const c = color.trim()
-  if (product === 'socket') return `${module.toUpperCase()} SKT ${c}`.trim()
+  if (product === 'socket') return `${module.toUpperCase()} ${c}`.trim()
   if (module === '4T LCD') return `4 TOUCH LCD ${c}`.trim()
   if (/^\d+T$/.test(module)) {
     const n = module.replace(/[^0-9]/g, '')
