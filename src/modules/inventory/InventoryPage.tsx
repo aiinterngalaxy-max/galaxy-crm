@@ -569,26 +569,30 @@ export function InventoryPage() {
         const category = (iCat !== -1 ? row[iCat]?.trim() : '') || (CATEGORIES_BY_LINE[line]?.[0] ?? 'OTHER')
         const rackRaw = iRack !== -1 ? (row[iRack]?.trim() ?? '') : ''
         const location = formatRack(extractRackNumber(rackRaw) || rackRaw)
-        const opening = Number(row[iOpen]) || 0
-        const imported = Number(row[iImp]) || 0
-        const issued = Number(row[iIss]) || 0
+        const csvOpening = Number(row[iOpen]) || 0
+        const csvImported = Number(row[iImp]) || 0
+        const csvIssued = Number(row[iIss]) || 0
         const reorder = Number(row[iReorder]) || 0
-        const closing = opening + imported - issued
-        const stockStatus = computeStatus(closing, reorder)
 
         const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === line)
         if (existing) {
+          // Imported/Issued from the CSV are deltas added on top of existing totals — opening stock is the
+          // original baseline and isn't re-applied from the file on every import.
+          const importedQty = existing.importedQty + csvImported
+          const issuedQty = existing.issuedQty + csvIssued
+          const closingStock = existing.openingStock + importedQty - issuedQty
           await updateDoc(doc(db, 'inventory', existing.id), {
             category, itemName, location,
-            openingStock: opening, importedQty: imported, issuedQty: issued, reorderLevel: reorder,
-            closingStock: closing, stockStatus, updatedAt: serverTimestamp(),
+            importedQty, issuedQty, reorderLevel: reorder,
+            closingStock, stockStatus: computeStatus(closingStock, reorder), updatedAt: serverTimestamp(),
           })
           updated++
         } else {
+          const closingStock = csvOpening + csvImported - csvIssued
           await addDoc(collection(db, 'inventory'), {
             itemCode, category, itemName, location, productLine: line,
-            openingStock: opening, importedQty: imported, issuedQty: issued, reorderLevel: reorder,
-            closingStock: closing, stockStatus,
+            openingStock: csvOpening, importedQty: csvImported, issuedQty: csvIssued, reorderLevel: reorder,
+            closingStock, stockStatus: computeStatus(closingStock, reorder),
             createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
             createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
           })
