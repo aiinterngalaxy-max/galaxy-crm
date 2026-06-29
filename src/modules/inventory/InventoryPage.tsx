@@ -79,7 +79,13 @@ function formatRack(value: string): string {
 
 // ─── CSV Import/Export ──────────────────────────────────────────────────────────
 
-const CSV_INPUT_HEADERS = ['Item Code', 'Category', 'Item Name', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+const CSV_INPUT_HEADERS_BASE = ['Item Code', 'Category', 'Item Name', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+
+function getCsvHeaders(line?: string): string[] {
+  return line === 'elysia'
+    ? ['Item Code', 'Category', 'Item Name', 'Material', 'Rack', 'Opening Stock', 'Imported Qty', 'Issued Qty', 'Reorder Level']
+    : CSV_INPUT_HEADERS_BASE
+}
 
 function csvEscape(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
@@ -139,6 +145,8 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
   vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'OTHER'],
 }
 
+const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
+
 interface AddItemModalProps {
   onClose: () => void
   userId: string
@@ -149,7 +157,7 @@ interface AddItemModalProps {
 function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
   const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
   const [form, setForm] = useState({
-    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'elysia'][0], location: '',
+    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'elysia'][0], location: '', material: '',
     openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'elysia',
   })
   const [saving, setSaving] = useState(false)
@@ -173,6 +181,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
         category: form.category,
         itemName: form.itemName.trim(),
         location: formatRack(form.location),
+        material: form.productLine === 'elysia' ? form.material : '',
         productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
@@ -239,9 +248,20 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
             <label className="form-label">Item Name *</label>
             <input className="form-input" placeholder="e.g. 4 TOUCH WHITE" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
           </div>
-          <div>
-            <label className="form-label">Rack</label>
-            <input className="form-input" type="number" min="0" placeholder="e.g. 2" value={form.location} onChange={e => set('location', e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Rack</label>
+              <input className="form-input" type="number" min="0" placeholder="e.g. 2" value={form.location} onChange={e => set('location', e.target.value)} />
+            </div>
+            {form.productLine === 'elysia' && (
+              <div>
+                <label className="form-label">Material</label>
+                <select className="form-input" value={form.material} onChange={e => set('material', e.target.value)}>
+                  <option value="">—</option>
+                  {ELYSIA_MATERIALS.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -450,6 +470,7 @@ export function InventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState('ALL')
   const [colorFilter, setColorFilter] = useState('ALL')
   const [rackFilter, setRackFilter] = useState('ALL')
+  const [materialFilter, setMaterialFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState<'all' | StockStatus>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
@@ -480,7 +501,7 @@ export function InventoryPage() {
   }, [])
 
   // single memo — deps are all primitives + items array, no chained memos
-  const { lineItems, categories, colors, racks, filtered, stats } = useMemo(() => {
+  const { lineItems, categories, colors, racks, materials, filtered, stats } = useMemo(() => {
     const scoped = line
       ? items.filter(i => (i.productLine ?? 'elysia') === line)
       : items
@@ -488,11 +509,13 @@ export function InventoryPage() {
     const cats  = Array.from(new Set(scoped.map(i => i.category))).sort()
     const cols  = Array.from(new Set(scoped.map(i => getItemColor(i)).filter((c): c is string => !!c))).sort()
     const rcks  = Array.from(new Set(scoped.map(i => i.location).filter((l): l is string => !!l))).sort()
+    const mats  = Array.from(new Set(scoped.map(i => i.material).filter((m): m is string => !!m))).sort()
 
     const rows = scoped.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
       if (colorFilter !== 'ALL' && getItemColor(item) !== colorFilter) return false
       if (rackFilter !== 'ALL' && item.location !== rackFilter) return false
+      if (materialFilter !== 'ALL' && item.material !== materialFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
         const s = search.toLowerCase()
@@ -506,6 +529,7 @@ export function InventoryPage() {
       categories: [...STATIC_CATEGORIES, ...cats],
       colors: [...STATIC_CATEGORIES, ...cols],
       racks: [...STATIC_CATEGORIES, ...rcks],
+      materials: [...STATIC_CATEGORIES, ...mats],
       filtered: rows,
       stats: {
         total:      scoped.length,
@@ -514,25 +538,33 @@ export function InventoryPage() {
         outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
       },
     }
-  }, [items, line, categoryFilter, colorFilter, rackFilter, statusFilter, search])
+  }, [items, line, categoryFilter, colorFilter, rackFilter, materialFilter, statusFilter, search])
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
   const handleExport = () => {
     const rows = [
-      [...CSV_INPUT_HEADERS, 'Closing Stock', 'Stock Status'],
-      ...lineItems.map(i => [
-        i.itemCode, i.category, i.itemName, extractRackNumber(i.location),
-        String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
-        String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
-      ]),
+      [...getCsvHeaders(line), 'Closing Stock', 'Stock Status'],
+      ...lineItems.map(i => {
+        const row = [i.itemCode, i.category, i.itemName]
+        if (line === 'elysia') row.push(i.material || '')
+        row.push(
+          extractRackNumber(i.location),
+          String(i.openingStock), String(i.importedQty), String(i.issuedQty), String(i.reorderLevel),
+          String(i.closingStock), STATUS_CONFIG[i.stockStatus].label,
+        )
+        return row
+      }),
     ]
     downloadCsv(`${line ?? 'inventory'}-export-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(rows))
   }
 
   const handleDownloadTemplate = () => {
     const exampleCategory = CATEGORIES_BY_LINE[line ?? 'elysia']?.[0] ?? 'OTHER'
-    const rows = [CSV_INPUT_HEADERS, ['EXAMPLE-CODE', exampleCategory, 'Example Item Name', '2', '1', '0', '0', '0']]
+    const exampleRow = ['EXAMPLE-CODE', exampleCategory, 'Example Item Name']
+    if (line === 'elysia') exampleRow.push(ELYSIA_MATERIALS[0])
+    exampleRow.push('2', '1', '0', '0', '0')
+    const rows = [getCsvHeaders(line), exampleRow]
     downloadCsv(`${line ?? 'inventory'}-import-template.csv`, buildCsv(rows))
   }
 
@@ -553,6 +585,7 @@ export function InventoryPage() {
       const idx = (name: string) => header.indexOf(name.toLowerCase())
       const iCode = idx('item code'), iCat = idx('category'), iName = idx('item name')
       const iRack = idx('rack') !== -1 ? idx('rack') : idx('location')
+      const iMat = idx('material')
       const iOpen = idx('opening stock'), iImp = idx('imported qty'), iIss = idx('issued qty'), iReorder = idx('reorder level')
 
       if (iCode === -1 || iName === -1) {
@@ -569,6 +602,7 @@ export function InventoryPage() {
         const category = (iCat !== -1 ? row[iCat]?.trim() : '') || (CATEGORIES_BY_LINE[line]?.[0] ?? 'OTHER')
         const rackRaw = iRack !== -1 ? (row[iRack]?.trim() ?? '') : ''
         const location = formatRack(extractRackNumber(rackRaw) || rackRaw)
+        const material = line === 'elysia' && iMat !== -1 ? (row[iMat]?.trim() ?? '') : ''
         const csvOpening = Number(row[iOpen]) || 0
         const csvImported = Number(row[iImp]) || 0
         const csvIssued = Number(row[iIss]) || 0
@@ -582,7 +616,7 @@ export function InventoryPage() {
           const issuedQty = existing.issuedQty + csvIssued
           const closingStock = existing.openingStock + importedQty - issuedQty
           await updateDoc(doc(db, 'inventory', existing.id), {
-            category, itemName, location,
+            category, itemName, location, material,
             importedQty, issuedQty, reorderLevel: reorder,
             closingStock, stockStatus: computeStatus(closingStock, reorder), updatedAt: serverTimestamp(),
           })
@@ -590,7 +624,7 @@ export function InventoryPage() {
         } else {
           const closingStock = csvOpening + csvImported - csvIssued
           await addDoc(collection(db, 'inventory'), {
-            itemCode, category, itemName, location, productLine: line,
+            itemCode, category, itemName, location, material, productLine: line,
             openingStock: csvOpening, importedQty: csvImported, issuedQty: csvIssued, reorderLevel: reorder,
             closingStock, stockStatus: computeStatus(closingStock, reorder),
             createdBy: user?.id ?? 'import', createdByName: user?.name ?? 'CSV Import',
@@ -802,6 +836,26 @@ export function InventoryPage() {
             </div>
           )}
 
+          {/* Material chips */}
+          {materials.length > 1 && (
+            <div className="flex gap-2 flex-wrap">
+              {materials.map(mat => (
+                <button
+                  key={mat}
+                  onClick={() => setMaterialFilter(mat)}
+                  className={cn(
+                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                    materialFilter === mat
+                      ? 'border-purple-500 text-purple-400 bg-purple-900/20'
+                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                  )}
+                >
+                  {mat}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Table */}
           <Card padding="none">
             {loading ? (
@@ -817,7 +871,7 @@ export function InventoryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-800">
-                      {['Code', 'Category', 'Item Name', 'Color', 'Rack', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
+                      {['Code', 'Category', 'Item Name', 'Color', 'Material', 'Rack', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -833,6 +887,7 @@ export function InventoryPage() {
                           </td>
                           <td className="px-4 py-3 text-xs font-medium text-gray-200 max-w-[200px]">{item.itemName}</td>
                           <td className="px-4 py-3 text-xs text-gray-400">{getItemColor(item) || '—'}</td>
+                          <td className="px-4 py-3 text-xs text-gray-400">{item.material || '—'}</td>
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {editingLocation?.id === item.id ? (
                               <input
