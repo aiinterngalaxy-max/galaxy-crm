@@ -45,9 +45,10 @@ export function FollowUpsPage() {
   useEffect(() => {
     if (!user) return
     const isAdmin = ['super_admin', 'management'].includes(role ?? '')
+    // Non-admin: simple equality query (no composite index needed); filter nextFollowUp client-side
     const snap$ = isAdmin
       ? getDocs(query(collection(db, 'leads'), where('nextFollowUp', '!=', null), orderBy('nextFollowUp')))
-      : getDocs(query(collection(db, 'leads'), where('assignedTo', '==', user.id), where('nextFollowUp', '!=', null), orderBy('nextFollowUp')))
+      : getDocs(query(collection(db, 'leads'), where('assignedTo', '==', user.id)))
 
     snap$.then(snap => {
       setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
@@ -66,13 +67,16 @@ export function FollowUpsPage() {
     return d
   }, [today])
 
-  // Exclude won/lost
+  // Exclude won/lost and leads without a follow-up set
   const active = leads.filter(l => !['won', 'lost'].includes(l.status) && l.nextFollowUp)
 
-  const overdue   = active.filter(l => toMs(l.nextFollowUp) < now.getTime() && !isSameDay(l.nextFollowUp, today)).sort((a, b) => toMs(b.nextFollowUp) - toMs(a.nextFollowUp))
-  const todayList = active.filter(l => isSameDay(l.nextFollowUp, today)).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp))
+  // Overdue: past midnight today, sorted oldest-first (most urgent on top)
+  const overdue      = active.filter(l => toMs(l.nextFollowUp) < today.getTime()).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp))
+  const todayList    = active.filter(l => isSameDay(l.nextFollowUp, today)).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp))
   const tomorrowList = active.filter(l => isSameDay(l.nextFollowUp, tomorrow)).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp))
-  const upcoming  = active.filter(l => toMs(l.nextFollowUp) > tomorrow.getTime() + 86400000).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp)).slice(0, 10)
+  // Upcoming: strictly after tomorrow (day-after-tomorrow onwards)
+  const dayAfterTomorrow = new Date(tomorrow); dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1)
+  const upcoming     = active.filter(l => toMs(l.nextFollowUp) >= dayAfterTomorrow.getTime()).sort((a, b) => toMs(a.nextFollowUp) - toMs(b.nextFollowUp)).slice(0, 10)
 
   const totalToday = todayList.length + overdue.length
 

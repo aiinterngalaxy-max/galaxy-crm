@@ -45,7 +45,7 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const { user, role, isAdmin } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
-  const [workflowCounts, setWorkflowCounts] = useState<Record<string, number>>({})
+  const [workflowCounts, setWorkflowCounts] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
@@ -147,12 +147,14 @@ export function ProjectsPage() {
         setProjects(loaded)
         setLoading(false)
         // Fetch workflow stage counts for all projects
-        const counts: Record<string, number> = {}
+        const counts: Record<string, { total: number; done: number }> = {}
         await Promise.all(loaded.map(async p => {
           try {
             const wSnap = await getDocs(collection(db, 'projects', p.id, 'workflow'))
-            counts[p.id] = wSnap.size
-          } catch { counts[p.id] = 0 }
+            const total = wSnap.size
+            const done = wSnap.docs.filter(d => d.data().status === 'completed').length
+            counts[p.id] = { total, done }
+          } catch { counts[p.id] = { total: 0, done: 0 } }
         }))
         setWorkflowCounts(counts)
       },
@@ -272,12 +274,15 @@ export function ProjectsPage() {
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(project => {
-          const pct = project.completionPercent ?? 0
+          const wf = workflowCounts[project.id]
+          const pct = wf && wf.total > 0
+            ? Math.round((wf.done / wf.total) * 100)
+            : (project.completionPercent ?? 0)
           const sd = startDate(project)
           const city = project.city || ''
           const phone = project.clientContact || ''
           const overdue = isOverdue(project)
-          const stageCount = workflowCounts[project.id]
+          const stageCount = wf?.total
 
           return (
             <div
@@ -330,7 +335,9 @@ export function ProjectsPage() {
                 {project.assignedPMName && <p>Site Manager: <span className="text-gray-300 font-medium">{project.assignedPMName}</span></p>}
                 <div className="flex items-center justify-between">
                   <p>{project.expectedEndDate ? `Deadline ${formatDate(project.expectedEndDate)}` : 'No deadline'}{overdue ? <span className="text-red-400 ml-1">· Overdue</span> : null}</p>
-                  {stageCount !== undefined && <p className="text-gray-600">{stageCount} workflow stage{stageCount !== 1 ? 's' : ''}</p>}
+                  {wf !== undefined && wf.total > 0 && (
+                    <p className="text-gray-600">{wf.done}/{wf.total} stages</p>
+                  )}
                 </div>
               </div>
 

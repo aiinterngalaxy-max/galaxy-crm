@@ -16,9 +16,8 @@ import { ActivityLog } from './ActivityLog'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp, deleteDocument, uploadFile
+  serverTimestamp, Timestamp, deleteDocument, uploadFile, deleteDoc, orderBy
 } from '../../lib/firebase'
-import { deleteDoc } from 'firebase/firestore'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
   formatCurrency, canManageLeads
@@ -90,12 +89,10 @@ export function LeadDetail() {
           setLead({ id: docSnap.id, ...docSnap.data() } as Lead)
         }
 
-        const actSnap = await import('../../lib/firebase').then(m =>
-          m.getDocs(m.query(
-            m.collection(db, 'leads', id!, 'activities'),
-            m.orderBy('createdAt', 'desc')
-          ))
-        )
+        const actSnap = await getDocs(query(
+          collection(db, 'leads', id!, 'activities'),
+          orderBy('createdAt', 'desc')
+        ))
         setActivities(actSnap.docs.map(d => ({ id: d.id, ...d.data() }) as LeadActivity))
       } catch (err) {
         console.error(err)

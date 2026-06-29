@@ -118,6 +118,19 @@ describe('canAccess', () => {
     })
   })
 
+  it('bd_exec and dept_head can access follow-ups', () => {
+    expect(canAccess('bd_exec', 'follow-ups')).toBe(true)
+    expect(canAccess('dept_head', 'follow-ups')).toBe(true)
+    expect(canAccess('marketing', 'follow-ups')).toBe(false)
+    expect(canAccess('project_manager', 'follow-ups')).toBe(false)
+  })
+
+  it('super_admin and management can access inventory', () => {
+    expect(canAccess('super_admin', 'inventory')).toBe(true)
+    expect(canAccess('management', 'inventory')).toBe(true)
+    expect(canAccess('bd_exec', 'inventory')).toBe(false)
+  })
+
   it('returns false for unknown module', () => {
     expect(canAccess('bd_exec', 'nonexistent-module')).toBe(false)
   })

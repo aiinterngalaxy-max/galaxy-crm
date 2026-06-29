@@ -10,11 +10,10 @@ import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
-  LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
+  cn, LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
   formatCurrency, canManageLeads,
 } from '../../lib/utils'
 import type { Lead, LeadStatus } from '../../types'
-import { cn } from '../../lib/utils'
 
 const PIPELINE_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent']
 const ALL_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent', 'won', 'lost']
@@ -113,8 +112,9 @@ export function LeadsPage() {
     return list
   }, [leads, filterStage, filterPlatform, filterEmployee, filterDate, filterMonth, sortScore])
 
-  // Group filtered leads by month for list view
+  // Group filtered leads by month for list view (skip in kanban — not rendered)
   const groupedByMonth = useMemo(() => {
+    if (viewMode === 'kanban') return []
     const map = new Map<string, { label: string; leads: Lead[] }>()
     filtered.forEach(l => {
       const key = getLeadMonth(l)
@@ -139,8 +139,8 @@ export function LeadsPage() {
           <h1 className="page-title">Lead Management</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {leads.filter(l => !['won', 'lost'].includes(l.status)).length} active ·{' '}
-            {leads.filter(l => l.status === 'won').length} won ·{' '}
-            {leads.filter(l => l.status === 'lost').length} lost
+            {leads.filter(l => l.status === 'won').length} {LEAD_STATUS_CONFIG.won.label.toLowerCase()} ·{' '}
+            {leads.filter(l => l.status === 'lost').length} {LEAD_STATUS_CONFIG.lost.label.toLowerCase()}
           </p>
         </div>
         <div className="flex items-center gap-2">

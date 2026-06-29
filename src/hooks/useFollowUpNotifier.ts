@@ -46,6 +46,10 @@ export function useFollowUpNotifier(userId: string | undefined, enabled: boolean
   useEffect(() => {
     if (!enabled || !userId) return
 
+    // Reset cache on each userId change so User B doesn't see User A's leads
+    loadedRef.current = false
+    leadsRef.current = []
+
     // Load leads with nextFollowUp for this user (single query, no compound index needed)
     async function loadLeads() {
       if (loadedRef.current) return

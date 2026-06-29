@@ -7,7 +7,7 @@ import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, addDoc, getDocs, serverTimestamp, query, where } from '../../lib/firebase'
+import { db, collection, addDoc, getDocs, serverTimestamp, query, where, limit } from '../../lib/firebase'
 import { Timestamp } from 'firebase/firestore'
 import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
@@ -102,16 +102,11 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     }
     setLoading(true)
     try {
-      // Uniqueness check — normalize both sides to digits only (handles legacy spaced numbers)
+      // Uniqueness check — exact match on normalized phone (new leads are stored digits-only)
       const normalizedPhone = data.phone.replace(/\D/g, '')
-      const allLeadsSnap = await getDocs(collection(db, 'leads'))
-      const duplicate = allLeadsSnap.docs.find(d => {
-        const stored = (d.data().phone ?? '').replace(/\D/g, '')
-        return stored === normalizedPhone
-      })
-      if (duplicate) {
-        const name = duplicate.data().name
-        toast.error(`Phone ${normalizedPhone} is already used by lead "${name}"`)
+      const dupSnap = await getDocs(query(collection(db, 'leads'), where('phone', '==', normalizedPhone), limit(1)))
+      if (!dupSnap.empty) {
+        toast.error(`Phone ${normalizedPhone} is already used by lead "${dupSnap.docs[0].data().name}"`)
         setLoading(false)
         return
       }
@@ -220,11 +215,11 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
           type="tel"
           maxLength={10}
           error={errors.phone?.message}
-          {...register('phone', {
-            onChange: e => {
-              e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10)
-            }
-          })}
+          {...register('phone')}
+          onChange={e => {
+            const clean = e.target.value.replace(/\D/g, '').slice(0, 10)
+            setValue('phone', clean, { shouldValidate: !!errors.phone })
+          }}
         />
         {businessType === 'b2c' && (
           <>
