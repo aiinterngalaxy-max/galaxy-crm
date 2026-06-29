@@ -364,6 +364,7 @@ export interface InventoryItem {
   itemName: string
   location: string
   productLine?: string
+  color?: string
   openingStock: number
   importedQty: number
   issuedQty: number

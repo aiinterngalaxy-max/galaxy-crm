@@ -40,7 +40,7 @@ interface AddItemModalProps {
 
 function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
   const [form, setForm] = useState({
-    itemCode: '', itemName: '', category: '1T', location: '',
+    itemCode: '', itemName: '', category: '1T', location: '', color: '',
     openingStock: '', reorderLevel: '', productLine: 'elysia',
   })
   const [saving, setSaving] = useState(false)
@@ -63,6 +63,7 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
         category: form.category,
         itemName: form.itemName.trim(),
         location: form.location.trim(),
+        color: form.color.trim(),
         productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
@@ -115,9 +116,15 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
             <label className="form-label">Item Name *</label>
             <input className="form-input" placeholder="e.g. 4-Touch Panel White" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
           </div>
-          <div>
-            <label className="form-label">Location / Warehouse</label>
-            <input className="form-input" placeholder="e.g. Rack A-3" value={form.location} onChange={e => set('location', e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Location / Warehouse</label>
+              <input className="form-input" placeholder="e.g. Rack A-3" value={form.location} onChange={e => set('location', e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">Color</label>
+              <input className="form-input" placeholder="e.g. White" value={form.color} onChange={e => set('color', e.target.value)} />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -324,6 +331,7 @@ export function InventoryPage() {
   const [tab, setTab] = useState<'stock' | 'log'>('stock')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
+  const [colorFilter, setColorFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState<'all' | StockStatus>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
@@ -352,15 +360,17 @@ export function InventoryPage() {
   }, [])
 
   // single memo — deps are all primitives + items array, no chained memos
-  const { lineItems, categories, filtered, stats } = useMemo(() => {
+  const { lineItems, categories, colors, filtered, stats } = useMemo(() => {
     const scoped = line
       ? items.filter(i => (i.productLine ?? 'elysia') === line)
       : items
 
     const cats = Array.from(new Set(scoped.map(i => i.category))).sort()
+    const cols = Array.from(new Set(scoped.map(i => i.color).filter((c): c is string => !!c))).sort()
 
     const rows = scoped.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
+      if (colorFilter !== 'ALL' && item.color !== colorFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
         const s = search.toLowerCase()
@@ -372,6 +382,7 @@ export function InventoryPage() {
     return {
       lineItems: scoped,
       categories: [...STATIC_CATEGORIES, ...cats],
+      colors: [...STATIC_CATEGORIES, ...cols],
       filtered: rows,
       stats: {
         total:      scoped.length,
@@ -380,7 +391,7 @@ export function InventoryPage() {
         outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
       },
     }
-  }, [items, line, categoryFilter, statusFilter, search])
+  }, [items, line, categoryFilter, colorFilter, statusFilter, search])
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
@@ -506,6 +517,26 @@ export function InventoryPage() {
             ))}
           </div>
 
+          {/* Color chips */}
+          {colors.length > 1 && (
+            <div className="flex gap-2 flex-wrap">
+              {colors.map(col => (
+                <button
+                  key={col}
+                  onClick={() => setColorFilter(col)}
+                  className={cn(
+                    'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                    colorFilter === col
+                      ? 'border-indigo-500 text-indigo-400 bg-indigo-900/20'
+                      : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400'
+                  )}
+                >
+                  {col}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Table */}
           <Card padding="none">
             {loading ? (
@@ -521,7 +552,7 @@ export function InventoryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-800">
-                      {['Code', 'Category', 'Item Name', 'Location', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
+                      {['Code', 'Category', 'Item Name', 'Color', 'Location', 'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status', ''].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -536,6 +567,7 @@ export function InventoryPage() {
                             <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-medium">{item.category}</span>
                           </td>
                           <td className="px-4 py-3 text-xs font-medium text-gray-200 max-w-[200px]">{item.itemName}</td>
+                          <td className="px-4 py-3 text-xs text-gray-400">{item.color || '—'}</td>
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {editingLocation?.id === item.id ? (
                               <input
