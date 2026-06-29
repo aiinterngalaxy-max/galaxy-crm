@@ -339,20 +339,15 @@ export function InventoryPage() {
     })
   }, [])
 
-  // items scoped to the active product line
-  const lineItems = useMemo(() => {
-    if (!line) return items
-    // existing seeded items have no productLine field — treat missing as 'elysia'
-    return items.filter(i => (i.productLine ?? 'elysia') === line)
-  }, [items, line])
+  // single memo — deps are all primitives + items array, no chained memos
+  const { lineItems, categories, filtered, stats } = useMemo(() => {
+    const scoped = line
+      ? items.filter(i => (i.productLine ?? 'elysia') === line)
+      : items
 
-  const categories = useMemo(() => {
-    const unique = Array.from(new Set(lineItems.map(i => i.category))).sort()
-    return [...STATIC_CATEGORIES, ...unique]
-  }, [lineItems])
+    const cats = Array.from(new Set(scoped.map(i => i.category))).sort()
 
-  const filtered = useMemo(() => {
-    return lineItems.filter(item => {
+    const rows = scoped.filter(item => {
       if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false
       if (statusFilter !== 'all' && item.stockStatus !== statusFilter) return false
       if (search) {
@@ -361,14 +356,19 @@ export function InventoryPage() {
       }
       return true
     })
-  }, [lineItems, categoryFilter, statusFilter, search])
 
-  const stats = useMemo(() => ({
-    total:       lineItems.length,
-    inStock:     lineItems.filter(i => i.stockStatus === 'in_stock').length,
-    lowStock:    lineItems.filter(i => i.stockStatus === 'low_stock').length,
-    outOfStock:  lineItems.filter(i => i.stockStatus === 'out_of_stock').length,
-  }), [lineItems])
+    return {
+      lineItems: scoped,
+      categories: [...STATIC_CATEGORIES, ...cats],
+      filtered: rows,
+      stats: {
+        total:      scoped.length,
+        inStock:    scoped.filter(i => i.stockStatus === 'in_stock').length,
+        lowStock:   scoped.filter(i => i.stockStatus === 'low_stock').length,
+        outOfStock: scoped.filter(i => i.stockStatus === 'out_of_stock').length,
+      },
+    }
+  }, [items, line, categoryFilter, statusFilter, search])
 
   const lineLabel = line ? (line.charAt(0).toUpperCase() + line.slice(1)) : 'All'
 
