@@ -327,6 +327,18 @@ export function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | StockStatus>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [stockModal, setStockModal] = useState<{ item: InventoryItem; type: 'import' | 'issue' } | null>(null)
+  const [editingLocation, setEditingLocation] = useState<{ id: string; value: string } | null>(null)
+
+  const saveLocation = async (itemId: string, value: string) => {
+    try {
+      await updateDoc(doc(db, 'inventory', itemId), { location: value.trim(), updatedAt: serverTimestamp() })
+      toast.success('Location updated')
+    } catch {
+      toast.error('Failed to update location')
+    } finally {
+      setEditingLocation(null)
+    }
+  }
 
   const canManage = role ? ['super_admin', 'management', 'dept_head'].includes(role) : false
   const canIssue  = role ? ['super_admin', 'management', 'dept_head', 'project_manager'].includes(role) : false
@@ -524,7 +536,29 @@ export function InventoryPage() {
                             <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 font-medium">{item.category}</span>
                           </td>
                           <td className="px-4 py-3 text-xs font-medium text-gray-200 max-w-[200px]">{item.itemName}</td>
-                          <td className="px-4 py-3 text-xs text-gray-500">{item.location || '—'}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">
+                            {editingLocation?.id === item.id ? (
+                              <input
+                                autoFocus
+                                className="form-input py-0.5 px-2 text-xs w-28"
+                                value={editingLocation.value}
+                                onChange={e => setEditingLocation({ id: item.id, value: e.target.value })}
+                                onBlur={() => saveLocation(item.id, editingLocation.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveLocation(item.id, editingLocation.value)
+                                  if (e.key === 'Escape') setEditingLocation(null)
+                                }}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => setEditingLocation({ id: item.id, value: item.location || '' })}
+                                className="cursor-pointer hover:text-gray-300 border-b border-dashed border-gray-700 hover:border-gray-500 transition-colors"
+                                title="Click to edit location"
+                              >
+                                {item.location || '—'}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-xs text-gray-400 text-right">{item.openingStock}</td>
                           <td className="px-4 py-3 text-xs text-green-400 font-medium text-right">{item.importedQty}</td>
                           <td className="px-4 py-3 text-xs text-red-400 font-medium text-right">{item.issuedQty}</td>
