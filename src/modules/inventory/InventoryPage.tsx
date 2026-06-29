@@ -70,20 +70,28 @@ function getItemColor(item: InventoryItem): string | null {
 
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
+const CATEGORIES_BY_LINE: Record<string, string[]> = {
+  elysia: ['1T', '2T', '3T', '4T', '4T KNOB', '6T', '8T', 'CITRUM', 'SOCKET', 'OTHER'],
+  vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'OTHER'],
+}
+
 interface AddItemModalProps {
   onClose: () => void
   userId: string
   userName: string
+  line?: string
 }
 
-function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
+function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
+  const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
   const [form, setForm] = useState({
-    itemCode: '', itemName: '', category: '1T', location: '', color: '',
-    openingStock: '', reorderLevel: '', productLine: 'elysia',
+    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'elysia'][0], location: '',
+    openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'elysia',
   })
   const [saving, setSaving] = useState(false)
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const categories = CATEGORIES_BY_LINE[form.productLine] ?? CATEGORIES_BY_LINE.elysia
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -101,7 +109,6 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
         category: form.category,
         itemName: form.itemName.trim(),
         location: form.location.trim(),
-        color: form.color.trim(),
         productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
@@ -131,13 +138,27 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="form-label">Product Line</label>
-            <select className="form-input" value={form.productLine} onChange={e => set('productLine', e.target.value)}>
-              <option value="elysia">Elysia</option>
-              <option value="vitrum">Vitrum</option>
-            </select>
-          </div>
+          {fixedLine ? (
+            <div>
+              <label className="form-label">Product Line</label>
+              <div className="form-input flex items-center text-gray-300 capitalize">{fixedLine}</div>
+            </div>
+          ) : (
+            <div>
+              <label className="form-label">Product Line</label>
+              <select
+                className="form-input"
+                value={form.productLine}
+                onChange={e => {
+                  const productLine = e.target.value
+                  setForm(f => ({ ...f, productLine, category: CATEGORIES_BY_LINE[productLine][0] }))
+                }}
+              >
+                <option value="elysia">Elysia</option>
+                <option value="vitrum">Vitrum</option>
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Item Code *</label>
@@ -146,23 +167,17 @@ function AddItemModal({ onClose, userId, userName }: AddItemModalProps) {
             <div>
               <label className="form-label">Category</label>
               <select className="form-input" value={form.category} onChange={e => set('category', e.target.value)}>
-                {['1T','2T','3T','4T','4T KNOB','6T','8T','CITRUM','SOCKET','VITRUM','LCD','CURTAINS','OTHER'].map(c => <option key={c}>{c}</option>)}
+                {categories.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
           </div>
           <div>
             <label className="form-label">Item Name *</label>
-            <input className="form-input" placeholder="e.g. 4-Touch Panel White" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
+            <input className="form-input" placeholder="e.g. 4 TOUCH WHITE" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Location / Warehouse</label>
-              <input className="form-input" placeholder="e.g. Rack A-3" value={form.location} onChange={e => set('location', e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Color</label>
-              <input className="form-input" placeholder="e.g. White" value={form.color} onChange={e => set('color', e.target.value)} />
-            </div>
+          <div>
+            <label className="form-label">Location / Warehouse</label>
+            <input className="form-input" placeholder="e.g. Rack 2" value={form.location} onChange={e => set('location', e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -714,7 +729,7 @@ export function InventoryPage() {
 
       {/* Modals */}
       {showAdd && user && (
-        <AddItemModal onClose={() => setShowAdd(false)} userId={user.id} userName={user.name} />
+        <AddItemModal onClose={() => setShowAdd(false)} userId={user.id} userName={user.name} line={line} />
       )}
       {stockModal && user && (
         <StockModal
