@@ -153,21 +153,24 @@ function downloadCsv(filename: string, csv: string) {
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 const CATEGORIES_BY_LINE: Record<string, string[]> = {
-  elysia: ['1T', '2T', '3T', '4T', '4T KNOB', '4T LCD', '6T', '8T', 'CITRUM', 'SOCKET', 'OTHER'],
+  elysia: ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'CITRUM', 'SOCKET', 'OTHER'],
   vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'OTHER'],
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
-const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', '4T KNOB', '4T LCD', '6T', '8T']
+const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
 const ELYSIA_SOCKET_MODULES = ['Single', 'Double']
 
 function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
   const c = color.trim()
   if (product === 'socket') return `${module.toUpperCase()} SKT ${c}`.trim()
-  if (module === '4T KNOB') return `4 TOUCH KNOB ${c}`.trim()
   if (module === '4T LCD') return `4 TOUCH LCD ${c}`.trim()
-  const n = module.replace(/[^0-9]/g, '')
-  return `${n} TOUCH ${c}`.trim()
+  if (/^\d+T$/.test(module)) {
+    const n = module.replace(/[^0-9]/g, '')
+    return `${n} TOUCH ${c}`.trim()
+  }
+  // Non-numeric special modules (D/T Knob, Multifunctional Switch, etc.)
+  return `${module.toUpperCase()} ${c}`.trim()
 }
 
 function buildElysiaItemCode(module: string, color: string, material: string): string {
