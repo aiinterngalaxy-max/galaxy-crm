@@ -2,6 +2,9 @@ import React from 'react'
 
 interface State { hasError: boolean; error: Error | null }
 
+const CHUNK_ERROR_RE = /failed to fetch dynamically imported module|loading chunk .* failed|chunkloaderror/i
+const RELOAD_FLAG = 'chunk-reload-attempted'
+
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
   constructor(props: { children: React.ReactNode }) {
     super(props)
@@ -14,6 +17,25 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
+
+    // A stale build chunk (deployed since this tab loaded) 404s — reload once to pick up the new build
+    // instead of showing the error screen. Guarded by sessionStorage so a real, persistent error doesn't loop.
+    if (CHUNK_ERROR_RE.test(error.message) && !sessionStorage.getItem(RELOAD_FLAG)) {
+      sessionStorage.setItem(RELOAD_FLAG, '1')
+      window.location.reload()
+    }
+  }
+
+  clearFlagTimer: ReturnType<typeof setTimeout> | undefined
+
+  componentDidMount() {
+    // Only clear the flag after the app has stayed up without erroring for a while — if reloading
+    // didn't actually fix the error, this lets the loop break instead of reloading forever.
+    this.clearFlagTimer = setTimeout(() => sessionStorage.removeItem(RELOAD_FLAG), 10000)
+  }
+
+  componentWillUnmount() {
+    clearTimeout(this.clearFlagTimer)
   }
 
   render() {
