@@ -158,6 +158,21 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
+const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', '4T KNOB', '6T', '8T']
+const ELYSIA_SOCKET_MODULES = ['Single', 'Double']
+
+function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
+  const c = color.trim()
+  if (product === 'socket') return `${module.toUpperCase()} SKT ${c}`.trim()
+  if (module === '4T KNOB') return `4 TOUCH KNOB ${c}`.trim()
+  const n = module.replace(/[^0-9]/g, '')
+  return `${n} TOUCH ${c}`.trim()
+}
+
+function buildElysiaItemCode(module: string, color: string, material: string): string {
+  const mod = module.toUpperCase().replace(/\s+/g, '')
+  return [mod, color.trim().toUpperCase(), material.trim().toUpperCase()].filter(Boolean).join('-')
+}
 
 interface AddItemModalProps {
   onClose: () => void
@@ -168,16 +183,72 @@ interface AddItemModalProps {
 
 function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
   const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
+  const isElysia = fixedLine === 'elysia'
+
+  // Generic form (Vitrum / unscoped "All" view)
   const [form, setForm] = useState({
-    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'elysia'][0], location: '', material: '',
-    openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'elysia',
+    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'vitrum'][0], location: '',
+    openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'vitrum',
   })
+
+  // Simplified Elysia form: Product (Switch/Socket) + Module + Material + Color + Opening Stock only —
+  // Item Code/Name are derived, Rack and Reorder Level are set later (rack via inline edit, reorder via Stock In/Out).
+  const [elysiaForm, setElysiaForm] = useState({
+    product: 'switch' as 'switch' | 'socket',
+    module: ELYSIA_SWITCH_MODULES[0],
+    material: '',
+    color: '',
+    openingStock: '',
+  })
+
   const [saving, setSaving] = useState(false)
-
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
-  const categories = CATEGORIES_BY_LINE[form.productLine] ?? CATEGORIES_BY_LINE.elysia
+  const categories = CATEGORIES_BY_LINE[form.productLine] ?? CATEGORIES_BY_LINE.vitrum
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const setElysiaProduct = (product: 'switch' | 'socket') => {
+    setElysiaForm(f => ({
+      ...f, product,
+      module: product === 'switch' ? ELYSIA_SWITCH_MODULES[0] : ELYSIA_SOCKET_MODULES[0],
+    }))
+  }
+
+  const handleSubmitElysia = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const { product, module, material, color, openingStock } = elysiaForm
+    if (!color.trim()) {
+      toast.error('Color is required')
+      return
+    }
+    setSaving(true)
+    try {
+      const opening = Number(openingStock) || 0
+      await addDoc(collection(db, 'inventory'), {
+        itemCode: buildElysiaItemCode(module, color, material),
+        category: product === 'socket' ? 'SOCKET' : module,
+        itemName: buildElysiaItemName(product, module, color),
+        location: '',
+        material, color: color.trim(), productLine: 'elysia',
+        openingStock: opening,
+        importedQty: 0,
+        issuedQty: 0,
+        closingStock: opening,
+        reorderLevel: 0,
+        stockStatus: computeStatus(opening, 0),
+        createdBy: userId,
+        createdByName: userName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Item added')
+      onClose()
+    } catch {
+      toast.error('Failed to add item')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSubmitGeneric = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.itemCode.trim() || !form.itemName.trim()) {
       toast.error('Item code and name are required')
@@ -193,7 +264,6 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
         category: form.category,
         itemName: form.itemName.trim(),
         location: formatRack(form.location),
-        material: form.productLine === 'elysia' ? form.material : '',
         productLine: form.productLine,
         openingStock: opening,
         importedQty: 0,
@@ -222,74 +292,138 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
           <h2 className="text-base font-semibold text-gray-100">Add Inventory Item</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {fixedLine ? (
+
+        {isElysia ? (
+          <form onSubmit={handleSubmitElysia} className="space-y-4">
             <div>
-              <label className="form-label">Product Line</label>
-              <div className="form-input flex items-center text-gray-300 capitalize">{fixedLine}</div>
+              <label className="form-label">Product</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['switch', 'socket'] as const).map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setElysiaProduct(p)}
+                    className={cn(
+                      'text-sm px-3 py-2 rounded-lg font-medium border capitalize transition-colors',
+                      elysiaForm.product === p
+                        ? 'border-pink-500 text-pink-400 bg-pink-900/20'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : (
-            <div>
-              <label className="form-label">Product Line</label>
-              <select
-                className="form-input"
-                value={form.productLine}
-                onChange={e => {
-                  const productLine = e.target.value
-                  setForm(f => ({ ...f, productLine, category: CATEGORIES_BY_LINE[productLine][0] }))
-                }}
-              >
-                <option value="elysia">Elysia</option>
-                <option value="vitrum">Vitrum</option>
-              </select>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Item Code *</label>
-              <input className="form-input" placeholder="e.g. 4T-001" value={form.itemCode} onChange={e => set('itemCode', e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Category</label>
-              <select className="form-input" value={form.category} onChange={e => set('category', e.target.value)}>
-                {categories.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="form-label">Item Name *</label>
-            <input className="form-input" placeholder="e.g. 4 TOUCH WHITE" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Rack</label>
-              <input className="form-input" type="number" min="0" placeholder="e.g. 2" value={form.location} onChange={e => set('location', e.target.value)} />
-            </div>
-            {form.productLine === 'elysia' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Module</label>
+                <select
+                  className="form-input"
+                  value={elysiaForm.module}
+                  onChange={e => setElysiaForm(f => ({ ...f, module: e.target.value }))}
+                >
+                  {(elysiaForm.product === 'switch' ? ELYSIA_SWITCH_MODULES : ELYSIA_SOCKET_MODULES).map(m => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="form-label">Material</label>
-                <select className="form-input" value={form.material} onChange={e => set('material', e.target.value)}>
+                <select
+                  className="form-input"
+                  value={elysiaForm.material}
+                  onChange={e => setElysiaForm(f => ({ ...f, material: e.target.value }))}
+                >
                   <option value="">—</option>
                   {ELYSIA_MATERIALS.map(m => <option key={m}>{m}</option>)}
                 </select>
               </div>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+            </div>
+            <div>
+              <label className="form-label">Color *</label>
+              <input
+                className="form-input"
+                placeholder="e.g. White"
+                value={elysiaForm.color}
+                onChange={e => setElysiaForm(f => ({ ...f, color: e.target.value }))}
+              />
+            </div>
             <div>
               <label className="form-label">Opening Stock</label>
-              <input className="form-input" type="number" min="0" placeholder="0" value={form.openingStock} onChange={e => set('openingStock', e.target.value)} />
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                placeholder="0"
+                value={elysiaForm.openingStock}
+                onChange={e => setElysiaForm(f => ({ ...f, openingStock: e.target.value }))}
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" variant="primary" className="flex-1" loading={saving}>Add Item</Button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmitGeneric} className="space-y-4">
+            {fixedLine ? (
+              <div>
+                <label className="form-label">Product Line</label>
+                <div className="form-input flex items-center text-gray-300 capitalize">{fixedLine}</div>
+              </div>
+            ) : (
+              <div>
+                <label className="form-label">Product Line</label>
+                <select
+                  className="form-input"
+                  value={form.productLine}
+                  onChange={e => {
+                    const productLine = e.target.value
+                    setForm(f => ({ ...f, productLine, category: CATEGORIES_BY_LINE[productLine][0] }))
+                  }}
+                >
+                  <option value="elysia">Elysia</option>
+                  <option value="vitrum">Vitrum</option>
+                </select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Item Code *</label>
+                <input className="form-input" placeholder="e.g. 4T-001" value={form.itemCode} onChange={e => set('itemCode', e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">Category</label>
+                <select className="form-input" value={form.category} onChange={e => set('category', e.target.value)}>
+                  {categories.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
             <div>
-              <label className="form-label">Reorder Level</label>
-              <input className="form-input" type="number" min="0" placeholder="5" value={form.reorderLevel} onChange={e => set('reorderLevel', e.target.value)} />
+              <label className="form-label">Item Name *</label>
+              <input className="form-input" placeholder="e.g. 4 TOUCH WHITE" value={form.itemName} onChange={e => set('itemName', e.target.value)} />
             </div>
-          </div>
-          <div className="flex gap-3 pt-1">
-            <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-            <Button type="submit" variant="primary" className="flex-1" loading={saving}>Add Item</Button>
-          </div>
-        </form>
+            <div>
+              <label className="form-label">Rack</label>
+              <input className="form-input" type="number" min="0" placeholder="e.g. 2" value={form.location} onChange={e => set('location', e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Opening Stock</label>
+                <input className="form-input" type="number" min="0" placeholder="0" value={form.openingStock} onChange={e => set('openingStock', e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">Reorder Level</label>
+                <input className="form-input" type="number" min="0" placeholder="5" value={form.reorderLevel} onChange={e => set('reorderLevel', e.target.value)} />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" variant="primary" className="flex-1" loading={saving}>Add Item</Button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   )
