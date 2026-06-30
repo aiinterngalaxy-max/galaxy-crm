@@ -242,14 +242,46 @@ function buildElysiaItemCode(module: string, color: string, material: string): s
   return [mod, color.trim().toUpperCase(), material.trim().toUpperCase()].filter(Boolean).join('-')
 }
 
+// Merges a quantity into an already-existing item as a Stock In, instead of creating a duplicate —
+// same accounting as the Stock In button: importedQty/closingStock update + a stockTransactions record.
+async function mergeAsStockIn(existingId: string, quantity: number, itemCode: string, itemName: string, userId: string, userName: string) {
+  await runTransaction(db, async (tx) => {
+    const itemRef = doc(db, 'inventory', existingId)
+    const snap = await tx.get(itemRef)
+    if (!snap.exists()) throw new Error('Item not found')
+    const data = snap.data() as InventoryItem
+    const newImported = data.importedQty + quantity
+    const newClosing = data.openingStock + newImported - data.issuedQty
+    tx.update(itemRef, {
+      importedQty: newImported,
+      closingStock: newClosing,
+      stockStatus: computeStatus(newClosing, data.reorderLevel),
+      updatedAt: serverTimestamp(),
+    })
+    const txRef = doc(collection(db, 'stockTransactions'))
+    tx.set(txRef, {
+      itemId: existingId,
+      itemCode,
+      itemName,
+      type: 'import',
+      quantity,
+      note: 'Added via Add Item — existing item detected',
+      recordedBy: userId,
+      recordedByName: userName,
+      createdAt: serverTimestamp(),
+    })
+  })
+}
+
 interface AddItemModalProps {
   onClose: () => void
   userId: string
   userName: string
   line?: string
+  items: InventoryItem[]
 }
 
-function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
+function AddItemModal({ onClose, userId, userName, line, items }: AddItemModalProps) {
   const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
   const isElysia = fixedLine === 'elysia'
   const isVitrum = fixedLine === 'vitrum'
@@ -301,13 +333,34 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
       toast.error('Color is required')
       return
     }
+    const opening = Number(openingStock) || 0
+    const itemCode = buildVitrumItemCode(module, features, connectivity, color)
+    const itemName = buildVitrumItemName(module, touch, features, connectivity, color)
+    const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === 'vitrum')
+
+    if (existing) {
+      if (opening <= 0) { toast.error('Enter a quantity to stock in'); return }
+      const confirmed = window.confirm(
+        `"${itemName}" already exists (current stock: ${existing.closingStock}). Add ${opening} units as Stock In instead of creating a duplicate?`
+      )
+      if (!confirmed) return
+      setSaving(true)
+      try {
+        await mergeAsStockIn(existing.id, opening, itemCode, itemName, userId, userName)
+        toast.success(`+${opening} added to existing item`)
+        onClose()
+      } catch {
+        toast.error('Failed to update stock')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     setSaving(true)
     try {
-      const opening = Number(openingStock) || 0
       await addDoc(collection(db, 'inventory'), {
-        itemCode: buildVitrumItemCode(module, features, connectivity, color),
-        category: module,
-        itemName: buildVitrumItemName(module, touch, features, connectivity, color),
+        itemCode, category: module, itemName,
         location: formatRack(rack),
         color: color.trim(), productLine: 'vitrum',
         openingStock: opening,
@@ -337,13 +390,34 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
       toast.error('Color is required')
       return
     }
+    const opening = Number(openingStock) || 0
+    const itemCode = buildElysiaItemCode(module, color, material)
+    const itemName = buildElysiaItemName(product, module, color)
+    const existing = items.find(it => it.itemCode === itemCode && (it.productLine ?? 'elysia') === 'elysia')
+
+    if (existing) {
+      if (opening <= 0) { toast.error('Enter a quantity to stock in'); return }
+      const confirmed = window.confirm(
+        `"${itemName}" already exists (current stock: ${existing.closingStock}). Add ${opening} units as Stock In instead of creating a duplicate?`
+      )
+      if (!confirmed) return
+      setSaving(true)
+      try {
+        await mergeAsStockIn(existing.id, opening, itemCode, itemName, userId, userName)
+        toast.success(`+${opening} added to existing item`)
+        onClose()
+      } catch {
+        toast.error('Failed to update stock')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     setSaving(true)
     try {
-      const opening = Number(openingStock) || 0
       await addDoc(collection(db, 'inventory'), {
-        itemCode: buildElysiaItemCode(module, color, material),
-        category: product === 'socket' ? 'SOCKET' : module,
-        itemName: buildElysiaItemName(product, module, color),
+        itemCode, category: product === 'socket' ? 'SOCKET' : module, itemName,
         location: formatRack(rack),
         material, color: color.trim(), productLine: 'elysia',
         openingStock: opening,
@@ -1789,7 +1863,7 @@ export function InventoryPage() {
 
       {/* Modals */}
       {showAdd && user && (
-        <AddItemModal onClose={() => setShowAdd(false)} userId={user.id} userName={user.name} line={line} />
+        <AddItemModal onClose={() => setShowAdd(false)} userId={user.id} userName={user.name} line={line} items={items} />
       )}
       {stockModal && user && (
         <StockModal
