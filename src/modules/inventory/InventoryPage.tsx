@@ -1445,7 +1445,7 @@ export function InventoryPage() {
                                 className="cursor-pointer hover:text-gray-300 border-b border-dashed border-gray-700 hover:border-gray-500 transition-colors"
                                 title="Click to edit rack"
                               >
-                                {item.location || '—'}
+                                {extractRackNumber(item.location) || '—'}
                               </span>
                             )}
                           </td>
