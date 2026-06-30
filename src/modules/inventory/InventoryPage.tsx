@@ -160,13 +160,66 @@ function downloadCsv(filename: string, csv: string) {
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 const CATEGORIES_BY_LINE: Record<string, string[]> = {
-  elysia: ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'CITRUM', 'SOCKET', 'OTHER'],
-  vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'OTHER'],
+  elysia: ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'SOCKET', 'OTHER'],
+  vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER'],
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
 const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold', 'Silver', 'Brown']
 const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
+
+const VITRUM_MODULES = ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER']
+const VITRUM_CONNECTIVITY = ['WiFi', 'Zigbee']
+const VITRUM_FINISHES = ['Black / Black', 'Black / Gold', 'Black / Silver', 'White / Gold', 'White / Silver', 'Silver / White']
+
+function moduleToTouchLabel(module: string): string {
+  if (module === 'CITRUM' || module === 'OTHER') return module === 'CITRUM' ? 'CITRUM' : ''
+  const m = module.match(/^(\d+)M$/)
+  return m ? `${m[1]} TOUCH` : module
+}
+
+interface VitrumFeatures {
+  fanDimmer: 0 | 1 | 2
+  lightDimmer: boolean
+  socket: 0 | 1 | 2
+  usbC: boolean
+  curtain: boolean
+}
+
+function vitrumFeatureWords(f: VitrumFeatures): string[] {
+  const words: string[] = []
+  if (f.fanDimmer > 0) words.push(f.fanDimmer === 2 ? '2 FAN DIMMER' : 'FAN DIMMER')
+  if (f.lightDimmer) words.push('LIGHT DIMMER')
+  if (f.socket > 0) words.push(f.socket === 2 ? '2 SOCKET' : 'SOCKET')
+  if (f.usbC) words.push('USB C')
+  if (f.curtain) words.push('CURTAIN')
+  return words
+}
+
+function vitrumFeatureAbbrevs(f: VitrumFeatures): string[] {
+  const codes: string[] = []
+  if (f.fanDimmer > 0) codes.push(f.fanDimmer === 2 ? '2FD' : 'FD')
+  if (f.lightDimmer) codes.push('LD')
+  if (f.socket > 0) codes.push(f.socket === 2 ? '2SKT' : 'SKT')
+  if (f.usbC) codes.push('USB-C')
+  if (f.curtain) codes.push('CURTAIN')
+  return codes
+}
+
+// WiFi/Zigbee is always the last token — source data had it inconsistently at the start or end.
+function buildVitrumItemName(module: string, features: VitrumFeatures, connectivity: string, color: string): string {
+  const parts = [moduleToTouchLabel(module), ...vitrumFeatureWords(features)]
+  if (color) parts.push(color)
+  if (connectivity) parts.push(connectivity.toUpperCase())
+  return parts.filter(Boolean).join(' + ')
+}
+
+function buildVitrumItemCode(module: string, features: VitrumFeatures, connectivity: string, color: string): string {
+  const finishAbbrev = color ? color.split('/').map(c => c.trim()[0]?.toUpperCase() ?? '').join('/') : ''
+  const connAbbrev = connectivity === 'Zigbee' ? 'ZIG' : connectivity === 'WiFi' ? 'WI' : ''
+  const parts = [module, ...vitrumFeatureAbbrevs(features), finishAbbrev, connAbbrev]
+  return parts.filter(Boolean).join('-')
+}
 const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Double Socket USB C', 'Double Socket 5Pin']
 
 function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
@@ -196,8 +249,9 @@ interface AddItemModalProps {
 function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
   const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
   const isElysia = fixedLine === 'elysia'
+  const isVitrum = fixedLine === 'vitrum'
 
-  // Generic form (Vitrum / unscoped "All" view)
+  // Generic form (unscoped "All" view only now)
   const [form, setForm] = useState({
     itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'vitrum'][0], location: '',
     openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'vitrum',
@@ -214,6 +268,17 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
     openingStock: '',
   })
 
+  // Simplified Vitrum form: Module + Connectivity + Features + Finish + Rack + Opening Stock —
+  // Item Code/Name are derived the same way Elysia's are.
+  const [vitrumForm, setVitrumForm] = useState({
+    module: VITRUM_MODULES[0],
+    connectivity: VITRUM_CONNECTIVITY[0],
+    features: { fanDimmer: 0, lightDimmer: false, socket: 0, usbC: false, curtain: false } as VitrumFeatures,
+    color: '',
+    rack: '',
+    openingStock: '',
+  })
+
   const [saving, setSaving] = useState(false)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
   const categories = CATEGORIES_BY_LINE[form.productLine] ?? CATEGORIES_BY_LINE.vitrum
@@ -223,6 +288,42 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
       ...f, product,
       module: product === 'switch' ? ELYSIA_SWITCH_MODULES[0] : ELYSIA_SOCKET_MODULES[0],
     }))
+  }
+
+  const handleSubmitVitrum = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const { module, connectivity, features, color, rack, openingStock } = vitrumForm
+    if (!color.trim()) {
+      toast.error('Finish is required')
+      return
+    }
+    setSaving(true)
+    try {
+      const opening = Number(openingStock) || 0
+      await addDoc(collection(db, 'inventory'), {
+        itemCode: buildVitrumItemCode(module, features, connectivity, color),
+        category: module,
+        itemName: buildVitrumItemName(module, features, connectivity, color),
+        location: formatRack(rack),
+        color: color.trim(), productLine: 'vitrum',
+        openingStock: opening,
+        importedQty: 0,
+        issuedQty: 0,
+        closingStock: opening,
+        reorderLevel: 0,
+        stockStatus: computeStatus(opening, 0),
+        createdBy: userId,
+        createdByName: userName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Item added')
+      onClose()
+    } catch {
+      toast.error('Failed to add item')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSubmitElysia = async (e: React.FormEvent) => {
@@ -385,6 +486,150 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
                   placeholder="0"
                   value={elysiaForm.openingStock}
                   onChange={e => setElysiaForm(f => ({ ...f, openingStock: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button type="submit" variant="primary" className="flex-1" loading={saving}>Add Item</Button>
+            </div>
+          </form>
+        ) : isVitrum ? (
+          <form onSubmit={handleSubmitVitrum} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Module</label>
+                <select
+                  className="form-input"
+                  value={vitrumForm.module}
+                  onChange={e => setVitrumForm(f => ({ ...f, module: e.target.value }))}
+                >
+                  {VITRUM_MODULES.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Connectivity</label>
+                <select
+                  className="form-input"
+                  value={vitrumForm.connectivity}
+                  onChange={e => setVitrumForm(f => ({ ...f, connectivity: e.target.value }))}
+                >
+                  {VITRUM_CONNECTIVITY.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label">Features</label>
+              <div className="space-y-2 bg-gray-800/30 rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={vitrumForm.features.fanDimmer > 0}
+                      onChange={e => setVitrumForm(f => ({
+                        ...f, features: { ...f.features, fanDimmer: e.target.checked ? 1 : 0 },
+                      }))}
+                    />
+                    Fan Dimmer
+                  </label>
+                  {vitrumForm.features.fanDimmer > 0 && (
+                    <select
+                      className="form-input w-20 py-1"
+                      value={vitrumForm.features.fanDimmer}
+                      onChange={e => setVitrumForm(f => ({
+                        ...f, features: { ...f.features, fanDimmer: Number(e.target.value) as 1 | 2 },
+                      }))}
+                    >
+                      <option value={1}>x1</option>
+                      <option value={2}>x2</option>
+                    </select>
+                  )}
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={vitrumForm.features.lightDimmer}
+                    onChange={e => setVitrumForm(f => ({ ...f, features: { ...f.features, lightDimmer: e.target.checked } }))}
+                  />
+                  Light Dimmer
+                </label>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={vitrumForm.features.socket > 0}
+                      onChange={e => setVitrumForm(f => ({
+                        ...f, features: { ...f.features, socket: e.target.checked ? 1 : 0 },
+                      }))}
+                    />
+                    Socket
+                  </label>
+                  {vitrumForm.features.socket > 0 && (
+                    <select
+                      className="form-input w-20 py-1"
+                      value={vitrumForm.features.socket}
+                      onChange={e => setVitrumForm(f => ({
+                        ...f, features: { ...f.features, socket: Number(e.target.value) as 1 | 2 },
+                      }))}
+                    >
+                      <option value={1}>x1</option>
+                      <option value={2}>x2</option>
+                    </select>
+                  )}
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={vitrumForm.features.usbC}
+                    onChange={e => setVitrumForm(f => ({ ...f, features: { ...f.features, usbC: e.target.checked } }))}
+                  />
+                  USB-C
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={vitrumForm.features.curtain}
+                    onChange={e => setVitrumForm(f => ({ ...f, features: { ...f.features, curtain: e.target.checked } }))}
+                  />
+                  Curtain
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label">Finish *</label>
+              <select
+                className="form-input"
+                value={vitrumForm.color}
+                onChange={e => setVitrumForm(f => ({ ...f, color: e.target.value }))}
+              >
+                <option value="">—</option>
+                {VITRUM_FINISHES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Rack</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 2"
+                  value={vitrumForm.rack}
+                  onChange={e => setVitrumForm(f => ({ ...f, rack: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="form-label">Opening Stock</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={vitrumForm.openingStock}
+                  onChange={e => setVitrumForm(f => ({ ...f, openingStock: e.target.value }))}
                 />
               </div>
             </div>
