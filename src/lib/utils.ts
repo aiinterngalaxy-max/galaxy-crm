@@ -13,8 +13,9 @@ export function cn(...inputs: ClassValue[]) {
 export function toDate(value: Timestamp | Date | string | undefined | null): Date | null {
   if (!value) return null
   if (value instanceof Timestamp) return value.toDate()
-  if (value instanceof Date) return value
-  return new Date(value)
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value
+  const d = new Date(value as string)
+  return isNaN(d.getTime()) ? null : d
 }
 
 export function formatDate(value: Timestamp | Date | string | undefined | null, fmt = 'dd MMM yyyy'): string {

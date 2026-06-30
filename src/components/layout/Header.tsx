@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, Bell, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { Search, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { cn } from '../../lib/utils'
+import { NotificationPanel } from './NotificationPanel'
 
 const PAGE_TITLES: Record<string, string> = {
   '/':               'Dashboard',
@@ -78,17 +79,7 @@ export function Header({ collapsed, onToggle, notificationCount = 0 }: HeaderPro
         </div>
 
         {/* Notifications */}
-        <button
-          onClick={() => navigate('/notifications')}
-          className="relative text-gray-500 hover:text-gray-300 transition-colors p-1"
-        >
-          <Bell className="w-4 h-4" />
-          {notificationCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold leading-none">
-              {notificationCount > 9 ? '9+' : notificationCount}
-            </span>
-          )}
-        </button>
+        <NotificationPanel />
 
         {/* User greeting */}
         <div className="hidden md:block pl-2 border-l border-gray-800">

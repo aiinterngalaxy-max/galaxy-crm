@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, MapPin, Edit2, Calendar, FileText,
   CheckCircle2, XCircle, Upload, Plus, Clock, UserCheck, ExternalLink,
-  FileText as QuoteIcon, FolderOpen, Trash2
+  FileText as QuoteIcon, FolderOpen, Trash2, MessageSquare
 } from 'lucide-react'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -218,6 +218,8 @@ export function LeadDetail() {
       if (actFollowUp) data.followUpDate = Timestamp.fromDate(new Date(actFollowUp))
 
       const ref = await addDoc(collection(db, 'leads', id, 'activities'), data)
+      // Use current time for optimistic UI — serverTimestamp() can't be rendered locally
+      const optimistic: LeadActivity = { ...data, id: ref.id, createdAt: Timestamp.fromDate(new Date()) } as LeadActivity
 
       if (actFollowUp) {
         await updateDoc(doc(db, 'leads', id), {
@@ -227,7 +229,7 @@ export function LeadDetail() {
         setLead(prev => prev ? { ...prev, nextFollowUp: Timestamp.fromDate(new Date(actFollowUp)) } : null)
       }
 
-      setActivities(prev => [{ id: ref.id, ...data } as LeadActivity, ...prev])
+      setActivities(prev => [optimistic, ...prev])
       toast.success('Activity logged')
       setShowActivityForm(false)
       setActNote('')
@@ -287,6 +289,7 @@ export function LeadDetail() {
       estimatedBudget: lead?.estimatedBudget,
       assignedTo: lead?.assignedTo,
       assignedToName: lead?.assignedToName,
+      notes: lead?.notes,
     })
     setShowEditModal(true)
   }
@@ -479,6 +482,12 @@ export function LeadDetail() {
                 <Phone className="w-4 h-4 text-gray-600" />
                 <a href={`tel:${lead.phone}`} className="text-gray-200 hover:text-indigo-400">{lead.phone}</a>
               </div>
+              {lead.whatsapp && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MessageSquare className="w-4 h-4 text-gray-600" />
+                  <a href={`https://wa.me/${lead.whatsapp}`} target="_blank" rel="noopener noreferrer" className="text-gray-200 hover:text-green-400">{lead.whatsapp}</a>
+                </div>
+              )}
               {lead.email && (
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="w-4 h-4 text-gray-600" />
@@ -491,8 +500,25 @@ export function LeadDetail() {
                   <span className="text-gray-400">{lead.address}</span>
                 </div>
               )}
-              <div className="flex items-center gap-2 text-sm text-gray-500 text-xs">
-                Source: <span className="capitalize text-gray-300">{lead.source?.replace('_', ' ')}</span>
+              <div className="pt-1 border-t border-gray-800 flex flex-col gap-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Source</span>
+                  <span className="capitalize text-gray-300">{lead.source?.replace(/_/g, ' ')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Type</span>
+                  <span className="text-gray-300">{lead.businessType === 'b2b' ? 'B2B — Via Partner' : 'B2C — Direct Client'}</span>
+                </div>
+                {lead.partnerName && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Partner</span>
+                    <span className="text-gray-300">{lead.partnerName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Added</span>
+                  <span className="text-gray-300">{formatDate(lead.createdAt)}</span>
+                </div>
               </div>
             </div>
           </Card>
@@ -503,13 +529,13 @@ export function LeadDetail() {
             <div className="space-y-2 text-sm">
               {lead.projectType && (
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Type</span>
+                  <span className="text-gray-500">Project Type</span>
                   <span className="text-gray-200">{lead.projectType}</span>
                 </div>
               )}
               {lead.propertySize && (
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Size</span>
+                  <span className="text-gray-500">Property Size</span>
                   <span className="text-gray-200">{lead.propertySize}</span>
                 </div>
               )}
@@ -520,8 +546,12 @@ export function LeadDetail() {
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-gray-500">Assigned</span>
+                <span className="text-gray-500">Assigned To</span>
                 <span className="text-gray-200">{lead.assignedToName || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Demo Given</span>
+                <span className={lead.demoGiven ? 'text-green-400' : 'text-gray-500'}>{lead.demoGiven ? 'Yes ✓' : 'No'}</span>
               </div>
               {lead.nextFollowUp && (
                 <div className="flex justify-between">
@@ -532,6 +562,13 @@ export function LeadDetail() {
                   </span>
                 </div>
               )}
+              <div className="pt-2 border-t border-gray-800">
+                <p className="text-gray-500 text-xs mb-1">Notes</p>
+                {lead.notes
+                  ? <p className="text-gray-300 text-xs leading-relaxed">{lead.notes}</p>
+                  : <p className="text-gray-600 text-xs italic">No notes — add via Edit</p>
+                }
+              </div>
             </div>
           </Card>
 
@@ -706,6 +743,8 @@ export function LeadDetail() {
         }
       >
         <div className="space-y-4">
+          <Textarea label="Notes" placeholder="Key observations, requirements, anything important…" rows={3}
+            value={editData.notes ?? ''} onChange={e => setEditData(d => ({ ...d, notes: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="Full Name *" value={editData.name ?? ''} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} />
             <Input label="Phone" value={editData.phone ?? ''} onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))} />
@@ -746,6 +785,8 @@ export function LeadDetail() {
             <Input label="Property Size" value={editData.propertySize ?? ''} onChange={e => setEditData(d => ({ ...d, propertySize: e.target.value }))} />
             <Input label="Estimated Budget (₹)" type="number" value={editData.estimatedBudget ?? ''} onChange={e => setEditData(d => ({ ...d, estimatedBudget: Number(e.target.value) || undefined }))} />
           </div>
+          <Textarea label="Notes" placeholder="Any observations, requirements…" rows={3}
+            value={editData.notes ?? ''} onChange={e => setEditData(d => ({ ...d, notes: e.target.value }))} />
         </div>
       </Modal>
     </div>

@@ -91,7 +91,7 @@ export async function syncAll(limit = 100): Promise<SyncSummary[]> {
       )
     }
 
-    out.push({ platform: res.platform, ok: true, posts: res.posts.length, followers: res.follower_count })
+    out.push({ platform: res.platform, ok: true, posts: res.posts.length, followers: res.follower_count, error: res.error })
   }
   return out
 }

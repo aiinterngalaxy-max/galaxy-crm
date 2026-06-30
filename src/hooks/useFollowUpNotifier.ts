@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { db, collection, query, where, getDocs } from '../lib/firebase'
+import { db, collection, query, where, getDocs, orderBy } from '../lib/firebase'
 import type { Lead } from '../types'
 
 const FIRED_KEY = 'galaxy_crm_fired_followups'
@@ -55,11 +55,11 @@ export function useFollowUpNotifier(userId: string | undefined, enabled: boolean
       if (loadedRef.current) return
       try {
         const snap = await getDocs(
-          query(collection(db, 'leads'), where('assignedTo', '==', userId))
+          query(collection(db, 'leads'), where('nextFollowUp', '!=', null), orderBy('nextFollowUp'))
         )
         leadsRef.current = snap.docs
           .map(d => ({ id: d.id, ...d.data() }) as Lead)
-          .filter(l => l.nextFollowUp && !['won', 'lost'].includes(l.status))
+          .filter(l => !['won', 'lost'].includes(l.status))
         loadedRef.current = true
       } catch { /* silent */ }
     }
@@ -73,8 +73,8 @@ export function useFollowUpNotifier(userId: string | undefined, enabled: boolean
         if (fired.has(lead.id)) return
         const ts = lead.nextFollowUp as any
         const dueMs: number = ts?.toMillis ? ts.toMillis() : ts?.toDate ? ts.toDate().getTime() : new Date(ts).getTime()
-        // Fire if due time is within the last 5 minutes (i.e. just became due)
-        if (dueMs <= now && dueMs >= now - 5 * 60_000) {
+        // Fire if overdue (past due time) and not already notified this session
+        if (dueMs <= now) {
           new Notification('Galaxy CRM — Follow-up Due', {
             body: `Time to follow up with ${lead.name}`,
             icon: '/galaxy-logo.png',

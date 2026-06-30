@@ -138,6 +138,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         assignedToName: assignedUser?.name || null,
         partnerId: selectedPartner?.id || null,
         partnerName: selectedPartner ? (selectedPartner.firmName || selectedPartner.name) : null,
+        notes: data.notes || null,
         demoGiven: data.demoGiven ?? false,
         aiScore,
         aiScoreNote: `Auto-scored based on source and budget.`,

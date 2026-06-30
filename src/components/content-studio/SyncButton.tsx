@@ -21,9 +21,11 @@ export function SyncButton({
       if (!j.ok) {
         setMsg(j.error || 'sync failed')
       } else {
-        const parts = (j.summary || []).map((s: any) =>
-          s.ok ? `${s.platform}: ${s.posts} posts` : `${s.platform}: ${s.error || 'error'}`
-        )
+        const parts = (j.summary || []).map((s: any) => {
+          if (!s.ok) return `${s.platform}: ${s.error || 'error'}`
+          const base = `${s.platform}: ${s.posts} posts`
+          return s.error ? `${base} ⚠ ${s.error}` : base
+        })
         setMsg(parts.length ? 'Synced — ' + parts.join(' · ') : 'Nothing to sync')
         onSynced?.()
       }
