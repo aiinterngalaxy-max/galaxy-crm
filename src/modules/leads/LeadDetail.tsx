@@ -300,20 +300,29 @@ export function LeadDetail() {
     setEditSaving(true)
     try {
       const assignedUser = bdUsers.find(u => u.id === editData.assignedTo)
-      await updateDoc(doc(db, 'leads', id), {
-        ...editData,
-        assignedToName: assignedUser?.name ?? lead.assignedToName,
-        updatedAt: serverTimestamp(),
-      })
-      setLead(prev => prev ? {
-        ...prev,
-        ...editData,
-        assignedToName: assignedUser?.name ?? prev.assignedToName,
-      } : null)
+      // Explicitly pick only the fields we want to update — never spread the whole editData
+      const update: Record<string, any> = {
+        name:            editData.name ?? lead.name,
+        phone:           editData.phone ?? lead.phone,
+        email:           editData.email ?? null,
+        whatsapp:        editData.whatsapp ?? null,
+        address:         editData.address ?? null,
+        source:          editData.source ?? lead.source,
+        projectType:     editData.projectType ?? null,
+        propertySize:    editData.propertySize ?? null,
+        estimatedBudget: editData.estimatedBudget ?? null,
+        assignedTo:      editData.assignedTo ?? lead.assignedTo,
+        assignedToName:  assignedUser?.name ?? lead.assignedToName,
+        notes:           editData.notes ?? null,
+        createdAt:       editData.createdAt ?? lead.createdAt,
+        updatedAt:       serverTimestamp(),
+      }
+      await updateDoc(doc(db, 'leads', id), update)
+      setLead(prev => prev ? { ...prev, ...update, updatedAt: prev.updatedAt } : null)
       toast.success('Lead updated!')
       setShowEditModal(false)
-    } catch (err) {
-      toast.error('Failed to save')
+    } catch (err: any) {
+      toast.error('Failed to save: ' + (err?.message || err))
       console.error(err)
     } finally {
       setEditSaving(false)
