@@ -290,6 +290,7 @@ export function LeadDetail() {
       assignedTo: lead?.assignedTo,
       assignedToName: lead?.assignedToName,
       notes: lead?.notes,
+      createdAt: lead?.createdAt,
     })
     setShowEditModal(true)
   }
@@ -743,8 +744,6 @@ export function LeadDetail() {
         }
       >
         <div className="space-y-4">
-          <Textarea label="Notes" placeholder="Key observations, requirements, anything important…" rows={3}
-            value={editData.notes ?? ''} onChange={e => setEditData(d => ({ ...d, notes: e.target.value }))} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="Full Name *" value={editData.name ?? ''} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} />
             <Input label="Phone" value={editData.phone ?? ''} onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))} />
@@ -785,7 +784,13 @@ export function LeadDetail() {
             <Input label="Property Size" value={editData.propertySize ?? ''} onChange={e => setEditData(d => ({ ...d, propertySize: e.target.value }))} />
             <Input label="Estimated Budget (₹)" type="number" value={editData.estimatedBudget ?? ''} onChange={e => setEditData(d => ({ ...d, estimatedBudget: Number(e.target.value) || undefined }))} />
           </div>
-          <Textarea label="Notes" placeholder="Any observations, requirements…" rows={3}
+          <Input
+            label="Date Added"
+            type="date"
+            value={editData.createdAt ? (() => { const d = (editData.createdAt as any)?.toDate?.() ?? new Date(editData.createdAt as any); return d.toISOString().split('T')[0] })() : ''}
+            onChange={e => setEditData(d => ({ ...d, createdAt: e.target.value ? Timestamp.fromDate(new Date(e.target.value)) : d.createdAt }))}
+          />
+          <Textarea label="Notes" placeholder="Key observations, requirements, anything important…" rows={3}
             value={editData.notes ?? ''} onChange={e => setEditData(d => ({ ...d, notes: e.target.value }))} />
         </div>
       </Modal>
