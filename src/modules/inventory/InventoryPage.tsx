@@ -223,7 +223,7 @@ function buildVitrumItemCode(module: string, features: VitrumFeatures, connectiv
   const parts = [module, ...vitrumFeatureAbbrevs(features), finishAbbrev, connAbbrev]
   return parts.filter(Boolean).join('-')
 }
-const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Double Socket USB C', 'Double Socket 5Pin', 'Apple Wire Socket']
+const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Single Socket 3Pin', 'Double Socket USB C', 'Double Socket 5Pin', 'Apple Wire Socket']
 
 function buildElysiaItemName(product: 'switch' | 'socket', module: string, color: string): string {
   const c = color.trim()
