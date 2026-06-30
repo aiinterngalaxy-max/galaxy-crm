@@ -24,17 +24,76 @@ interface OrderItem {
 }
 
 interface MappingRow {
-  csvLabel: string          // raw text from the CSV (code or name)
+  csvLabel: string          // raw text from the CSV (panel name or code)
   orderedQty: number
   unitPrice: number
-  itemId: string            // matched inventory doc id, '' if unmatched
-  auto: boolean             // whether it was auto-matched
+  module: string            // resolved/chosen Elysia module, '' if unresolved
+  material: string          // defaults to Aluminium
+  color: string             // defaults to Grey
+  auto: boolean             // whether module was auto-resolved (dictionary or exact code match)
 }
 
 function computeStatus(closing: number, reorder: number): StockStatus {
   if (closing <= 0) return 'out_of_stock'
   if (closing <= reorder) return 'low_stock'
   return 'in_stock'
+}
+
+// ─── Elysia module/code generation (mirrors InventoryPage.tsx's Add Item logic) ──
+
+const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', 'Music Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
+const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Single Socket 3Pin', 'Double Socket USB C', 'Double Socket 5Pin', 'Apple Wire Socket']
+const ELYSIA_MODULES = [...ELYSIA_SWITCH_MODULES, ...ELYSIA_SOCKET_MODULES]
+const ELYSIA_MATERIALS = ['Aluminium', 'Skin', 'PC']
+const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold', 'Silver', 'Brown', 'Orange']
+
+function isSocketModule(module: string): boolean {
+  return ELYSIA_SOCKET_MODULES.some(m => m.toUpperCase() === module.toUpperCase())
+}
+
+function buildElysiaItemName(module: string, color: string): string {
+  const c = color.trim()
+  if (isSocketModule(module)) return `${module.toUpperCase()} ${c}`.trim()
+  if (module === '4T LCD') return `4 TOUCH LCD ${c}`.trim()
+  if (/^\d+T$/.test(module)) {
+    const n = module.replace(/[^0-9]/g, '')
+    return `${n} TOUCH ${c}`.trim()
+  }
+  return `${module.toUpperCase()} ${c}`.trim()
+}
+
+function buildElysiaItemCode(module: string, color: string, material: string): string {
+  return [module.trim().toUpperCase(), color.trim().toUpperCase(), material.trim().toUpperCase()].filter(Boolean).join('-')
+}
+
+// Reverse: figure out an existing item's module from its category/name (category = module for
+// switches, but is always literally "SOCKET" for sockets — recover the real module from the name).
+function moduleOfItem(item: InventoryItem): string {
+  if (item.category.toUpperCase() !== 'SOCKET') return item.category
+  return ELYSIA_SOCKET_MODULES.find(m => item.itemName.toUpperCase().startsWith(m.toUpperCase())) ?? ''
+}
+
+// ─── Panel name → Module dictionary ──────────────────────────────────────────────
+// Translates quotation sheet "Panel" descriptions (sales copy) into actual inventory modules.
+// Exact-match only on a normalized string — no fuzzy guessing, unmapped rows need a manual pick.
+
+function normalizePanelName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
+}
+
+const PANEL_DICTIONARY: Record<string, string> = {
+  [normalizePanelName('Zero fire 1 Key Switch')]: '1T',
+  [normalizePanelName('Zero fire 2 key switches')]: '2T',
+  [normalizePanelName('Zero fire 3 key switches')]: '3T',
+  [normalizePanelName('Zero fire 4 key switches')]: '4T',
+  [normalizePanelName('Zero-fire 4 -key switch (4-way load control)')]: '4T LCD',
+  [normalizePanelName('Zero-fire 6-key switches (2-way scenario + 4-way load control)')]: '6T',
+  [normalizePanelName('Zero-fire 8-key switches (4-way scenario + 4-way load control)')]: '8T',
+  [normalizePanelName('Galaxy Intelligent Dimming Switch With 2 Way Composite Switch')]: 'D/T Knob',
+  [normalizePanelName('Single Socket - USB')]: 'Single Socket USB C',
+  [normalizePanelName('Double Socket - USB')]: 'Double Socket USB C',
+  [normalizePanelName('Flexi Wired Charger USB + C')]: 'Apple Wire Socket',
+  // "Galaxy Intelligent Fan Controller With 1 Switch" intentionally left unmapped for now.
 }
 
 // Minimal RFC-4180-ish CSV parser (mirrors the inventory page parser).
@@ -98,6 +157,10 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
   const invById = useMemo(() => new Map(inventory.map(i => [i.id, i])), [inventory])
 
   // ── CSV upload → build mapping rows ──────────────────────────────────────────
+  // Two input styles, auto-detected by header:
+  //  - Exact: an Item Code (or Item Name) column matches a real inventory item directly.
+  //  - Quotation: a Panel name + total quantity column (Rooms/Quantity) — resolved via the
+  //    Panel→Module dictionary, with Material/Color defaulting to Aluminium/Grey.
   const handleFile = async (file: File) => {
     try {
       const rows = parseCsv(await file.text())
@@ -106,11 +169,12 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       const find = (...names: string[]) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i } return -1 }
       const iCode = find('item code', 'code', 'sku')
       const iName = find('item name', 'name', 'product', 'description')
-      const iQty = find('quantity', 'qty', 'ordered', 'ordered qty')
+      const iPanel = find('panels', 'panel')
+      const iQty = find('quantity', 'qty', 'ordered', 'ordered qty', 'rooms', 'total qty')
       const iPrice = find('unit price', 'price', 'rate')
 
-      if (iCode === -1 && iName === -1) {
-        toast.error('CSV needs an Item Code or Item Name column')
+      if (iCode === -1 && iName === -1 && iPanel === -1) {
+        toast.error('CSV needs an Item Code, Item Name, or Panels column')
         return
       }
 
@@ -120,13 +184,32 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       const built: MappingRow[] = rows.slice(1).map(r => {
         const codeRaw = iCode !== -1 ? (r[iCode]?.trim() ?? '') : ''
         const nameRaw = iName !== -1 ? (r[iName]?.trim() ?? '') : ''
-        const match = (codeRaw && byCode.get(codeRaw.toUpperCase())) || (nameRaw && byName.get(nameRaw.toUpperCase())) || null
+        const panelRaw = iPanel !== -1 ? (r[iPanel]?.trim() ?? '') : ''
+        const orderedQty = Number(r[iQty]) || 0
+        const unitPrice = Number(r[iPrice]) || 0
+
+        // Exact code/name match against a real inventory item — reverse-derive its module so it's pre-filled.
+        const exact = (codeRaw && byCode.get(codeRaw.toUpperCase())) || (nameRaw && byName.get(nameRaw.toUpperCase())) || null
+        if (exact) {
+          return {
+            csvLabel: codeRaw || nameRaw,
+            orderedQty, unitPrice,
+            module: moduleOfItem(exact),
+            material: exact.material || 'Aluminium',
+            color: exact.color || 'Grey',
+            auto: true,
+          }
+        }
+
+        // Quotation-style: resolve Panel name via the dictionary, default Material/Color.
+        const dictModule = panelRaw ? PANEL_DICTIONARY[normalizePanelName(panelRaw)] : undefined
         return {
-          csvLabel: codeRaw || nameRaw,
-          orderedQty: Number(r[iQty]) || 0,
-          unitPrice: Number(r[iPrice]) || 0,
-          itemId: match ? match.id : '',
-          auto: !!match,
+          csvLabel: panelRaw || codeRaw || nameRaw,
+          orderedQty, unitPrice,
+          module: dictModule ?? '',
+          material: 'Aluminium',
+          color: 'Grey',
+          auto: !!dictModule,
         }
       }).filter(m => m.csvLabel)
 
@@ -140,17 +223,33 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
 
   const confirmMapping = async () => {
     if (!mapping) return
-    const valid = mapping.filter(m => m.itemId && m.orderedQty > 0)
-    if (!valid.length) { toast.error('Map at least one row to an item with a quantity'); return }
+    const valid = mapping.filter(m => m.module && m.color && m.orderedQty > 0)
+    if (!valid.length) { toast.error('Pick a Module + Color and quantity for at least one row'); return }
     setImporting(true)
     try {
       for (const m of valid) {
-        const inv = invById.get(m.itemId)
-        if (!inv) continue
+        const itemCode = buildElysiaItemCode(m.module, m.color, m.material)
+        const itemName = buildElysiaItemName(m.module, m.color)
+        const existing = inventory.find(i => i.itemCode === itemCode && (i.productLine ?? 'elysia') === 'elysia')
+
+        let itemId = existing?.id
+        if (!existing) {
+          // Item doesn't exist in inventory yet — create it at 0 stock so it's trackable
+          // (and can be stocked in later) instead of silently dropping the order line.
+          const category = isSocketModule(m.module) ? 'SOCKET' : m.module
+          const newRef = await addDoc(collection(db, 'inventory'), {
+            itemCode, category, itemName, location: '',
+            material: m.material, color: m.color, productLine: 'elysia',
+            openingStock: 0, importedQty: 0, issuedQty: 0, closingStock: 0, reorderLevel: 0,
+            stockStatus: computeStatus(0, 0),
+            createdBy: userId, createdByName: userName,
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+          })
+          itemId = newRef.id
+        }
+
         await addDoc(collection(db, 'projects', projectId, 'orderItems'), {
-          itemId: m.itemId,
-          itemCode: inv.itemCode,
-          itemName: inv.itemName,
+          itemId, itemCode, itemName,
           unitPrice: m.unitPrice,
           orderedQty: m.orderedQty,
           deliveredQty: 0,
@@ -305,7 +404,6 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       {mapping && (
         <MappingModal
           mapping={mapping}
-          inventory={inventory}
           importing={importing}
           onChange={setMapping}
           onConfirm={confirmMapping}
@@ -337,15 +435,14 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 
 // ─── Mapping review modal ──────────────────────────────────────────────────────
 
-function MappingModal({ mapping, inventory, importing, onChange, onConfirm, onClose }: {
+function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
   mapping: MappingRow[]
-  inventory: InventoryItem[]
   importing: boolean
   onChange: (m: MappingRow[]) => void
   onConfirm: () => void
   onClose: () => void
 }) {
-  const matched = mapping.filter(m => m.itemId).length
+  const matched = mapping.filter(m => m.module).length
   const set = (idx: number, patch: Partial<MappingRow>) =>
     onChange(mapping.map((m, i) => i === idx ? { ...m, ...patch } : m))
 
@@ -354,39 +451,53 @@ function MappingModal({ mapping, inventory, importing, onChange, onConfirm, onCl
       <div className="glass-card w-full max-w-2xl rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-100">
-            Review mapping <span className="text-xs text-gray-500 font-normal">· {matched}/{mapping.length} matched</span>
+            Review mapping <span className="text-xs text-gray-500 font-normal">· {matched}/{mapping.length} resolved</span>
           </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
         </div>
 
         <p className="text-xs text-gray-500">
-          Each CSV row is matched to an inventory item by code or name. Fix any unmatched rows before importing — unmatched rows are skipped.
+          Each row's Module is resolved from the panel/code automatically where possible. Material and Color default to Aluminium/Grey — adjust any row before importing. Unresolved rows need a Module picked manually.
         </p>
 
         <div className="space-y-2">
           {mapping.map((m, idx) => (
-            <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.itemId ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
+            <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.module ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-300 font-mono truncate">{m.csvLabel}</span>
-                {m.itemId
-                  ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-matched</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
-                  : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> unmatched</span>}
+                <span className="text-xs text-gray-300 truncate">{m.csvLabel}</span>
+                {m.module
+                  ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-resolved</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
+                  : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <select
+                  className="form-input text-xs col-span-2 sm:col-span-1"
+                  value={m.module}
+                  onChange={e => set(idx, { module: e.target.value, auto: false })}
+                >
+                  <option value="">— Module —</option>
+                  {ELYSIA_MODULES.map(mod => <option key={mod}>{mod}</option>)}
+                </select>
                 <select
                   className="form-input text-xs"
-                  value={m.itemId}
-                  onChange={e => set(idx, { itemId: e.target.value, auto: false })}
+                  value={m.material}
+                  onChange={e => set(idx, { material: e.target.value })}
                 >
-                  <option value="">— select inventory item —</option>
-                  {inventory.map(i => <option key={i.id} value={i.id}>{i.itemCode} · {i.itemName}</option>)}
+                  {ELYSIA_MATERIALS.map(mat => <option key={mat}>{mat}</option>)}
+                </select>
+                <select
+                  className="form-input text-xs"
+                  value={m.color}
+                  onChange={e => set(idx, { color: e.target.value })}
+                >
+                  {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
                 </select>
                 <input
-                  type="number" min="0" className="form-input text-xs w-24" placeholder="Qty"
+                  type="number" min="0" className="form-input text-xs" placeholder="Qty"
                   value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })}
                 />
                 <input
-                  type="number" min="0" className="form-input text-xs w-28" placeholder="Unit ₹"
+                  type="number" min="0" className="form-input text-xs" placeholder="Unit ₹"
                   value={m.unitPrice || ''} onChange={e => set(idx, { unitPrice: Number(e.target.value) || 0 })}
                 />
               </div>
