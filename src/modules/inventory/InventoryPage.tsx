@@ -169,6 +169,7 @@ const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold', 'Silver'
 const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
 
 const VITRUM_MODULES = ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER']
+const VITRUM_TOUCH_OPTIONS = ['1T', '2T', '3T', '4T', '5T', '6T', '7T', '8T', '10T']
 const VITRUM_CONNECTIVITY = ['WiFi', 'Zigbee']
 const VITRUM_FINISHES = ['Black / Black', 'Black / Gold', 'Black / Silver', 'White / Gold', 'White / Silver', 'Silver / White']
 
@@ -207,8 +208,10 @@ function vitrumFeatureAbbrevs(f: VitrumFeatures): string[] {
 }
 
 // WiFi/Zigbee is always the last token — source data had it inconsistently at the start or end.
-function buildVitrumItemName(module: string, features: VitrumFeatures, connectivity: string, color: string): string {
-  const parts = [moduleToTouchLabel(module), ...vitrumFeatureWords(features)]
+// Touch is a separate explicit selection; falls back to deriving from Module (e.g. CITRUM) if left blank.
+function buildVitrumItemName(module: string, touch: string, features: VitrumFeatures, connectivity: string, color: string): string {
+  const touchLabel = touch ? `${touch.replace(/[^0-9]/g, '')} TOUCH` : moduleToTouchLabel(module)
+  const parts = [touchLabel, ...vitrumFeatureWords(features)]
   if (color) parts.push(color)
   if (connectivity) parts.push(connectivity.toUpperCase())
   return parts.filter(Boolean).join(' + ')
@@ -268,10 +271,11 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
     openingStock: '',
   })
 
-  // Simplified Vitrum form: Module + Connectivity + Features + Finish + Rack + Opening Stock —
+  // Simplified Vitrum form: Module + Touch + Connectivity + Features + Color + Rack + Opening Stock —
   // Item Code/Name are derived the same way Elysia's are.
   const [vitrumForm, setVitrumForm] = useState({
     module: VITRUM_MODULES[0],
+    touch: '',
     connectivity: VITRUM_CONNECTIVITY[0],
     features: { fanDimmer: 0, lightDimmer: false, socket: 0, usbC: false, curtain: false } as VitrumFeatures,
     color: '',
@@ -292,9 +296,9 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
 
   const handleSubmitVitrum = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { module, connectivity, features, color, rack, openingStock } = vitrumForm
+    const { module, touch, connectivity, features, color, rack, openingStock } = vitrumForm
     if (!color.trim()) {
-      toast.error('Finish is required')
+      toast.error('Color is required')
       return
     }
     setSaving(true)
@@ -303,7 +307,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
       await addDoc(collection(db, 'inventory'), {
         itemCode: buildVitrumItemCode(module, features, connectivity, color),
         category: module,
-        itemName: buildVitrumItemName(module, features, connectivity, color),
+        itemName: buildVitrumItemName(module, touch, features, connectivity, color),
         location: formatRack(rack),
         color: color.trim(), productLine: 'vitrum',
         openingStock: opening,
@@ -508,15 +512,27 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
                 </select>
               </div>
               <div>
-                <label className="form-label">Connectivity</label>
+                <label className="form-label">Touch</label>
                 <select
                   className="form-input"
-                  value={vitrumForm.connectivity}
-                  onChange={e => setVitrumForm(f => ({ ...f, connectivity: e.target.value }))}
+                  value={vitrumForm.touch}
+                  onChange={e => setVitrumForm(f => ({ ...f, touch: e.target.value }))}
                 >
-                  {VITRUM_CONNECTIVITY.map(c => <option key={c}>{c}</option>)}
+                  <option value="">—</option>
+                  {VITRUM_TOUCH_OPTIONS.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label className="form-label">Connectivity</label>
+              <select
+                className="form-input"
+                value={vitrumForm.connectivity}
+                onChange={e => setVitrumForm(f => ({ ...f, connectivity: e.target.value }))}
+              >
+                {VITRUM_CONNECTIVITY.map(c => <option key={c}>{c}</option>)}
+              </select>
             </div>
 
             <div>
@@ -598,7 +614,7 @@ function AddItemModal({ onClose, userId, userName, line }: AddItemModalProps) {
             </div>
 
             <div>
-              <label className="form-label">Finish *</label>
+              <label className="form-label">Color *</label>
               <select
                 className="form-input"
                 value={vitrumForm.color}
