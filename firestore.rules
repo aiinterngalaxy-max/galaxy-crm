@@ -119,6 +119,12 @@ service cloud.firestore {
         allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
       }
 
+      // Material order lines (CSV-uploaded products mapped to inventory, with delivery tracking)
+      match /orderItems/{orderItemId} {
+        allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
+        allow write: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+      }
+
       match /siteReports/{reportId} {
         allow read: if isAuth() && getRole() != 'marketing' && getRole() != 'pending';
         allow create: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];

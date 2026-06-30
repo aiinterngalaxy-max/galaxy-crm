@@ -24,6 +24,7 @@ import {
 } from '../../lib/utils'
 import type { Project, Milestone, MilestoneStatus, SiteReport, User as AppUser } from '../../types'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
+import { ProjectMaterials } from './ProjectMaterials'
 import toast from 'react-hot-toast'
 
 // ─── Workflow Types ────────────────────────────────────────────────────────────
@@ -1002,6 +1003,17 @@ export function ProjectDetail() {
           })}
         </div>
       </div>
+
+      {/* ── Materials & Delivery ── */}
+      {user && (
+        <ProjectMaterials
+          projectId={id!}
+          projectCode={(project as any).projectCode || project.title}
+          canManage={canManage}
+          userId={user.id}
+          userName={user.name}
+        />
+      )}
 
       {/* ── Site Reports sidebar-style list ── */}
       <Card padding="none">
