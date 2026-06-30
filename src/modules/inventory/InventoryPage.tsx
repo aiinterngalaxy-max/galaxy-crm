@@ -479,7 +479,7 @@ function AddItemModal({ onClose, userId, userName, line, items }: AddItemModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-      <div className="glass-card w-full max-w-md rounded-2xl p-6 space-y-5">
+      <div className="glass-card w-full max-w-md rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-100">Add Inventory Item</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
@@ -884,7 +884,7 @@ function EditItemModal({ item, onClose }: EditItemModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-      <div className="glass-card w-full max-w-md rounded-2xl p-6 space-y-5">
+      <div className="glass-card w-full max-w-md rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-100">Edit Inventory Item</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
