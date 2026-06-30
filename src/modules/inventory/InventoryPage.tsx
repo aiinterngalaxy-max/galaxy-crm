@@ -165,7 +165,7 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
-const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold', 'Silver', 'Brown']
+const ELYSIA_COLORS = ['Grey', 'Black', 'White', 'Blue', 'Red', 'Gold', 'Silver', 'Brown', 'Orange']
 const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
 
 const VITRUM_MODULES = ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER']
