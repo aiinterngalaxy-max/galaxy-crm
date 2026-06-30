@@ -90,6 +90,7 @@ export interface Lead {
   convertedToCustomerId?: string
   floorPlanUrl?: string
   demoGiven?: boolean
+  notes?: string
   nextFollowUp?: Timestamp
   createdBy: string
   createdAt: Timestamp
