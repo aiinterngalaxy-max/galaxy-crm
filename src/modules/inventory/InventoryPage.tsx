@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil, ScanLine,
+  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil, ScanLine, Calculator,
 } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -14,6 +14,7 @@ import {
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
 import { ScannerModal } from './ScannerModal'
+import { CurtainDispatchModal } from './CurtainDispatchModal'
 import toast from 'react-hot-toast'
 import { cn } from '../../lib/utils'
 
@@ -161,8 +162,9 @@ function downloadCsv(filename: string, csv: string) {
 // ─── Add Item Modal ────────────────────────────────────────────────────────────
 
 const CATEGORIES_BY_LINE: Record<string, string[]> = {
-  elysia: ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'SOCKET', 'OTHER'],
-  vitrum: ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER'],
+  elysia:    ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'SOCKET', 'OTHER'],
+  vitrum:    ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER'],
+  curtains:  ['Motor', 'Remote', 'Carriers', 'Drive Pulley', 'Hook', 'Runners', 'Roller', 'Track', 'AM 35', 'Clamp', 'Bracket', 'OTHER'],
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
@@ -284,13 +286,16 @@ interface AddItemModalProps {
 
 function AddItemModal({ onClose, userId, userName, line, items }: AddItemModalProps) {
   const fixedLine = line === 'elysia' || line === 'vitrum' ? line : null
+  const isCurtains = line === 'curtains'
   const isElysia = fixedLine === 'elysia'
   const isVitrum = fixedLine === 'vitrum'
 
+  const defaultProductLine = fixedLine ?? (isCurtains ? 'curtains' : 'vitrum')
+
   // Generic form (unscoped "All" view only now)
   const [form, setForm] = useState({
-    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[fixedLine ?? 'vitrum'][0], location: '',
-    openingStock: '', reorderLevel: '', productLine: fixedLine ?? 'vitrum',
+    itemCode: '', itemName: '', category: CATEGORIES_BY_LINE[defaultProductLine]?.[0] ?? 'OTHER', location: '',
+    openingStock: '', reorderLevel: '', productLine: defaultProductLine,
   })
 
   // Simplified Elysia form: Product (Switch/Socket) + Module + Material + Color + Rack + Opening Stock —
@@ -1219,6 +1224,7 @@ export function InventoryPage() {
   const [editingLocation, setEditingLocation] = useState<{ id: string; value: string } | null>(null)
   const [importing, setImporting] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
+  const [showCurtainDispatch, setShowCurtainDispatch] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const saveLocation = async (itemId: string, value: string) => {
@@ -1553,6 +1559,16 @@ export function InventoryPage() {
                 onClick={() => setShowScanner(true)}
               >
                 Scan Switch
+              </Button>
+            )}
+            {line === 'curtains' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Calculator className="w-4 h-4" />}
+                onClick={() => setShowCurtainDispatch(true)}
+              >
+                Dispatch
               </Button>
             )}
             <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
@@ -1895,6 +1911,9 @@ export function InventoryPage() {
           onConfirm={(item, action) => setStockModal({ item, type: action })}
           onClose={() => setShowScanner(false)}
         />
+      )}
+      {showCurtainDispatch && (
+        <CurtainDispatchModal onClose={() => setShowCurtainDispatch(false)} />
       )}
     </div>
   )

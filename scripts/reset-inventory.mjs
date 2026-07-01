@@ -142,6 +142,44 @@ const VITRUM = [
   { itemCode: '10T + SKT ZIG W/G (2)',            category: '10M', itemName: '10 TOUCH + SOCKET ZIGBEE',                      location: 'RACK 4', openingStock: 1, importedQty: 0, issuedQty: 0, reorderLevel: 0 },
 ]
 
+// ─── Curtains ──────────────────────────────────────────────────────────────────
+
+const CURTAINS = [
+  { itemCode: 'MOTOR',               category: 'Motor',        itemName: 'MOTOR',               location: 'STORE', openingStock: 19, importedQty: 0, issuedQty: 20, reorderLevel: 4 },
+  { itemCode: 'TABULAR',             category: 'Motor',        itemName: 'TABULAR',             location: 'STORE', openingStock: 25, importedQty: 0, issuedQty: 1,  reorderLevel: 5 },
+  { itemCode: '1 CH REMOTE',         category: 'Remote',       itemName: '1 CHANNEL REMOTE',    location: 'STORE', openingStock: 6,  importedQty: 0, issuedQty: 2,  reorderLevel: 1 },
+  { itemCode: '2 CH REMOTE',         category: 'Remote',       itemName: '2 CHANNEL REMOTE',    location: 'STORE', openingStock: 21, importedQty: 0, issuedQty: 1,  reorderLevel: 4 },
+  { itemCode: 'TAB REMOTE',          category: 'Remote',       itemName: 'TAB REMOTE',          location: 'STORE', openingStock: 17, importedQty: 0, issuedQty: 1,  reorderLevel: 3 },
+  { itemCode: 'CARRIERS',            category: 'Carriers',     itemName: 'CARRIERS',            location: 'STORE', openingStock: 27, importedQty: 0, issuedQty: 17, reorderLevel: 5 },
+  { itemCode: 'DRIVER PULLEY',       category: 'Drive Pulley', itemName: 'DRIVER PULLEY',       location: 'STORE', openingStock: 3,  importedQty: 0, issuedQty: 2,  reorderLevel: 1 },
+  { itemCode: 'BIG KAAN',            category: 'Drive Pulley', itemName: 'TABULAR KAN (BIG)',   location: 'STORE', openingStock: 0,  importedQty: 0, issuedQty: 0,  reorderLevel: 0 },
+  { itemCode: 'SMALL KAAN',          category: 'Drive Pulley', itemName: 'SWING KAN (SMALL)',   location: 'STORE', openingStock: 23, importedQty: 0, issuedQty: 12, reorderLevel: 5 },
+  { itemCode: 'TABULAR HOOK [PAIR]', category: 'Hook',         itemName: 'TABULAR HOOK [PAIR]', location: 'STORE', openingStock: 25, importedQty: 0, issuedQty: 0,  reorderLevel: 5 },
+  { itemCode: 'TABULAR HOOK SMALL',  category: 'Hook',         itemName: 'TABULAR HOOK SMALL',  location: 'STORE', openingStock: 16, importedQty: 0, issuedQty: 0,  reorderLevel: 3 },
+  { itemCode: 'RUNNERS(Pack)',        category: 'Runners',      itemName: 'RUNNERS',             location: 'STORE', openingStock: 1,  importedQty: 0, issuedQty: 465,reorderLevel: 0 },
+  { itemCode: 'BELT',                category: 'Roller',       itemName: 'BELT',                location: 'STORE', openingStock: 10, importedQty: 0, issuedQty: 0,  reorderLevel: 2 },
+  { itemCode: 'L TRACK',             category: 'Track',        itemName: 'L TRACK',             location: 'STORE', openingStock: 6,  importedQty: 0, issuedQty: 0,  reorderLevel: 1 },
+  { itemCode: 'AM 35',               category: 'AM 35',        itemName: 'AM 35',               location: 'STORE', openingStock: 3,  importedQty: 0, issuedQty: 0,  reorderLevel: 1 },
+  { itemCode: 'CLAMP',               category: 'Clamp',        itemName: 'CLAMP',               location: 'STORE', openingStock: 35, importedQty: 2, issuedQty: 2,  reorderLevel: 7 },
+  { itemCode: 'BRACKET',             category: 'Bracket',      itemName: 'BRACKET',             location: 'STORE', openingStock: 0,  importedQty: 0, issuedQty: 78, reorderLevel: 0 },
+]
+
+async function seedProductLine(items, productLine) {
+  for (const item of items) {
+    const closing = n(item.openingStock) + n(item.importedQty) - n(item.issuedQty)
+    await addDoc(collection(db, 'inventory'), {
+      ...item,
+      productLine,
+      closingStock: closing,
+      stockStatus: status(closing, n(item.reorderLevel)),
+      createdBy: 'seed',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    process.stdout.write('.')
+  }
+}
+
 async function reset() {
   // Delete all existing inventory
   console.log('Deleting existing inventory…')
@@ -151,39 +189,16 @@ async function reset() {
   }
   console.log(`  Deleted ${snap.size} documents`)
 
-  // Seed Elysia
   console.log(`\nSeeding ${ELYSIA.length} Elysia items…`)
-  for (const item of ELYSIA) {
-    const closing = n(item.openingStock) + n(item.importedQty) - n(item.issuedQty)
-    await addDoc(collection(db, 'inventory'), {
-      ...item,
-      productLine: 'elysia',
-      closingStock: closing,
-      stockStatus: status(closing, n(item.reorderLevel)),
-      createdBy: 'seed',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-    process.stdout.write('.')
-  }
+  await seedProductLine(ELYSIA, 'elysia')
 
-  // Seed Vitrum
   console.log(`\n\nSeeding ${VITRUM.length} Vitrum items…`)
-  for (const item of VITRUM) {
-    const closing = n(item.openingStock) + n(item.importedQty) - n(item.issuedQty)
-    await addDoc(collection(db, 'inventory'), {
-      ...item,
-      productLine: 'vitrum',
-      closingStock: closing,
-      stockStatus: status(closing, n(item.reorderLevel)),
-      createdBy: 'seed',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-    process.stdout.write('.')
-  }
+  await seedProductLine(VITRUM, 'vitrum')
 
-  console.log('\n\nDone! Elysia: ' + ELYSIA.length + ', Vitrum: ' + VITRUM.length)
+  console.log(`\n\nSeeding ${CURTAINS.length} Curtain items…`)
+  await seedProductLine(CURTAINS, 'curtains')
+
+  console.log(`\n\nDone! Elysia: ${ELYSIA.length}, Vitrum: ${VITRUM.length}, Curtains: ${CURTAINS.length}`)
   process.exit(0)
 }
 

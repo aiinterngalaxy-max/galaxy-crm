@@ -36,8 +36,9 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Inventory', icon: <Package className="w-4 h-4" />, path: '/inventory', module: 'inventory',
     children: [
-      { label: 'Elysia',  path: '/inventory/elysia' },
-      { label: 'Vitrum',  path: '/inventory/vitrum' },
+      { label: 'Elysia',    path: '/inventory/elysia' },
+      { label: 'Vitrum',    path: '/inventory/vitrum' },
+      { label: 'Curtains',  path: '/inventory/curtains' },
     ],
   },
   { label: 'Notifications',  icon: <Bell className="w-4 h-4" />,            path: '/notifications',   module: 'notifications' },
