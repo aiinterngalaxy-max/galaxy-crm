@@ -82,17 +82,37 @@ function normalizePanelName(s: string): string {
 }
 
 const PANEL_DICTIONARY: Record<string, string> = {
+  // 1T
   [normalizePanelName('Zero fire 1 Key Switch')]: '1T',
+  // 2T
   [normalizePanelName('Zero fire 2 key switches')]: '2T',
+  [normalizePanelName('Zero fire 2 key switch')]: '2T',
+  // 3T
   [normalizePanelName('Zero fire 3 key switches')]: '3T',
+  [normalizePanelName('Zero fire 3 key switch')]: '3T',
+  // 4T
   [normalizePanelName('Zero fire 4 key switches')]: '4T',
+  [normalizePanelName('Zero fire 4 key switch')]: '4T',
+  // 4T LCD
   [normalizePanelName('Zero-fire 4 -key switch (4-way load control)')]: '4T LCD',
+  [normalizePanelName('Zero-fire 4 -key switch( 4-way load)')]: '4T LCD',
+  [normalizePanelName('Zero-fire 4 -key switch (4-way load)')]: '4T LCD',
+  // 6T
   [normalizePanelName('Zero-fire 6-key switches (2-way scenario + 4-way load control)')]: '6T',
+  [normalizePanelName('Zero-fire 6-switch (2-scenario + 4-load)')]: '6T',
+  // 8T
   [normalizePanelName('Zero-fire 8-key switches (4-way scenario + 4-way load control)')]: '8T',
+  [normalizePanelName('Zero-fire 8-switch (4-scenario + 4-load)')]: '8T',
+  // D/T Knob
   [normalizePanelName('Galaxy Intelligent Dimming Switch With 2 Way Composite Switch')]: 'D/T Knob',
+  [normalizePanelName('Intelligent Dimming Switch With Knob')]: 'D/T Knob',
+  // Sockets
   [normalizePanelName('Single Socket - USB')]: 'Single Socket USB C',
+  [normalizePanelName('Single Socket')]: 'Single Socket USB C',
   [normalizePanelName('Double Socket - USB')]: 'Double Socket USB C',
+  [normalizePanelName('Double Socket')]: 'Double Socket USB C',
   [normalizePanelName('Flexi Wired Charger USB + C')]: 'Apple Wire Socket',
+  [normalizePanelName('Wired Charger (USB + C)')]: 'Apple Wire Socket',
   // "Galaxy Intelligent Fan Controller With 1 Switch" intentionally left unmapped for now.
 }
 
