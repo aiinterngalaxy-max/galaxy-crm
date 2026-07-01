@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil,
+  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil, ScanLine,
 } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -13,6 +13,7 @@ import {
   serverTimestamp, limit, runTransaction,
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
+import { ScannerModal } from './ScannerModal'
 import toast from 'react-hot-toast'
 import { cn } from '../../lib/utils'
 
@@ -1217,6 +1218,7 @@ export function InventoryPage() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [editingLocation, setEditingLocation] = useState<{ id: string; value: string } | null>(null)
   const [importing, setImporting] = useState(false)
+  const [showScanner, setShowScanner] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const saveLocation = async (itemId: string, value: string) => {
@@ -1542,6 +1544,16 @@ export function InventoryPage() {
                   }}
                 />
               </>
+            )}
+            {line === 'elysia' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ScanLine className="w-4 h-4" />}
+                onClick={() => setShowScanner(true)}
+              >
+                Scan Switch
+              </Button>
             )}
             <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
               Add Item
@@ -1876,6 +1888,13 @@ export function InventoryPage() {
       )}
       {editingItem && (
         <EditItemModal item={editingItem} onClose={() => setEditingItem(null)} />
+      )}
+      {showScanner && (
+        <ScannerModal
+          items={lineItems}
+          onConfirm={(item, action) => setStockModal({ item, type: action })}
+          onClose={() => setShowScanner(false)}
+        />
       )}
     </div>
   )
