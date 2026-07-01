@@ -165,12 +165,21 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
     let stream: MediaStream | null = null
 
     navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } })
-      .then(s => {
+      .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'environment' } } })
+      .then(async s => {
         stream = s
         if (videoRef.current) {
           videoRef.current.srcObject = s
           videoRef.current.play()
+        }
+        // Enable torch/flash if supported (mobile back camera)
+        const track = s.getVideoTracks()[0]
+        if (track) {
+          try {
+            await track.applyConstraints({ advanced: [{ torch: true } as MediaTrackConstraintSet] })
+          } catch {
+            // Torch not supported on this device — silently ignore
+          }
         }
       })
       .catch(err => {
