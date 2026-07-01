@@ -5,8 +5,44 @@ import { cn } from '../../lib/utils'
 import type { InventoryItem } from '../../types'
 
 // ─── CV Engine ────────────────────────────────────────────────────────────────
-// Detects how many Elysia touch icons are on the panel by counting distinct
-// dark blobs in the cropped panel region. Each icon merges into ~1 blob.
+// Projects dark pixels onto X and Y axes, counts peaks in each projection,
+// then multiplies: colPeaks × rowPeaks = icon count.
+// This avoids blob-clustering distance tuning entirely.
+
+function countPeaks(proj: Float32Array, minGapFraction: number): number {
+  const len = proj.length
+  if (len === 0) return 0
+
+  // Normalise so max = 1
+  const maxVal = Math.max(...proj)
+  if (maxVal === 0) return 0
+  const norm = proj.map(v => v / maxVal)
+
+  // Threshold: only count columns/rows with >20% of the peak dark density
+  const THRESH = 0.20
+  // Minimum gap between peaks (in samples)
+  const minGap = Math.max(2, Math.round(len * minGapFraction))
+
+  let peaks = 0
+  let inRegion = false
+  let regionStart = 0
+
+  for (let i = 0; i <= len; i++) {
+    const active = i < len && norm[i] > THRESH
+    if (active && !inRegion) {
+      inRegion = true
+      regionStart = i
+    } else if (!active && inRegion) {
+      inRegion = false
+      const regionLen = i - regionStart
+      // Only count as a peak if the region is wide enough (not a tiny noise spike)
+      if (regionLen >= Math.max(1, Math.round(len * 0.04))) {
+        peaks++
+      }
+    }
+  }
+  return peaks
+}
 
 function analyzeFrame(
   canvas: HTMLCanvasElement,
@@ -19,7 +55,7 @@ function analyzeFrame(
   const imageData = ctx.getImageData(x, y, w, h)
   const { data, width, height } = imageData
 
-  // ── Grayscale ──────────────────────────────────────────────────────────────
+  // ── Grayscale ─────────────────────────────────────────────────────────────
   const gray = new Uint8Array(width * height)
   for (let i = 0; i < width * height; i++) {
     gray[i] = Math.round(
@@ -27,108 +63,69 @@ function analyzeFrame(
     )
   }
 
-  // ── Background brightness: sample top & bottom edges ─────────────────────
+  // ── Background brightness from outer 10% border ────────────────────────
+  const border = Math.floor(Math.min(width, height) * 0.10)
   let edgeSum = 0, edgeCount = 0
-  const edgeMargin = Math.floor(height * 0.08)
-  for (let px = 0; px < width; px++) {
-    for (let row = 0; row < edgeMargin; row++) {
-      edgeSum += gray[row * width + px]
-      edgeSum += gray[(height - 1 - row) * width + px]
-      edgeCount += 2
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      if (row < border || row >= height - border || col < border || col >= width - border) {
+        edgeSum += gray[row * width + col]
+        edgeCount++
+      }
     }
   }
   const bgBrightness = edgeCount > 0 ? edgeSum / edgeCount : 200
-  const darkThreshold = bgBrightness * 0.55
+  const darkThreshold = bgBrightness * 0.60
 
-  // ── Downsample 8× for speed ───────────────────────────────────────────────
-  const DS = 8
-  const dsW = Math.floor(width / DS)
-  const dsH = Math.floor(height / DS)
-  const ds = new Uint8Array(dsW * dsH)
+  // ── Build binary dark map (ignore outer border to avoid frame artifacts) ─
+  const innerX0 = border, innerX1 = width - border
+  const innerY0 = border, innerY1 = height - border
 
-  for (let ry = 0; ry < dsH; ry++) {
-    for (let rx = 0; rx < dsW; rx++) {
-      let darkVotes = 0
-      for (let dy = 0; dy < DS; dy++) {
-        for (let dx = 0; dx < DS; dx++) {
-          const idx = (ry * DS + dy) * width + (rx * DS + dx)
-          if (gray[idx] < darkThreshold) darkVotes++
-        }
-      }
-      // A downsampled cell is "dark" if >25% of its real pixels are dark
-      ds[ry * dsW + rx] = darkVotes > DS * DS * 0.25 ? 1 : 0
-    }
-  }
+  let totalDark = 0
 
-  // ── Connected components (BFS) ────────────────────────────────────────────
-  const visited = new Uint8Array(dsW * dsH)
-  const blobs: { cx: number; cy: number; size: number }[] = []
-  const MIN_BLOB = 2
-  const MAX_BLOB = Math.floor(dsW * dsH * 0.12) // ignore regions >12% of area
+  // ── X projection: dark pixel count per column ─────────────────────────
+  const xProj = new Float32Array(width)
+  // ── Y projection: dark pixel count per row ────────────────────────────
+  const yProj = new Float32Array(height)
 
-  for (let startIdx = 0; startIdx < dsW * dsH; startIdx++) {
-    if (ds[startIdx] !== 1 || visited[startIdx]) continue
-
-    const queue: number[] = [startIdx]
-    visited[startIdx] = 1
-    let sumX = 0, sumY = 0, size = 0
-
-    while (queue.length) {
-      const idx = queue.shift()!
-      const cx = idx % dsW
-      const cy = Math.floor(idx / dsW)
-      sumX += cx; sumY += cy; size++
-
-      for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-        const nx = cx + ddx, ny = cy + ddy
-        if (nx >= 0 && nx < dsW && ny >= 0 && ny < dsH) {
-          const ni = ny * dsW + nx
-          if (ds[ni] === 1 && !visited[ni]) {
-            visited[ni] = 1
-            queue.push(ni)
-          }
-        }
-      }
-    }
-
-    if (size >= MIN_BLOB && size <= MAX_BLOB) {
-      blobs.push({ cx: sumX / size, cy: sumY / size, size })
-    }
-  }
-
-  // ── Cluster nearby blobs → each cluster = one icon ───────────────────────
-  // Icons are separated by >15% of the panel width
-  const CLUSTER_DIST = dsW * 0.18
-  const blobAssigned = new Set<number>()
-  let iconClusters = 0
-
-  for (let i = 0; i < blobs.length; i++) {
-    if (blobAssigned.has(i)) continue
-    iconClusters++
-    blobAssigned.add(i)
-    for (let j = i + 1; j < blobs.length; j++) {
-      if (blobAssigned.has(j)) continue
-      const dx = blobs[i].cx - blobs[j].cx
-      const dy = blobs[i].cy - blobs[j].cy
-      if (Math.sqrt(dx * dx + dy * dy) < CLUSTER_DIST) {
-        blobAssigned.add(j)
+  for (let row = innerY0; row < innerY1; row++) {
+    for (let col = innerX0; col < innerX1; col++) {
+      if (gray[row * width + col] < darkThreshold) {
+        xProj[col]++
+        yProj[row]++
+        totalDark++
       }
     }
   }
 
-  // ── Map to nearest valid Elysia touch count ───────────────────────────────
+  // If too few or too many dark pixels → not a panel
+  const darkFrac = totalDark / ((innerX1 - innerX0) * (innerY1 - innerY0))
+  if (darkFrac < 0.005 || darkFrac > 0.60) {
+    return { touchCount: 0, confidence: 0, rawBlobs: 0 }
+  }
+
+  // Crop projections to inner region
+  const xProjInner = xProj.slice(innerX0, innerX1)
+  const yProjInner = yProj.slice(innerY0, innerY1)
+
+  // ── Count peaks in each axis ──────────────────────────────────────────
+  const xPeaks = countPeaks(xProjInner, 0.08) // min 8% width gap between icon columns
+  const yPeaks = countPeaks(yProjInner, 0.08)
+
+  const rawCount = xPeaks * yPeaks
+
+  // ── Map to nearest valid Elysia count ─────────────────────────────────
   const VALID = [1, 2, 4, 6, 8]
-  if (iconClusters === 0) return { touchCount: 0, confidence: 0, rawBlobs: 0 }
+  if (rawCount === 0) return { touchCount: 0, confidence: 0, rawBlobs: 0 }
 
   const closest = VALID.reduce((a, b) =>
-    Math.abs(b - iconClusters) < Math.abs(a - iconClusters) ? b : a
+    Math.abs(b - rawCount) < Math.abs(a - rawCount) ? b : a
   )
 
-  // Confidence: perfect match = 100, off by 1 = 60, off by 2 = 20
-  const diff = Math.abs(closest - iconClusters)
-  const confidence = diff === 0 ? 95 : diff === 1 ? 60 : diff === 2 ? 30 : 10
+  const diff = Math.abs(closest - rawCount)
+  const confidence = diff === 0 ? 90 : diff <= 1 ? 65 : diff <= 2 ? 40 : 15
 
-  return { touchCount: closest, confidence, rawBlobs: iconClusters }
+  return { touchCount: closest, confidence, rawBlobs: rawCount }
 }
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
@@ -426,7 +423,7 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
               </p>
               {result && result.rawBlobs > 0 && (
                 <p className="text-xs text-gray-700">
-                  {result.rawBlobs} icon group{result.rawBlobs !== 1 ? 's' : ''} detected
+                  raw grid: {result.rawBlobs} icons
                 </p>
               )}
             </div>
