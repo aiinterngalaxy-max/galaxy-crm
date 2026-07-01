@@ -243,9 +243,9 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           color: 'Grey',
           auto: !!dictModule,
         }
-      }).filter(m => m.csvLabel)
+      }).filter(m => m.csvLabel && m.orderedQty > 0)
 
-      if (!built.length) { toast.error('No usable rows found'); return }
+      if (!built.length) { toast.error('No rows with quantity > 0 found'); return }
       setMapping(built)
     } catch (err) {
       toast.error('Could not read CSV')
