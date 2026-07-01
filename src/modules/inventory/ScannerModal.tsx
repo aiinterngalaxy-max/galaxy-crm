@@ -114,8 +114,8 @@ function analyzeFrame(
 
   const rawCount = xPeaks * yPeaks
 
-  // ── Map to nearest valid Elysia count ─────────────────────────────────
-  const VALID = [1, 2, 4, 6, 8]
+  // ── Map to nearest valid Elysia count (2T / 3T not yet supported) ────
+  const VALID = [1, 4, 6, 8]
   if (rawCount === 0) return { touchCount: 0, confidence: 0, rawBlobs: 0 }
 
   const closest = VALID.reduce((a, b) =>
