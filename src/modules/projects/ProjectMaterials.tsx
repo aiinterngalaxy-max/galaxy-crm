@@ -3,7 +3,7 @@ import { Package, Upload, Truck, X, AlertTriangle, Check } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import {
-  db, collection, doc, addDoc, updateDoc, onSnapshot, query, orderBy,
+  db, collection, doc, addDoc, updateDoc, onSnapshot, query, orderBy, where,
   serverTimestamp, runTransaction,
 } from '../../lib/firebase'
 import type { InventoryItem, StockStatus } from '../../types'
@@ -21,6 +21,15 @@ interface OrderItem {
   unitPrice: number
   orderedQty: number
   deliveredQty: number
+}
+
+interface DispatchRecord {
+  id: string
+  itemCode: string
+  itemName: string
+  quantity: number
+  recordedByName: string
+  createdAt: any
 }
 
 interface MappingRow {
@@ -162,6 +171,10 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
   const [mapping, setMapping] = useState<MappingRow[] | null>(null)
   const [importing, setImporting] = useState(false)
   const [dispatchTarget, setDispatchTarget] = useState<OrderItem | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDispatchOpen, setBulkDispatchOpen] = useState(false)
+  const [dispatchHistory, setDispatchHistory] = useState<DispatchRecord[]>([])
+  const [showHistory, setShowHistory] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -171,7 +184,15 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
     const unsubOrders = onSnapshot(query(collection(db, 'projects', projectId, 'orderItems'), orderBy('itemName')), snap => {
       setOrderItems(snap.docs.map(d => ({ id: d.id, ...d.data() }) as OrderItem))
     })
-    return () => { unsubInv(); unsubOrders() }
+    const unsubHistory = onSnapshot(
+      query(collection(db, 'stockTransactions'), where('projectId', '==', projectId), where('type', '==', 'issue')),
+      snap => {
+        const records = snap.docs.map(d => ({ id: d.id, ...d.data() }) as DispatchRecord)
+        records.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
+        setDispatchHistory(records)
+      }
+    )
+    return () => { unsubInv(); unsubOrders(); unsubHistory() }
   }, [projectId])
 
   const invById = useMemo(() => new Map(inventory.map(i => [i.id, i])), [inventory])
@@ -327,6 +348,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           itemName: order.itemName,
           type: 'issue',
           quantity: qty,
+          projectId,
           note: `Project ${projectCode} dispatch`,
           recordedBy: userId,
           recordedByName: userName,
@@ -338,6 +360,44 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Dispatch failed')
       console.error(err)
+    }
+  }
+
+  // ── Bulk dispatch ─────────────────────────────────────────────────────────────
+  const doBulkDispatch = async (rows: { order: OrderItem; qty: number }[]) => {
+    try {
+      await runTransaction(db, async (tx) => {
+        const invSnaps = await Promise.all(rows.map(r => tx.get(doc(db, 'inventory', r.order.itemId))))
+        for (let i = 0; i < rows.length; i++) {
+          const { order, qty } = rows[i]
+          const invSnap = invSnaps[i]
+          if (!invSnap.exists()) throw new Error(`${order.itemCode} no longer exists`)
+          const inv = invSnap.data() as InventoryItem
+          if (qty > inv.closingStock) throw new Error(`Only ${inv.closingStock} of ${order.itemCode} in stock`)
+          const newIssued = inv.issuedQty + qty
+          const newClosing = inv.openingStock + inv.importedQty - newIssued
+          tx.update(doc(db, 'inventory', order.itemId), {
+            issuedQty: newIssued, closingStock: newClosing,
+            stockStatus: computeStatus(newClosing, inv.reorderLevel),
+            updatedAt: serverTimestamp(),
+          })
+          tx.update(doc(db, 'projects', projectId, 'orderItems', order.id), {
+            deliveredQty: order.deliveredQty + qty,
+          })
+          tx.set(doc(collection(db, 'stockTransactions')), {
+            itemId: order.itemId, itemCode: order.itemCode, itemName: order.itemName,
+            type: 'issue', quantity: qty, projectId,
+            note: `Project ${projectCode} dispatch`,
+            recordedBy: userId, recordedByName: userName,
+            createdAt: serverTimestamp(),
+          })
+        }
+      })
+      toast.success(`Dispatched ${rows.length} item type(s)`)
+      setBulkDispatchOpen(false)
+      setSelectedIds(new Set())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk dispatch failed')
     }
   }
 
@@ -359,17 +419,24 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
         <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
           <Package className="w-4 h-4 text-indigo-400" /> Materials &amp; Delivery
         </h3>
-        {canManage && (
-          <>
-            <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />} onClick={() => fileRef.current?.click()}>
-              Upload Order (CSV)
+        <div className="flex items-center gap-2 flex-wrap">
+          {canManage && selectedIds.size > 0 && (
+            <Button size="sm" variant="primary" icon={<Truck className="w-3.5 h-3.5" />} onClick={() => setBulkDispatchOpen(true)}>
+              Dispatch Selected ({selectedIds.size})
             </Button>
-            <input
-              ref={fileRef} type="file" accept=".csv" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
-            />
-          </>
-        )}
+          )}
+          {canManage && (
+            <>
+              <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />} onClick={() => fileRef.current?.click()}>
+                Upload Order (CSV)
+              </Button>
+              <input
+                ref={fileRef} type="file" accept=".csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {orderItems.length === 0 ? (
@@ -391,6 +458,16 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
+                  <th className="px-3 py-2.5 w-8">
+                    <input type="checkbox"
+                      className="accent-indigo-500"
+                      checked={selectedIds.size === orderItems.filter(o => o.orderedQty - o.deliveredQty > 0).length && selectedIds.size > 0}
+                      onChange={e => {
+                        const pending = orderItems.filter(o => o.orderedQty - o.deliveredQty > 0)
+                        setSelectedIds(e.target.checked ? new Set(pending.map(o => o.id)) : new Set())
+                      }}
+                    />
+                  </th>
                   {['Code', 'Item', 'Ordered', 'Delivered', 'Pending', 'In Stock', ''].map(h => (
                     <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
@@ -403,6 +480,18 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
                   const done = pending <= 0
                   return (
                     <tr key={o.id} className="hover:bg-gray-800/30">
+                      <td className="px-3 py-2.5">
+                        {!done && (
+                          <input type="checkbox" className="accent-indigo-500"
+                            checked={selectedIds.has(o.id)}
+                            onChange={e => setSelectedIds(s => {
+                              const next = new Set(s)
+                              e.target.checked ? next.add(o.id) : next.delete(o.id)
+                              return next
+                            })}
+                          />
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-xs font-mono text-gray-300 whitespace-nowrap">{o.itemCode}</td>
                       <td className="px-4 py-2.5 text-xs text-gray-200">{o.itemName}</td>
                       <td className="px-4 py-2.5 text-xs text-gray-400 text-right">{o.orderedQty}</td>
@@ -432,6 +521,45 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
         </>
       )}
 
+      {/* Dispatch history */}
+      {dispatchHistory.length > 0 && (
+        <div className="border-t border-gray-800">
+          <button
+            onClick={() => setShowHistory(h => !h)}
+            className="w-full px-4 py-2.5 text-left text-xs font-medium text-gray-500 hover:text-gray-300 flex items-center justify-between"
+          >
+            <span>Dispatch History ({dispatchHistory.length})</span>
+            <span>{showHistory ? '▲' : '▼'}</span>
+          </button>
+          {showHistory && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    {['Date & Time', 'Code', 'Item', 'Qty', 'By'].map(h => (
+                      <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/50">
+                  {dispatchHistory.map(r => (
+                    <tr key={r.id} className="hover:bg-gray-800/20">
+                      <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">
+                        {r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-xs font-mono text-gray-400 whitespace-nowrap">{r.itemCode}</td>
+                      <td className="px-4 py-2 text-xs text-gray-300">{r.itemName}</td>
+                      <td className="px-4 py-2 text-xs text-green-400 font-semibold text-right">{r.quantity}</td>
+                      <td className="px-4 py-2 text-xs text-gray-500">{r.recordedByName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Mapping review modal */}
       {mapping && (
         <MappingModal
@@ -440,6 +568,16 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           onChange={setMapping}
           onConfirm={confirmMapping}
           onClose={() => setMapping(null)}
+        />
+      )}
+
+      {/* Bulk dispatch modal */}
+      {bulkDispatchOpen && (
+        <BulkDispatchModal
+          orders={orderItems.filter(o => selectedIds.has(o.id))}
+          invById={invById}
+          onConfirm={doBulkDispatch}
+          onClose={() => setBulkDispatchOpen(false)}
         />
       )}
 
@@ -541,6 +679,75 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
           <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button variant="primary" className="flex-1" loading={importing} onClick={onConfirm}>Import to Order</Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Bulk dispatch modal ───────────────────────────────────────────────────────
+
+function BulkDispatchModal({ orders, invById, onConfirm, onClose }: {
+  orders: OrderItem[]
+  invById: Map<string, InventoryItem>
+  onConfirm: (rows: { order: OrderItem; qty: number }[]) => Promise<void>
+  onClose: () => void
+}) {
+  const [qtys, setQtys] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const o of orders) {
+      const pending = o.orderedQty - o.deliveredQty
+      const stock = invById.get(o.itemId)?.closingStock ?? 0
+      init[o.id] = String(Math.min(pending, stock) || '')
+    }
+    return init
+  })
+  const [saving, setSaving] = useState(false)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const rows = orders.map(o => ({ order: o, qty: Number(qtys[o.id]) || 0 })).filter(r => r.qty > 0)
+    if (!rows.length) { toast.error('Enter at least one quantity'); return }
+    setSaving(true)
+    await onConfirm(rows)
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+      <div className="glass-card w-full max-w-lg rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
+            <Truck className="w-5 h-5 text-indigo-400" /> Bulk Dispatch
+          </h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-2">
+          {orders.map(o => {
+            const pending = o.orderedQty - o.deliveredQty
+            const stock = invById.get(o.itemId)?.closingStock ?? 0
+            return (
+              <div key={o.id} className="bg-gray-800/50 rounded-xl p-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-200 truncate">{o.itemName}</p>
+                  <p className="text-xs text-gray-500">
+                    {o.itemCode} · Pending: <span className="text-yellow-400 font-medium">{pending}</span> · Stock:{' '}
+                    <span className={cn('font-medium', stock < pending ? 'text-red-400' : 'text-gray-300')}>{stock}</span>
+                  </p>
+                </div>
+                <input
+                  type="number" min="0" max={Math.min(pending, stock)}
+                  className="form-input text-xs w-20 shrink-0" placeholder="Qty"
+                  value={qtys[o.id] ?? ''}
+                  onChange={e => setQtys(q => ({ ...q, [o.id]: e.target.value }))}
+                />
+              </div>
+            )
+          })}
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="primary" className="flex-1" loading={saving}>Confirm Dispatch</Button>
+          </div>
+        </form>
       </div>
     </div>
   )
