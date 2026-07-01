@@ -32,14 +32,88 @@ interface DispatchRecord {
   createdAt: any
 }
 
+type CurtainMotorType = 'standard' | 'tabular'
+type CurtainRemote    = '1ch' | '2ch' | 'tab' | 'none'
+type CurtainKaan      = 'big' | 'small'
+
 interface MappingRow {
   csvLabel: string          // raw text from the CSV (panel name or code)
   orderedQty: number
   unitPrice: number
+  // Elysia fields
   module: string            // resolved/chosen Elysia module, '' if unresolved
   material: string          // defaults to Aluminium
   color: string             // defaults to Grey
-  auto: boolean             // whether module was auto-resolved (dictionary or exact code match)
+  auto: boolean             // whether module was auto-resolved
+  // Curtain fields
+  isCurtain: boolean
+  curtainType?: CurtainMotorType   // standard | tabular (for motor rows)
+  curtainFeet?: number             // track length in feet (motor rows)
+  curtainRemote?: CurtainRemote    // remote choice (motor rows)
+  curtainKaan?: CurtainKaan        // kaan type (standard motor rows)
+  curtainDirectQty?: number        // for remote/controller rows: dispatch directly
+  curtainInventoryCode?: string    // itemCode to dispatch directly
+}
+
+// ─── Curtain detection ─────────────────────────────────────────────────────────
+
+function suggestBelt(feet: number): number {
+  if (feet <= 10) return 7
+  if (feet <= 12) return 8
+  if (feet <= 15) return 9.5
+  if (feet <= 20) return 12
+  return Math.ceil(feet * 0.62)
+}
+
+function detectCurtainRow(label: string): Partial<MappingRow> | null {
+  const up = label.toUpperCase()
+  // Tabular motor
+  if (up.includes('GS/CM/003') || (up.includes('TABULAR') && up.includes('MOTOR'))) {
+    return { isCurtain: true, curtainType: 'tabular', curtainFeet: 0, curtainRemote: 'none', curtainKaan: 'small' }
+  }
+  // Standard motor (5-wire / wifi)
+  if (up.includes('GS/CM/001') || up.includes('GS/CM/002') || (up.includes('CURTAIN') && up.includes('MOTOR'))) {
+    return { isCurtain: true, curtainType: 'standard', curtainFeet: 0, curtainRemote: 'none', curtainKaan: 'small' }
+  }
+  // Single channel remote / controller
+  if (up.includes('GS/CM/004') || (up.includes('SINGLE') && up.includes('CHANNEL'))) {
+    return { isCurtain: true, curtainInventoryCode: '1 CH REMOTE' }
+  }
+  // Double channel remote
+  if (up.includes('GS/CM/005') || (up.includes('DOUBLE') && up.includes('CHANNEL'))) {
+    return { isCurtain: true, curtainInventoryCode: '2 CH REMOTE' }
+  }
+  return null
+}
+
+function calcCurtainLines(row: MappingRow): Array<{ itemCode: string; qty: number; label: string }> {
+  if (!row.isCurtain) return []
+  // Direct-dispatch items (remotes/controllers)
+  if (row.curtainInventoryCode) return [{ itemCode: row.curtainInventoryCode, qty: row.orderedQty, label: row.csvLabel }]
+  if (!row.curtainType || !row.curtainFeet) return []
+
+  const f      = row.curtainFeet
+  const motors = f <= 19 ? 1 : 2
+  const lines: Array<{ itemCode: string; qty: number; label: string }> = []
+
+  if (row.curtainType === 'standard') {
+    lines.push({ itemCode: 'MOTOR',         qty: motors,     label: 'Motor' })
+    lines.push({ itemCode: 'RUNNERS(Pack)', qty: f * 3,      label: 'Runners' })
+    lines.push({ itemCode: 'CARRIERS',      qty: motors,     label: 'Carriers' })
+    lines.push({ itemCode: 'BRACKET',       qty: motors * 4, label: 'Bracket' })
+    lines.push({ itemCode: row.curtainKaan === 'big' ? 'BIG KAAN' : 'SMALL KAAN', qty: motors * 2, label: 'Kaan' })
+    lines.push({ itemCode: 'BELT',          qty: suggestBelt(f), label: 'Belt' })
+  } else {
+    lines.push({ itemCode: 'TABULAR', qty: motors, label: 'Tabular Motor' })
+    lines.push({ itemCode: 'TABULAR HOOK [PAIR]', qty: motors * 2, label: 'Tabular Hook' })
+  }
+
+  if (row.curtainRemote && row.curtainRemote !== 'none') {
+    const map: Record<string, string> = { '1ch': '1 CH REMOTE', '2ch': '2 CH REMOTE', 'tab': 'TAB REMOTE' }
+    lines.push({ itemCode: map[row.curtainRemote], qty: 1, label: 'Remote' })
+  }
+
+  return lines
 }
 
 function computeStatus(closing: number, reorder: number): StockStatus {
@@ -254,6 +328,17 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           }
         }
 
+        // Check if this is a curtain item first
+        const rawLabel = panelRaw || codeRaw || nameRaw
+        const curtainDetected = detectCurtainRow(rawLabel)
+        if (curtainDetected) {
+          return {
+            csvLabel: rawLabel, orderedQty, unitPrice,
+            module: 'CURTAIN', material: '', color: '', auto: true,
+            ...curtainDetected,
+          } as MappingRow
+        }
+
         // Quotation-style: resolve Panel name via the dictionary, default Material/Color.
         const dictModule = panelRaw ? PANEL_DICTIONARY[normalizePanelName(panelRaw)] : undefined
         return {
@@ -263,6 +348,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           material: 'Aluminium',
           color: 'Grey',
           auto: !!dictModule,
+          isCurtain: false,
         }
       }).filter(m => m.csvLabel && m.orderedQty > 0)
 
@@ -276,19 +362,32 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
 
   const confirmMapping = async () => {
     if (!mapping) return
-    const valid = mapping.filter(m => m.module && m.color && m.orderedQty > 0)
-    if (!valid.length) { toast.error('Pick a Module + Color and quantity for at least one row'); return }
+
+    // Validate curtain rows have feet entered
+    const curtainMotorRows = mapping.filter(m => m.isCurtain && m.curtainType && !m.curtainInventoryCode)
+    for (const m of curtainMotorRows) {
+      if (!m.curtainFeet || m.curtainFeet <= 0) {
+        toast.error(`Enter track length in feet for: ${m.csvLabel.slice(0, 40)}`)
+        return
+      }
+    }
+
+    const elysiaValid = mapping.filter(m => !m.isCurtain && m.module && m.module !== 'CURTAIN' && m.color && m.orderedQty > 0)
+    const curtainValid = mapping.filter(m => m.isCurtain)
+    if (!elysiaValid.length && !curtainValid.length) {
+      toast.error('No valid rows to import')
+      return
+    }
+
     setImporting(true)
     try {
-      for (const m of valid) {
+      // ── Elysia rows ──────────────────────────────────────────────────────────
+      for (const m of elysiaValid) {
         const itemCode = buildElysiaItemCode(m.module, m.color, m.material)
         const itemName = buildElysiaItemName(m.module, m.color)
         const existing = inventory.find(i => i.itemCode === itemCode && (i.productLine ?? 'elysia') === 'elysia')
-
         let itemId = existing?.id
         if (!existing) {
-          // Item doesn't exist in inventory yet — create it at 0 stock so it's trackable
-          // (and can be stocked in later) instead of silently dropping the order line.
           const category = isSocketModule(m.module) ? 'SOCKET' : m.module
           const newRef = await addDoc(collection(db, 'inventory'), {
             itemCode, category, itemName, location: '',
@@ -300,16 +399,52 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           })
           itemId = newRef.id
         }
-
         await addDoc(collection(db, 'projects', projectId, 'orderItems'), {
           itemId, itemCode, itemName,
-          unitPrice: m.unitPrice,
-          orderedQty: m.orderedQty,
-          deliveredQty: 0,
+          unitPrice: m.unitPrice, orderedQty: m.orderedQty, deliveredQty: 0,
           createdAt: serverTimestamp(),
         })
       }
-      toast.success(`${valid.length} item(s) added to order`)
+
+      // ── Curtain rows — dispatch from curtain inventory ───────────────────────
+      const curtainSnap = await (async () => {
+        if (!curtainValid.length) return null
+        const { getDocs, query: fsQuery, where: fsWhere } = await import('firebase/firestore')
+        return getDocs(fsQuery(collection(db, 'inventory'), fsWhere('productLine', '==', 'curtains')))
+      })()
+
+      if (curtainSnap) {
+        const curtainMap = new Map<string, InventoryItem & { id: string }>()
+        curtainSnap.docs.forEach(d => curtainMap.set(d.data().itemCode, { id: d.id, ...d.data() } as InventoryItem & { id: string }))
+
+        const toDispatch = new Map<string, number>() // itemCode → total qty
+
+        for (const m of curtainValid) {
+          const lines = calcCurtainLines(m)
+          for (const line of lines) {
+            toDispatch.set(line.itemCode, (toDispatch.get(line.itemCode) ?? 0) + line.qty)
+          }
+        }
+
+        for (const [itemCode, qty] of toDispatch) {
+          const item = curtainMap.get(itemCode)
+          if (!item) continue
+          const newIssued  = (item.issuedQty ?? 0) + qty
+          const newClosing = (item.openingStock ?? 0) + (item.importedQty ?? 0) - newIssued
+          const newStatus  = newClosing <= 0 ? 'out_of_stock' : newClosing <= (item.reorderLevel ?? 0) ? 'low_stock' : 'in_stock'
+          await updateDoc(doc(db, 'inventory', item.id), {
+            issuedQty: newIssued, closingStock: newClosing, stockStatus: newStatus, updatedAt: serverTimestamp(),
+          })
+          // Add to project order items so it shows in dispatch log
+          await addDoc(collection(db, 'projects', projectId, 'orderItems'), {
+            itemId: item.id, itemCode, itemName: item.itemName,
+            unitPrice: 0, orderedQty: qty, deliveredQty: qty,
+            createdAt: serverTimestamp(),
+          })
+        }
+      }
+
+      toast.success(`Imported ${elysiaValid.length + curtainValid.length} row(s)`)
       setMapping(null)
     } catch (err) {
       toast.error('Failed to save order')
@@ -612,72 +747,183 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
   onConfirm: () => void
   onClose: () => void
 }) {
-  const matched = mapping.filter(m => m.module).length
   const set = (idx: number, patch: Partial<MappingRow>) =>
     onChange(mapping.map((m, i) => i === idx ? { ...m, ...patch } : m))
 
+  const elysiaRows  = mapping.filter(m => !m.isCurtain)
+  const curtainRows = mapping.filter(m => m.isCurtain)
+  const elysiaResolved = elysiaRows.filter(m => m.module && m.module !== 'CURTAIN').length
+  const curtainReady   = curtainRows.filter(m => m.curtainInventoryCode || (m.curtainFeet && m.curtainFeet > 0)).length
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-      <div className="glass-card w-full max-w-2xl rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="glass-card w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-100">
-            Review mapping <span className="text-xs text-gray-500 font-normal">· {matched}/{mapping.length} resolved</span>
-          </h2>
+          <h2 className="text-base font-semibold text-gray-100">Review & Import</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
         </div>
 
-        <p className="text-xs text-gray-500">
-          Each row's Module is resolved from the panel/code automatically where possible. Material and Color default to Aluminium/Grey — adjust any row before importing. Unresolved rows need a Module picked manually.
-        </p>
+        {/* ── Curtain rows ─────────────────────────────────────────── */}
+        {curtainRows.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gold-400 uppercase tracking-wide flex items-center gap-2">
+              🪟 Curtain Items
+              <span className="text-gray-600 font-normal normal-case">— enter track length per item</span>
+            </p>
+            {mapping.map((m, idx) => {
+              if (!m.isCurtain) return null
 
-        <div className="space-y-2">
-          {mapping.map((m, idx) => (
-            <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.module ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-300 truncate">{m.csvLabel}</span>
-                {m.module
-                  ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-resolved</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
-                  : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <select
-                  className="form-input text-xs col-span-2 sm:col-span-1"
-                  value={m.module}
-                  onChange={e => set(idx, { module: e.target.value, auto: false })}
-                >
-                  <option value="">— Module —</option>
-                  {ELYSIA_MODULES.map(mod => <option key={mod}>{mod}</option>)}
-                </select>
-                <select
-                  className="form-input text-xs"
-                  value={m.material}
-                  onChange={e => set(idx, { material: e.target.value })}
-                >
-                  {ELYSIA_MATERIALS.map(mat => <option key={mat}>{mat}</option>)}
-                </select>
-                <select
-                  className="form-input text-xs"
-                  value={m.color}
-                  onChange={e => set(idx, { color: e.target.value })}
-                >
-                  {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
-                </select>
-                <input
-                  type="number" min="0" className="form-input text-xs" placeholder="Qty"
-                  value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })}
-                />
-                <input
-                  type="number" min="0" className="form-input text-xs" placeholder="Unit ₹"
-                  value={m.unitPrice || ''} onChange={e => set(idx, { unitPrice: Number(e.target.value) || 0 })}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+              // Direct-dispatch item (remote/controller — qty comes from CSV)
+              if (m.curtainInventoryCode) {
+                return (
+                  <div key={idx} className="rounded-xl border border-gold-500/20 bg-gold-500/5 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-gray-200 truncate">{m.csvLabel}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">→ dispatch <span className="text-gold-400 font-medium">{m.orderedQty} × {m.curtainInventoryCode}</span> from curtain stock</p>
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 shrink-0">auto</span>
+                    </div>
+                  </div>
+                )
+              }
+
+              // Motor row — needs feet input
+              const f = m.curtainFeet ?? 0
+              const motors = f <= 19 ? 1 : 2
+              const preview = f > 0
+                ? m.curtainType === 'standard'
+                  ? `${motors} motor · ${f * 3} runners · ${motors * 4} brackets · ${motors * 2} kaan · ${suggestBelt(f)}m belt`
+                  : `${motors} tabular motor · ${motors * 2} hooks`
+                : null
+
+              const needsFeet = !f || f <= 0
+
+              return (
+                <div key={idx} className={cn('rounded-xl border p-4 space-y-3', needsFeet ? 'border-amber-600/40 bg-amber-900/10' : 'border-gold-500/20 bg-gold-500/5')}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-gray-200">{m.csvLabel}</p>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 mt-1 inline-block">
+                        {m.curtainType === 'standard' ? '5 Wire / WiFi Motor' : 'Tabular Motor'}
+                      </span>
+                    </div>
+                    {needsFeet
+                      ? <span className="text-[11px] text-amber-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> enter feet</span>
+                      : <span className="text-[11px] text-green-400 shrink-0">✓ ready</span>}
+                  </div>
+
+                  {/* Feet input */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-400 whitespace-nowrap">Track length:</label>
+                      <input
+                        type="number" min={1}
+                        className="form-input text-sm w-20 text-center"
+                        placeholder="ft"
+                        value={m.curtainFeet || ''}
+                        onChange={e => set(idx, { curtainFeet: Number(e.target.value) || 0 })}
+                      />
+                      <span className="text-xs text-gray-500">ft</span>
+                    </div>
+                    {f > 0 && (
+                      <span className={`text-xs font-medium ${motors > 1 ? 'text-amber-400' : 'text-green-400'}`}>
+                        → {motors} motor{motors > 1 ? 's' : ''}
+                      </span>
+                    )}
+
+                    {/* Kaan (standard only) */}
+                    {m.curtainType === 'standard' && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-400">Kaan:</label>
+                        <select
+                          className="form-input text-xs py-1"
+                          value={m.curtainKaan ?? 'small'}
+                          onChange={e => set(idx, { curtainKaan: e.target.value as CurtainKaan })}
+                        >
+                          <option value="small">Small Kaan</option>
+                          <option value="big">Big Kaan</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Remote */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-400">Remote:</label>
+                      <select
+                        className="form-input text-xs py-1"
+                        value={m.curtainRemote ?? 'none'}
+                        onChange={e => set(idx, { curtainRemote: e.target.value as CurtainRemote })}
+                      >
+                        <option value="none">No Remote</option>
+                        <option value="1ch">1 Channel</option>
+                        <option value="2ch">2 Channel</option>
+                        <option value="tab">Tab Remote</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Preview */}
+                  {preview && (
+                    <p className="text-xs text-gray-500 bg-gray-800/50 rounded-lg px-3 py-2">
+                      Will dispatch: <span className="text-gray-300">{preview}</span>
+                      {m.curtainRemote && m.curtainRemote !== 'none' && (
+                        <span className="text-gray-300"> · 1 remote</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Elysia rows ──────────────────────────────────────────── */}
+        {elysiaRows.length > 0 && (
+          <div className="space-y-2">
+            {curtainRows.length > 0 && (
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Switch / Socket Items</p>
+            )}
+            <p className="text-xs text-gray-500">
+              Module resolved automatically where possible. Unresolved rows need a Module picked manually.
+            </p>
+            {mapping.map((m, idx) => {
+              if (m.isCurtain) return null
+              return (
+                <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.module ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-gray-300 truncate">{m.csvLabel}</span>
+                    {m.module
+                      ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-resolved</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
+                      : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <select className="form-input text-xs col-span-2 sm:col-span-1" value={m.module} onChange={e => set(idx, { module: e.target.value, auto: false })}>
+                      <option value="">— Module —</option>
+                      {ELYSIA_MODULES.map(mod => <option key={mod}>{mod}</option>)}
+                    </select>
+                    <select className="form-input text-xs" value={m.material} onChange={e => set(idx, { material: e.target.value })}>
+                      {ELYSIA_MATERIALS.map(mat => <option key={mat}>{mat}</option>)}
+                    </select>
+                    <select className="form-input text-xs" value={m.color} onChange={e => set(idx, { color: e.target.value })}>
+                      {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <input type="number" min="0" className="form-input text-xs" placeholder="Qty"
+                      value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })} />
+                    <input type="number" min="0" className="form-input text-xs" placeholder="Unit ₹"
+                      value={m.unitPrice || ''} onChange={e => set(idx, { unitPrice: Number(e.target.value) || 0 })} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className="flex gap-3 pt-1">
           <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" className="flex-1" loading={importing} onClick={onConfirm}>Import to Order</Button>
+          <Button variant="primary" className="flex-1" loading={importing} onClick={onConfirm}>
+            Import to Order
+          </Button>
         </div>
       </div>
     </div>
