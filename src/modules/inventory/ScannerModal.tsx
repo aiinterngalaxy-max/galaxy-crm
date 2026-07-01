@@ -31,21 +31,22 @@ function otsuThreshold(gray: Uint8Array): number {
   return thresh
 }
 
-// Count distinct runs of "active" values above THRESH in a normalised projection.
-// minRegionFrac: ignore runs narrower than this fraction of the array length (noise).
-// maxGapFrac: two runs separated by a gap smaller than this are merged into one peak.
-function countPeaks(proj: Float32Array, minRegionFrac: number, maxGapFrac: number): number {
+// Returns peak regions (start/end offsets within the projection array).
+function getPeakRegions(
+  proj: Float32Array,
+  minRegionFrac: number,
+  maxGapFrac: number
+): { start: number; end: number }[] {
   const len = proj.length
-  if (len === 0) return 0
+  if (len === 0) return []
   const maxVal = Math.max(...proj)
-  if (maxVal === 0) return 0
+  if (maxVal === 0) return []
 
   const THRESH = 0.15
   const norm = Array.from(proj, v => v / maxVal)
   const minRegion = Math.max(1, Math.round(len * minRegionFrac))
-  const maxGap   = Math.max(1, Math.round(len * maxGapFrac))
+  const maxGap    = Math.max(1, Math.round(len * maxGapFrac))
 
-  // Collect raw active runs
   const runs: { start: number; end: number }[] = []
   let inRun = false, runStart = 0
   for (let i = 0; i <= len; i++) {
@@ -54,7 +55,6 @@ function countPeaks(proj: Float32Array, minRegionFrac: number, maxGapFrac: numbe
     else if (!active && inRun) { runs.push({ start: runStart, end: i }); inRun = false }
   }
 
-  // Merge runs whose gap is ≤ maxGap (handles slight dip between two close icons)
   const merged: { start: number; end: number }[] = []
   for (const r of runs) {
     if (merged.length > 0 && r.start - merged[merged.length - 1].end <= maxGap) {
@@ -64,16 +64,30 @@ function countPeaks(proj: Float32Array, minRegionFrac: number, maxGapFrac: numbe
     }
   }
 
-  // Filter out noise runs that are too narrow
-  return merged.filter(r => r.end - r.start >= minRegion).length
+  return merged.filter(r => r.end - r.start >= minRegion)
+}
+
+interface AnalysisResult {
+  touchCount: number
+  confidence: number
+  rawBlobs: number
+  xPeaks: number
+  yPeaks: number
+  // peak regions in guide-box pixel coords
+  colRegions: { start: number; end: number }[]
+  rowRegions: { start: number; end: number }[]
+  border: number
+  innerW: number
+  innerH: number
 }
 
 function analyzeFrame(
   canvas: HTMLCanvasElement,
   guideBox: { x: number; y: number; w: number; h: number }
-): { touchCount: number; confidence: number; rawBlobs: number } {
+): AnalysisResult {
+  const empty: AnalysisResult = { touchCount: 0, confidence: 0, rawBlobs: 0, xPeaks: 0, yPeaks: 0, colRegions: [], rowRegions: [], border: 0, innerW: 0, innerH: 0 }
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return { touchCount: 0, confidence: 0, rawBlobs: 0 }
+  if (!ctx) return empty
 
   const { x, y, w, h } = guideBox
   const imageData = ctx.getImageData(x, y, w, h)
@@ -112,23 +126,24 @@ function analyzeFrame(
 
   const innerArea = (innerX1 - innerX0) * (innerY1 - innerY0)
   const darkFrac = totalDark / innerArea
-  // If almost nothing or almost everything is dark → no panel in frame
-  if (darkFrac < 0.003 || darkFrac > 0.55) {
-    return { touchCount: 0, confidence: 0, rawBlobs: 0 }
-  }
+  if (darkFrac < 0.003 || darkFrac > 0.55) return empty
 
   const xProjInner = xProj.slice(innerX0, innerX1)
   const yProjInner = yProj.slice(innerY0, innerY1)
 
-  // Peak params: minRegion=3% of axis length, maxGap=4% merge window
-  const xPeaks = countPeaks(xProjInner, 0.03, 0.04)
-  const yPeaks = countPeaks(yProjInner, 0.03, 0.04)
+  const colRegionsRel = getPeakRegions(xProjInner, 0.03, 0.04)
+  const rowRegionsRel = getPeakRegions(yProjInner, 0.03, 0.04)
 
+  // Translate back to guide-box pixel coords
+  const colRegions = colRegionsRel.map(r => ({ start: r.start + border, end: r.end + border }))
+  const rowRegions = rowRegionsRel.map(r => ({ start: r.start + border, end: r.end + border }))
+
+  const xPeaks = colRegions.length
+  const yPeaks = rowRegions.length
   const rawCount = xPeaks * yPeaks
 
-  // ── Map to nearest valid Elysia count (2T / 3T not yet supported) ────
   const VALID = [1, 4, 6, 8]
-  if (rawCount === 0) return { touchCount: 0, confidence: 0, rawBlobs: 0 }
+  if (rawCount === 0) return { ...empty, colRegions, rowRegions, xPeaks, yPeaks, border, innerW: innerX1 - innerX0, innerH: innerY1 - innerY0 }
 
   const closest = VALID.reduce((a, b) =>
     Math.abs(b - rawCount) < Math.abs(a - rawCount) ? b : a
@@ -137,7 +152,7 @@ function analyzeFrame(
   const diff = Math.abs(closest - rawCount)
   const confidence = diff === 0 ? 90 : diff <= 1 ? 65 : diff <= 2 ? 40 : 15
 
-  return { touchCount: closest, confidence, rawBlobs: rawCount }
+  return { touchCount: closest, confidence, rawBlobs: rawCount, xPeaks, yPeaks, colRegions, rowRegions, border, innerW: innerX1 - innerX0, innerH: innerY1 - innerY0 }
 }
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
@@ -166,8 +181,9 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stableRef = useRef<{ count: number; since: number } | null>(null)
 
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const [phase, setPhase] = useState<Phase>('scanning')
-  const [result, setResult] = useState<{ touchCount: number; confidence: number; rawBlobs: number } | null>(null)
+  const [result, setResult] = useState<AnalysisResult | null>(null)
   const [locked, setLocked] = useState<{ touchCount: number } | null>(null)
   const [matchedItems, setMatchedItems] = useState<InventoryItem[]>([])
   const [cameraError, setCameraError] = useState('')
@@ -227,6 +243,34 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
 
     const detection = analyzeFrame(canvas, { x: gx, y: gy, w: size, h: size })
     setResult(detection)
+
+    // ── Draw detection overlay ────────────────────────────────────────────
+    const oc = overlayCanvasRef.current
+    if (oc) {
+      oc.width = vw
+      oc.height = vh
+      const oc2 = oc.getContext('2d')
+      if (oc2) {
+        oc2.clearRect(0, 0, vw, vh)
+        // Column peaks → vertical blue bands inside guide box
+        oc2.fillStyle = 'rgba(59,130,246,0.35)'
+        for (const r of detection.colRegions) {
+          oc2.fillRect(gx + r.start, gy, r.end - r.start, size)
+        }
+        // Row peaks → horizontal green bands inside guide box
+        oc2.fillStyle = 'rgba(34,197,94,0.35)'
+        for (const r of detection.rowRegions) {
+          oc2.fillRect(gx, gy + r.start, size, r.end - r.start)
+        }
+        // Intersection squares → bright yellow (these are the detected icons)
+        oc2.fillStyle = 'rgba(250,204,21,0.55)'
+        for (const cr of detection.colRegions) {
+          for (const rr of detection.rowRegions) {
+            oc2.fillRect(gx + cr.start, gy + rr.start, cr.end - cr.start, rr.end - rr.start)
+          }
+        }
+      }
+    }
 
     if (detection.touchCount > 0 && detection.confidence >= 60) {
       const now = Date.now()
@@ -366,6 +410,12 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
                 muted
                 playsInline
               />
+              {/* Detection overlay — col peaks (blue), row peaks (green), intersections (yellow) */}
+              <canvas
+                ref={overlayCanvasRef}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                style={{ mixBlendMode: 'screen' }}
+              />
 
               {/* Guide overlay */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -442,9 +492,10 @@ export function ScannerModal({ items, onConfirm, onClose }: ScannerModalProps) {
               <p className="text-xs text-gray-600">
                 Detection locks automatically when stable for 1.5s
               </p>
-              {result && result.rawBlobs > 0 && (
-                <p className="text-xs text-gray-700">
-                  raw grid: {result.rawBlobs} icons
+              {result && (
+                <p className="text-xs text-gray-600 font-mono">
+                  {result.xPeaks} cols × {result.yPeaks} rows = {result.rawBlobs} raw
+                  {result.rawBlobs > 0 && result.rawBlobs !== result.touchCount ? ` → snapped to ${result.touchCount}` : ''}
                 </p>
               )}
             </div>
