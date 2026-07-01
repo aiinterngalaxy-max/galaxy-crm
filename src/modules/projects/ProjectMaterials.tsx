@@ -181,7 +181,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       const find = (...names: string[]) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i } return -1 }
       const iCode = find('item code', 'code', 'sku')
       const iName = find('item name', 'name', 'product', 'description')
-      const iPanel = find('panels', 'panel')
+      const iPanel = find('panels', 'panel', 'panel name')
       const iQty = find('quantity', 'qty', 'ordered', 'ordered qty', 'rooms', 'total qty')
       const iPrice = find('unit price', 'price', 'rate')
 
