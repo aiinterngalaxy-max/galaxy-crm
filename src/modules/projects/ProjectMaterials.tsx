@@ -188,9 +188,9 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
 
       // Dynamically find the header row — quotation sheets often have title/client/date
       // rows above the actual column headers (e.g. row 5 is "Sr | Panels | Module | ...").
-      const HEADER_KEYWORDS = ['panels', 'panel', 'item code', 'code', 'sku', 'item name', 'sr']
+      const HEADER_KEYWORDS = ['panels', 'panel', 'panel name', 'item code', 'code', 'sku', 'item name', 'sr', 'sr.']
       const headerIdx = rows.findIndex(r =>
-        r.some(c => HEADER_KEYWORDS.includes(c.trim().toLowerCase()))
+        r.some(c => HEADER_KEYWORDS.includes(c.trim().toLowerCase().replace(/\.+$/, '')))
       )
       if (headerIdx === -1) {
         toast.error('Could not find header row — CSV must have a Panels, Item Code, or Item Name column')
