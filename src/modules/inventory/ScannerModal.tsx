@@ -5,43 +5,67 @@ import { cn } from '../../lib/utils'
 import type { InventoryItem } from '../../types'
 
 // ─── CV Engine ────────────────────────────────────────────────────────────────
-// Projects dark pixels onto X and Y axes, counts peaks in each projection,
-// then multiplies: colPeaks × rowPeaks = icon count.
-// This avoids blob-clustering distance tuning entirely.
 
-function countPeaks(proj: Float32Array, minGapFraction: number): number {
+// Otsu's method: automatically finds the best dark/light threshold from the
+// image histogram — works regardless of panel colour or lighting.
+function otsuThreshold(gray: Uint8Array): number {
+  const hist = new Int32Array(256)
+  for (let i = 0; i < gray.length; i++) hist[gray[i]]++
+
+  const total = gray.length
+  let sumAll = 0
+  for (let i = 0; i < 256; i++) sumAll += i * hist[i]
+
+  let sumB = 0, wB = 0, maxVar = 0, thresh = 128
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]
+    if (wB === 0) continue
+    const wF = total - wB
+    if (wF === 0) break
+    sumB += t * hist[t]
+    const mB = sumB / wB
+    const mF = (sumAll - sumB) / wF
+    const v = wB * wF * (mB - mF) ** 2
+    if (v > maxVar) { maxVar = v; thresh = t }
+  }
+  return thresh
+}
+
+// Count distinct runs of "active" values above THRESH in a normalised projection.
+// minRegionFrac: ignore runs narrower than this fraction of the array length (noise).
+// maxGapFrac: two runs separated by a gap smaller than this are merged into one peak.
+function countPeaks(proj: Float32Array, minRegionFrac: number, maxGapFrac: number): number {
   const len = proj.length
   if (len === 0) return 0
-
-  // Normalise so max = 1
   const maxVal = Math.max(...proj)
   if (maxVal === 0) return 0
-  const norm = proj.map(v => v / maxVal)
 
-  // Threshold: only count columns/rows with >20% of the peak dark density
-  const THRESH = 0.20
-  // Minimum gap between peaks (in samples)
-  const minGap = Math.max(2, Math.round(len * minGapFraction))
+  const THRESH = 0.15
+  const norm = Array.from(proj, v => v / maxVal)
+  const minRegion = Math.max(1, Math.round(len * minRegionFrac))
+  const maxGap   = Math.max(1, Math.round(len * maxGapFrac))
 
-  let peaks = 0
-  let inRegion = false
-  let regionStart = 0
-
+  // Collect raw active runs
+  const runs: { start: number; end: number }[] = []
+  let inRun = false, runStart = 0
   for (let i = 0; i <= len; i++) {
     const active = i < len && norm[i] > THRESH
-    if (active && !inRegion) {
-      inRegion = true
-      regionStart = i
-    } else if (!active && inRegion) {
-      inRegion = false
-      const regionLen = i - regionStart
-      // Only count as a peak if the region is wide enough (not a tiny noise spike)
-      if (regionLen >= Math.max(1, Math.round(len * 0.04))) {
-        peaks++
-      }
+    if (active && !inRun) { inRun = true; runStart = i }
+    else if (!active && inRun) { runs.push({ start: runStart, end: i }); inRun = false }
+  }
+
+  // Merge runs whose gap is ≤ maxGap (handles slight dip between two close icons)
+  const merged: { start: number; end: number }[] = []
+  for (const r of runs) {
+    if (merged.length > 0 && r.start - merged[merged.length - 1].end <= maxGap) {
+      merged[merged.length - 1].end = r.end
+    } else {
+      merged.push({ ...r })
     }
   }
-  return peaks
+
+  // Filter out noise runs that are too narrow
+  return merged.filter(r => r.end - r.start >= minRegion).length
 }
 
 function analyzeFrame(
@@ -63,30 +87,18 @@ function analyzeFrame(
     )
   }
 
-  // ── Background brightness from outer 10% border ────────────────────────
-  const border = Math.floor(Math.min(width, height) * 0.10)
-  let edgeSum = 0, edgeCount = 0
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      if (row < border || row >= height - border || col < border || col >= width - border) {
-        edgeSum += gray[row * width + col]
-        edgeCount++
-      }
-    }
-  }
-  const bgBrightness = edgeCount > 0 ? edgeSum / edgeCount : 200
-  const darkThreshold = bgBrightness * 0.60
+  // ── Otsu threshold (auto, handles grey/white panels equally) ─────────────
+  const darkThreshold = otsuThreshold(gray)
 
-  // ── Build binary dark map (ignore outer border to avoid frame artifacts) ─
+  // ── Very small border to skip guide-box edge artifacts (3%) ──────────────
+  const border = Math.max(2, Math.floor(Math.min(width, height) * 0.03))
   const innerX0 = border, innerX1 = width - border
   const innerY0 = border, innerY1 = height - border
 
-  let totalDark = 0
-
-  // ── X projection: dark pixel count per column ─────────────────────────
+  // ── Build projections ─────────────────────────────────────────────────────
   const xProj = new Float32Array(width)
-  // ── Y projection: dark pixel count per row ────────────────────────────
   const yProj = new Float32Array(height)
+  let totalDark = 0
 
   for (let row = innerY0; row < innerY1; row++) {
     for (let col = innerX0; col < innerX1; col++) {
@@ -98,19 +110,19 @@ function analyzeFrame(
     }
   }
 
-  // If too few or too many dark pixels → not a panel
-  const darkFrac = totalDark / ((innerX1 - innerX0) * (innerY1 - innerY0))
-  if (darkFrac < 0.005 || darkFrac > 0.60) {
+  const innerArea = (innerX1 - innerX0) * (innerY1 - innerY0)
+  const darkFrac = totalDark / innerArea
+  // If almost nothing or almost everything is dark → no panel in frame
+  if (darkFrac < 0.003 || darkFrac > 0.55) {
     return { touchCount: 0, confidence: 0, rawBlobs: 0 }
   }
 
-  // Crop projections to inner region
   const xProjInner = xProj.slice(innerX0, innerX1)
   const yProjInner = yProj.slice(innerY0, innerY1)
 
-  // ── Count peaks in each axis ──────────────────────────────────────────
-  const xPeaks = countPeaks(xProjInner, 0.08) // min 8% width gap between icon columns
-  const yPeaks = countPeaks(yProjInner, 0.08)
+  // Peak params: minRegion=3% of axis length, maxGap=4% merge window
+  const xPeaks = countPeaks(xProjInner, 0.03, 0.04)
+  const yPeaks = countPeaks(yProjInner, 0.03, 0.04)
 
   const rawCount = xPeaks * yPeaks
 
