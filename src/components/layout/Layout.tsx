@@ -51,7 +51,7 @@ export function Layout() {
         </main>
       </div>
 
-      <HelpTour />
+      {/* <HelpTour /> */}
 
       <Toaster
         position="top-right"
