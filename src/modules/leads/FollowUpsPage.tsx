@@ -1,14 +1,21 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Clock, AlertCircle, Calendar, ChevronRight, CheckCircle2, Phone, X, Pencil } from 'lucide-react'
+import { Clock, AlertCircle, Calendar, ChevronRight, CheckCircle2, Phone, X, Pencil, MessageSquare } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, collection, query, where, getDocs, orderBy,
+  db, collection, query, where, getDocs, orderBy, limit,
   addDoc, updateDoc, doc, serverTimestamp,
 } from '../../lib/firebase'
 import { LEAD_STATUS_CONFIG } from '../../lib/utils'
 import type { Lead } from '../../types'
 import toast from 'react-hot-toast'
+
+interface LastActivity {
+  description: string
+  type: string
+  performedByName?: string
+  createdAt: any
+}
 
 function formatTime(ts: any): string {
   const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
@@ -223,6 +230,7 @@ export function FollowUpsPage() {
   const { user, role } = useAuth()
   const navigate = useNavigate()
   const [leads, setLeads] = useState<Lead[]>([])
+  const [lastActivities, setLastActivities] = useState<Map<string, LastActivity>>(new Map())
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(new Date())
   const [tab, setTab] = useState<'today' | 'tomorrow' | 'upcoming'>('today')
@@ -238,7 +246,29 @@ export function FollowUpsPage() {
     if (!user) return
 
     getDocs(query(collection(db, 'leads'), where('nextFollowUp', '!=', null), orderBy('nextFollowUp')))
-      .then(snap => setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)))
+      .then(async snap => {
+        const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        setLeads(fetchedLeads)
+
+        // Fetch last activity for each lead in parallel
+        const entries = await Promise.all(
+          fetchedLeads.map(async lead => {
+            try {
+              const actSnap = await getDocs(
+                query(collection(db, 'leads', lead.id, 'activities'), orderBy('createdAt', 'desc'), limit(1))
+              )
+              if (!actSnap.empty) {
+                const d = actSnap.docs[0].data()
+                return [lead.id, { description: d.description, type: d.type, performedByName: d.performedByName, createdAt: d.createdAt }] as [string, LastActivity]
+              }
+            } catch { /* ignore per-lead errors */ }
+            return null
+          })
+        )
+        const map = new Map<string, LastActivity>()
+        entries.forEach(e => { if (e) map.set(e[0], e[1]) })
+        setLastActivities(map)
+      })
       .catch(err => console.error('[FollowUps] fetch error:', err))
       .finally(() => setLoading(false))
   }, [user, role])
@@ -333,12 +363,12 @@ export function FollowUpsPage() {
           {overdue.length > 0 && (
             <Section title="Overdue" icon={<AlertCircle className="w-4 h-4 text-red-400" />}
               color="text-red-400" leads={overdue} now={now} navigate={navigate} showDate
-              onDone={setDoneModal} onEdit={setEditModal} />
+              onDone={setDoneModal} onEdit={setEditModal} lastActivities={lastActivities} />
           )}
           {todayList.length > 0 && (
             <Section title="Today" icon={<Clock className="w-4 h-4 text-yellow-400" />}
               color="text-yellow-400" leads={todayList} now={now} navigate={navigate}
-              onDone={setDoneModal} onEdit={setEditModal} />
+              onDone={setDoneModal} onEdit={setEditModal} lastActivities={lastActivities} />
           )}
           {overdue.length === 0 && todayList.length === 0 && <Empty />}
         </div>
@@ -349,7 +379,7 @@ export function FollowUpsPage() {
           {tomorrowList.length > 0
             ? <Section title="Tomorrow" icon={<Calendar className="w-4 h-4 text-blue-400" />}
                 color="text-blue-400" leads={tomorrowList} now={now} navigate={navigate}
-                onDone={setDoneModal} onEdit={setEditModal} />
+                onDone={setDoneModal} onEdit={setEditModal} lastActivities={lastActivities} />
             : <Empty />}
         </div>
       )}
@@ -359,7 +389,7 @@ export function FollowUpsPage() {
           {upcoming.length > 0
             ? <Section title="Upcoming" icon={<Calendar className="w-4 h-4 text-gray-400" />}
                 color="text-gray-400" leads={upcoming} now={now} navigate={navigate} showDate
-                onDone={setDoneModal} onEdit={setEditModal} />
+                onDone={setDoneModal} onEdit={setEditModal} lastActivities={lastActivities} />
             : <Empty />}
         </div>
       )}
@@ -376,7 +406,7 @@ function Empty() {
   )
 }
 
-function Section({ title, icon, color, leads, now, navigate, showDate, onDone, onEdit }: {
+function Section({ title, icon, color, leads, now, navigate, showDate, onDone, onEdit, lastActivities }: {
   title: string
   icon: React.ReactNode
   color: string
@@ -386,6 +416,7 @@ function Section({ title, icon, color, leads, now, navigate, showDate, onDone, o
   showDate?: boolean
   onDone: (lead: Lead) => void
   onEdit: (lead: Lead) => void
+  lastActivities: Map<string, LastActivity>
 }) {
   return (
     <div>
@@ -399,24 +430,26 @@ function Section({ title, icon, color, leads, now, navigate, showDate, onDone, o
           const statusCfg = LEAD_STATUS_CONFIG[lead.status]
           const dueMs = lead.nextFollowUp ? (lead.nextFollowUp as any)?.toDate ? (lead.nextFollowUp as any).toDate().getTime() : new Date(lead.nextFollowUp as any).getTime() : 0
           const isPast = dueMs < now.getTime()
+          const lastAct = lastActivities.get(lead.id)
           return (
-            <div key={lead.id} className="flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.02] transition-colors">
-              {/* Done button */}
-              <button
-                onClick={() => onDone(lead)}
-                title="Mark as done"
-                className="shrink-0 w-5 h-5 rounded-full border-2 border-gray-600 hover:border-green-500 hover:bg-green-500/10 transition-all flex items-center justify-center group"
-              >
-                <CheckCircle2 className="w-3 h-3 text-transparent group-hover:text-green-500 transition-colors" />
-              </button>
-              {/* Edit date button */}
-              <button
-                onClick={() => onEdit(lead)}
-                title="Edit follow-up date"
-                className="shrink-0 text-gray-600 hover:text-indigo-400 transition-colors"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
+            <div key={lead.id} className="flex items-start gap-3 px-4 py-3.5 hover:bg-white/[0.02] transition-colors">
+              {/* Done + Edit buttons */}
+              <div className="flex flex-col items-center gap-2 pt-0.5 shrink-0">
+                <button
+                  onClick={() => onDone(lead)}
+                  title="Mark as done"
+                  className="w-5 h-5 rounded-full border-2 border-gray-600 hover:border-green-500 hover:bg-green-500/10 transition-all flex items-center justify-center group"
+                >
+                  <CheckCircle2 className="w-3 h-3 text-transparent group-hover:text-green-500 transition-colors" />
+                </button>
+                <button
+                  onClick={() => onEdit(lead)}
+                  title="Edit follow-up date"
+                  className="text-gray-600 hover:text-indigo-400 transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
               {/* Lead info */}
               <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/leads/${lead.id}`)}>
@@ -431,9 +464,24 @@ function Section({ title, icon, color, leads, now, navigate, showDate, onDone, o
                     <span className="text-xs text-gray-600">· {lead.assignedToName}</span>
                   )}
                 </div>
+                {/* Last activity note */}
+                {lastAct && (
+                  <div className="flex items-start gap-1.5 mt-1.5 bg-gray-800/50 rounded-lg px-2.5 py-1.5">
+                    <MessageSquare className="w-3 h-3 text-indigo-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">
+                      <span className="text-indigo-400 capitalize font-medium">{lastAct.type}</span>
+                      {lastAct.performedByName && <span className="text-gray-400"> · {lastAct.performedByName}</span>}
+                      <span className="text-gray-500"> — </span>
+                      {lastAct.description}
+                    </p>
+                  </div>
+                )}
+                {!lastAct && (
+                  <p className="text-xs text-gray-600 mt-1.5 italic">No activity logged yet</p>
+                )}
               </div>
 
-              <div className="flex items-center gap-3 shrink-0 cursor-pointer" onClick={() => navigate(`/leads/${lead.id}`)}>
+              <div className="flex items-center gap-3 shrink-0 cursor-pointer pt-0.5" onClick={() => navigate(`/leads/${lead.id}`)}>
                 <div className="text-right">
                   <p className={`text-sm font-semibold ${isPast ? 'text-red-400' : 'text-yellow-400'}`}>
                     {formatTime(lead.nextFollowUp)}

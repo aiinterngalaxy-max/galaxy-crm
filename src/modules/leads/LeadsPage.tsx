@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
@@ -20,6 +20,68 @@ const ALL_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan',
 
 type ViewMode = 'kanban' | 'list'
 
+// ─── Lead Hover Tooltip ────────────────────────────────────────────────────────
+
+function LeadTooltip({ lead, anchorRect }: { lead: Lead; anchorRect: DOMRect }) {
+  const status = LEAD_STATUS_CONFIG[lead.status]
+  const viewportH = window.innerHeight
+  const tooltipH = 280
+  const top = anchorRect.bottom + tooltipH > viewportH
+    ? anchorRect.top - tooltipH - 8
+    : anchorRect.bottom + 8
+
+  const rows: [string, string | undefined | null][] = [
+    ['Phone',        lead.phone],
+    ['WhatsApp',     lead.whatsapp],
+    ['Email',        lead.email],
+    ['Business',     lead.businessType?.toUpperCase()],
+    ['Partner',      lead.partnerName],
+    ['Project Type', lead.projectType],
+    ['Property',     lead.propertySize],
+    ['Budget',       lead.estimatedBudget ? formatCurrency(lead.estimatedBudget) : null],
+    ['Demo Given',   lead.demoGiven ? 'Yes' : 'No'],
+    ['Score',        String(lead.aiScore ?? '—')],
+    ['Notes',        lead.notes],
+  ]
+
+  return (
+    <div
+      className="fixed z-[9999] pointer-events-none"
+      style={{ left: anchorRect.left, top, minWidth: 280, maxWidth: 380 }}
+    >
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="px-4 py-3 bg-gray-800 border-b border-gray-700">
+          <p className="text-sm font-semibold text-white">{lead.name}</p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${status?.color} ${status?.bg}`}>
+              {status?.label}
+            </span>
+            {lead.assignedToName && (
+              <span className="text-xs text-gray-400">→ {lead.assignedToName}</span>
+            )}
+          </div>
+        </div>
+        {/* Fields */}
+        <div className="px-4 py-3 space-y-1.5">
+          {rows.filter(([, v]) => v).map(([label, value]) => (
+            <div key={label} className="flex gap-2 text-xs">
+              <span className="text-gray-500 w-24 shrink-0">{label}</span>
+              <span className={`text-gray-200 ${label === 'Notes' ? 'line-clamp-3' : 'truncate'}`}>{value}</span>
+            </div>
+          ))}
+          {lead.address && (
+            <div className="flex gap-2 text-xs">
+              <span className="text-gray-500 w-24 shrink-0">Address</span>
+              <span className="text-gray-200 line-clamp-2">{lead.address}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function LeadsPage() {
   const navigate = useNavigate()
   const { user, role, isAdmin } = useAuth()
@@ -30,6 +92,18 @@ export function LeadsPage() {
   const [filterStage, setFilterStage] = useState<LeadStatus | 'all'>('all')
   const [filterPlatform, setFilterPlatform] = useState<string>('all')
   const [filterEmployee, setFilterEmployee] = useState<string>('all')
+  const [tooltip, setTooltip] = useState<{ lead: Lead; rect: DOMRect } | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleRowEnter = useCallback((lead: Lead, e: React.MouseEvent<HTMLTableRowElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    hoverTimer.current = setTimeout(() => setTooltip({ lead, rect }), 400)
+  }, [])
+
+  const handleRowLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    setTooltip(null)
+  }, [])
   const [filterDate, setFilterDate] = useState<string>('')
   const [filterMonth, setFilterMonth] = useState<string>('all')
   const [sortScore, setSortScore] = useState<'none' | 'high' | 'low'>('none')
@@ -323,6 +397,8 @@ export function LeadsPage() {
                           key={lead.id}
                           onClick={() => navigate(`/leads/${lead.id}`)}
                           className="hover:bg-gray-800/50 cursor-pointer transition-colors"
+                          onMouseEnter={e => handleRowEnter(lead, e)}
+                          onMouseLeave={handleRowLeave}
                         >
                           <td className="px-4 py-3">
                             <div className="font-medium text-gray-200">{lead.name}</div>
@@ -413,6 +489,9 @@ export function LeadsPage() {
       >
         <LeadForm onSuccess={() => setShowForm(false)} onCancel={() => setShowForm(false)} />
       </Modal>
+
+      {/* Hover Tooltip */}
+      {tooltip && <LeadTooltip lead={tooltip.lead} anchorRect={tooltip.rect} />}
     </div>
   )
 }
