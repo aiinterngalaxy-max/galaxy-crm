@@ -5,6 +5,7 @@ import { Header } from './Header'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
+import { HelpTour } from '../ui/HelpTour'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -49,6 +50,8 @@ export function Layout() {
           </div>
         </main>
       </div>
+
+      <HelpTour />
 
       <Toaster
         position="top-right"
