@@ -165,7 +165,19 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
     try {
       const rows = parseCsv(await file.text())
       if (rows.length < 2) { toast.error('CSV has no data rows'); return }
-      const header = rows[0].map(h => h.trim().toLowerCase())
+
+      // Dynamically find the header row — quotation sheets often have title/client/date
+      // rows above the actual column headers (e.g. row 5 is "Sr | Panels | Module | ...").
+      const HEADER_KEYWORDS = ['panels', 'panel', 'item code', 'code', 'sku', 'item name', 'sr']
+      const headerIdx = rows.findIndex(r =>
+        r.some(c => HEADER_KEYWORDS.includes(c.trim().toLowerCase()))
+      )
+      if (headerIdx === -1) {
+        toast.error('Could not find header row — CSV must have a Panels, Item Code, or Item Name column')
+        return
+      }
+
+      const header = rows[headerIdx].map(h => h.trim().toLowerCase())
       const find = (...names: string[]) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i } return -1 }
       const iCode = find('item code', 'code', 'sku')
       const iName = find('item name', 'name', 'product', 'description')
@@ -181,7 +193,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       const byCode = new Map(inventory.map(i => [i.itemCode.trim().toUpperCase(), i]))
       const byName = new Map(inventory.map(i => [i.itemName.trim().toUpperCase(), i]))
 
-      const built: MappingRow[] = rows.slice(1).map(r => {
+      const built: MappingRow[] = rows.slice(headerIdx + 1).map(r => {
         const codeRaw = iCode !== -1 ? (r[iCode]?.trim() ?? '') : ''
         const nameRaw = iName !== -1 ? (r[iName]?.trim() ?? '') : ''
         const panelRaw = iPanel !== -1 ? (r[iPanel]?.trim() ?? '') : ''
