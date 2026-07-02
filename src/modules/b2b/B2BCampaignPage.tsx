@@ -1,24 +1,25 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Upload, Phone, MessageSquare, ChevronLeft, ChevronRight,
-  BarChart2, CheckCircle, XCircle, AlertCircle, Globe,
-  MapPin, Star, Hash, Download, Loader2, Filter,
+  BarChart2, CheckCircle, Globe, MapPin, Star, Hash,
+  Loader2, Zap, Palette,
 } from 'lucide-react'
 import {
-  db, collection, addDoc, getDocs, query, where,
+  db, collection, addDoc, getDocs,
   serverTimestamp, updateDoc, doc, onSnapshot, orderBy,
 } from '../../lib/firebase'
+import { where, query } from 'firebase/firestore'
 import { useAuth } from '../../contexts/AuthContext'
 import { nextLeadCode } from '../../lib/counters'
 import { cn } from '../../lib/utils'
 import { Timestamp } from 'firebase/firestore'
 import toast from 'react-hot-toast'
-import type { Lead, LeadActivity } from '../../types'
+import type { Lead } from '../../types'
 import { Card } from '../../components/ui/Card'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type CampaignModel = 'M1_Direct' | 'M2_Channel' | 'Unknown'
+type CampaignSegment = 'electrical_trade' | 'interior_design' | 'unknown'
 
 interface ScrapedRow {
   name: string
@@ -26,46 +27,22 @@ interface ScrapedRow {
   address: string
   category: string
   website: string
-  link: string
   rating: number
   reviews: number
-  city: string
-  model: CampaignModel
+  segment: CampaignSegment
+  existingNotes: string
 }
 
-// ─── City detection (mirrors make_call_list.py) ───────────────────────────────
+// ─── Segment detection from category ─────────────────────────────────────────
 
-const CITY_KEYWORDS: Record<string, string[]> = {
-  Bangalore:  ['bangalore', 'bengaluru', 'bengalur'],
-  Hyderabad:  ['hyderabad', 'secunderabad', 'cyberabad'],
-  Surat:      ['surat'],
-  Coimbatore: ['coimbatore', 'kovai'],
-  Jaipur:     ['jaipur'],
-  Nashik:     ['nashik', 'nasik'],
-  Mumbai:     ['mumbai', 'bombay'],
-  Pune:       ['pune'],
-  Indore:     ['indore'],
-  Kochi:      ['kochi', 'cochin'],
-  Chandigarh: ['chandigarh'],
-  Lucknow:    ['lucknow'],
-  Nagpur:     ['nagpur'],
-}
+const ELECTRICAL_KEYWORDS = ['electrician', 'electrical', 'hardware', 'automation', 'electric', 'wiring', 'switchgear', 'contractor']
+const INTERIOR_KEYWORDS = ['interior', 'architect', 'design', 'decorator', 'construction', 'renovation', 'turnkey']
 
-const M1_CITIES = new Set(['Bangalore', 'Hyderabad', 'Mumbai', 'Pune'])
-const M2_CITIES = new Set(['Surat', 'Coimbatore', 'Jaipur', 'Nashik', 'Indore', 'Kochi', 'Chandigarh', 'Lucknow', 'Nagpur'])
-
-function detectCity(address: string): string {
-  const txt = address.toLowerCase()
-  for (const [city, kws] of Object.entries(CITY_KEYWORDS)) {
-    if (kws.some(k => txt.includes(k))) return city
-  }
-  return 'Other'
-}
-
-function detectModel(city: string): CampaignModel {
-  if (M1_CITIES.has(city)) return 'M1_Direct'
-  if (M2_CITIES.has(city)) return 'M2_Channel'
-  return 'Unknown'
+function detectSegment(category: string): CampaignSegment {
+  const c = category.toLowerCase()
+  if (ELECTRICAL_KEYWORDS.some(k => c.includes(k))) return 'electrical_trade'
+  if (INTERIOR_KEYWORDS.some(k => c.includes(k))) return 'interior_design'
+  return 'unknown'
 }
 
 function normalisePhone(p: string): string {
@@ -78,22 +55,21 @@ function normalisePhone(p: string): string {
   return d.length >= 10 ? d.slice(-10) : p
 }
 
-// ─── CSV parser (handles gosom output + processed call list) ─────────────────
+// ─── CSV parser ───────────────────────────────────────────────────────────────
 
-function parseCSV(text: string): ScrapedRow[] {
+function parseCSV(text: string, forcedSegment: CampaignSegment | 'auto'): ScrapedRow[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''))
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''))
 
   const col = (row: string[], ...names: string[]) => {
     for (const n of names) {
       const i = headers.indexOf(n)
-      if (i !== -1) return (row[i] ?? '').replace(/"/g, '').trim()
+      if (i !== -1) return (row[i] ?? '').replace(/["\r]/g, '').trim()
     }
     return ''
   }
 
-  // simple CSV split respecting quoted fields
   const splitRow = (line: string): string[] => {
     const result: string[] = []
     let cur = '', inQ = false
@@ -109,67 +85,108 @@ function parseCSV(text: string): ScrapedRow[] {
   const rows: ScrapedRow[] = []
   for (let i = 1; i < lines.length; i++) {
     const r = splitRow(lines[i])
-    const name = col(r, 'title', 'business name', 'name')
+    const name = col(r, 'business name', 'title', 'name')
     if (!name) continue
-    const address = col(r, 'address')
-    const city = col(r, 'city') || detectCity(address)
-    const model = (col(r, 'model') as CampaignModel) || detectModel(city)
+    const category = col(r, 'category')
+    const segment = forcedSegment === 'auto' ? detectSegment(category) : forcedSegment
     rows.push({
       name,
       phone: normalisePhone(col(r, 'phone')),
-      address,
-      category: col(r, 'category'),
+      address: col(r, 'address'),
+      category,
       website: col(r, 'website'),
-      link: col(r, 'link'),
-      rating: parseFloat(col(r, 'rating', 'review_rating') || '0') || 0,
-      reviews: parseInt(col(r, 'reviews', 'review_count') || '0') || 0,
-      city,
-      model,
+      rating: parseFloat(col(r, 'rating') || '0') || 0,
+      reviews: parseInt(col(r, 'reviews', 'review count', 'reviews') || '0') || 0,
+      segment,
+      existingNotes: col(r, 'call notes', 'notes', 'call_notes'),
     })
   }
   return rows
 }
 
-// ─── Call Script ──────────────────────────────────────────────────────────────
+// ─── Call Scripts ─────────────────────────────────────────────────────────────
 
-const CALL_SCRIPT_STEPS = [
+const ELECTRICAL_SCRIPT = [
   {
     label: 'OPEN',
     color: 'text-blue-400',
     bg: 'bg-blue-900/20 border-blue-800',
-    script: 'Hi, am I speaking with [Name]? I\'m calling from Galaxy Home Automation. We\'re launching a smart switch line called Elysia — premium finish panels at B2B trade pricing. Do you have 2 minutes?',
+    script: 'Hi, am I speaking with [Name]? I\'m calling from Galaxy Home Automation. We\'ve launched a smart switch brand called Elysia — premium finish at very competitive B2B pricing. Do you stock smart switches currently?',
   },
   {
     label: 'QUALIFY',
     color: 'text-purple-400',
     bg: 'bg-purple-900/20 border-purple-800',
-    script: '"What smart switch brands are you currently fitting / stocking?" — Listen for: Phlipton, Wipro, no brand / grey imports.',
+    script: '"Which brands are you currently stocking?" — Listen for: Phlipton, Wipro, Legrand, grey imports, no brand. If they say Phlipton, note their margin — we beat it significantly.',
   },
   {
     label: 'PAIN',
     color: 'text-amber-400',
     bg: 'bg-amber-900/20 border-amber-800',
-    script: '"What\'s your biggest frustration with the current product? Warranty? Price? Delivery time?" — Phlipton\'s finish premium is ₹750–970. Ours is ₹160–264. Mention this if they bring up price.',
+    script: '"What\'s the biggest frustration — warranty issues, margin pressure, delivery time?" — Phlipton finish starts at ₹750–970. Ours is ₹160–264. If margin is the topic: our B2B price gives 30–40% margin at MRP ₹3,200.',
   },
   {
-    label: 'INTEREST',
+    label: 'PITCH',
     color: 'text-green-400',
     bg: 'bg-green-900/20 border-green-800',
-    script: '"We do 4-touch and 8-touch in PC / Glass / Aluminium. B2B price ₹1,375–2,070 with a 2-year replacement warranty. Interested in a sample?"',
+    script: '"We have 4-touch, 8-touch in Glass / PC / Aluminium finishes. B2B price ₹1,375–2,070. 2-year replacement warranty. MOQ is just 5 units to start. Interested in a sample panel?"',
   },
   {
     label: 'CLOSE',
     color: 'text-gold-400',
     bg: 'bg-yellow-900/20 border-yellow-800',
-    script: '"Can I WhatsApp you our pricelist and send a demo panel? Takes 30 seconds on your end." → Get WhatsApp number.',
-  },
-  {
-    label: 'DISTRIBUTOR',
-    color: 'text-rose-400',
-    bg: 'bg-rose-900/20 border-rose-800',
-    script: 'For channel cities (Surat/Coimbatore/Jaipur/Nashik): "We\'re looking for an exclusive distributor for [city]. MRP ₹3,200, your margin is 30–42%, and we support with co-op marketing. Interested in a 15-min call?"',
+    script: '"Can I WhatsApp you the pricelist and send one demo panel? 30 seconds on your end." → Get WhatsApp number. Confirm delivery address.',
   },
 ]
+
+const INTERIOR_SCRIPT = [
+  {
+    label: 'OPEN',
+    color: 'text-blue-400',
+    bg: 'bg-blue-900/20 border-blue-800',
+    script: 'Hi, am I speaking with [Name]? I\'m calling from Galaxy Home Automation. We\'ve launched Elysia — a premium smart switch range designed for luxury residential and commercial interiors. Do you spec smart switches for your projects?',
+  },
+  {
+    label: 'QUALIFY',
+    color: 'text-purple-400',
+    bg: 'bg-purple-900/20 border-purple-800',
+    script: '"What smart switch brands do you usually specify — Phlipton, Legrand, Lutron?" — Listen for premium brands. Position Elysia as equal finish quality at a fraction of the cost, which gives clients better value and you a referral commission.',
+  },
+  {
+    label: 'PAIN',
+    color: 'text-amber-400',
+    bg: 'bg-amber-900/20 border-amber-800',
+    script: '"Is your client ever price-sensitive about the switches? Or does the client push back on Phlipton pricing?" — Our GSP pricing on a 3BHK is often ₹30,000–50,000 cheaper than Phlipton for the same finish quality.',
+  },
+  {
+    label: 'PITCH',
+    color: 'text-green-400',
+    bg: 'bg-green-900/20 border-green-800',
+    script: '"Elysia comes in 4-touch Glass / PC / Aluminium — perfect for luxury interiors. We offer referral commission on every project you specify us for. No stock needed — we deliver to site. Can I send you our finish catalogue?"',
+  },
+  {
+    label: 'CLOSE',
+    color: 'text-gold-400',
+    bg: 'bg-yellow-900/20 border-yellow-800',
+    script: '"Can I WhatsApp you the catalogue and finish samples? I can also arrange a sample panel for your studio." → Confirm WhatsApp number and studio/office address for sample delivery.',
+  },
+]
+
+// ─── Segment badge ────────────────────────────────────────────────────────────
+
+function SegmentBadge({ segment }: { segment: CampaignSegment }) {
+  if (segment === 'electrical_trade') return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-medium bg-blue-900/40 text-blue-400">
+      <Zap className="w-2.5 h-2.5" /> Electrical Trade
+    </span>
+  )
+  if (segment === 'interior_design') return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-medium bg-purple-900/40 text-purple-400">
+      <Palette className="w-2.5 h-2.5" /> Interior & Design
+    </span>
+  )
+  return <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-gray-800 text-gray-500">Unknown</span>
+}
 
 // ─── Tab: Import ──────────────────────────────────────────────────────────────
 
@@ -178,15 +195,15 @@ function ImportTab() {
   const [rows, setRows] = useState<ScrapedRow[]>([])
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [cityFilter, setCityFilter] = useState('all')
   const [done, setDone] = useState(false)
+  const [forcedSegment, setForcedSegment] = useState<CampaignSegment | 'auto'>('auto')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const cities = useMemo(() => Array.from(new Set(rows.map(r => r.city))).sort(), [rows])
-
-  const filtered = useMemo(() =>
-    cityFilter === 'all' ? rows : rows.filter(r => r.city === cityFilter),
-  [rows, cityFilter])
+  const segmentCounts = useMemo(() => {
+    const map: Record<string, number> = { electrical_trade: 0, interior_design: 0, unknown: 0 }
+    rows.forEach(r => { map[r.segment] = (map[r.segment] || 0) + 1 })
+    return map
+  }, [rows])
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -194,11 +211,11 @@ function ImportTab() {
     const reader = new FileReader()
     reader.onload = ev => {
       const text = ev.target?.result as string
-      const parsed = parseCSV(text)
+      const parsed = parseCSV(text, forcedSegment)
       setRows(parsed)
       setDone(false)
       setProgress(0)
-      if (parsed.length === 0) toast.error('No rows found — check CSV format')
+      if (parsed.length === 0) toast.error('No rows found — check column headers')
       else toast.success(`Parsed ${parsed.length} rows from ${file.name}`)
     }
     reader.readAsText(file, 'utf-8')
@@ -206,19 +223,18 @@ function ImportTab() {
   }
 
   const handleImport = async () => {
-    if (!filtered.length) return
+    if (!rows.length) return
     setImporting(true)
     setProgress(0)
 
-    // fetch existing phones to skip dups
     const existingSnap = await getDocs(collection(db, 'leads'))
     const existingPhones = new Set(existingSnap.docs.map(d => d.data().phone))
 
     let created = 0, skipped = 0
-    for (let i = 0; i < filtered.length; i++) {
-      const row = filtered[i]
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
       const phone = row.phone
-      if (!phone || existingPhones.has(phone)) { skipped++; setProgress(Math.round((i + 1) / filtered.length * 100)); continue }
+      if (!phone || existingPhones.has(phone)) { skipped++; setProgress(Math.round((i + 1) / rows.length * 100)); continue }
 
       try {
         const leadCode = await nextLeadCode()
@@ -234,14 +250,14 @@ function ImportTab() {
             row.category,
             row.rating ? `Rating: ${row.rating}★ (${row.reviews} reviews)` : '',
             row.website ? `Website: ${row.website}` : '',
+            row.existingNotes ? `Call Notes: ${row.existingNotes}` : '',
           ].filter(Boolean).join(' | ') || null,
-          campaignCity: row.city,
-          campaignModel: row.model,
+          campaignSegment: row.segment,
           campaignRating: row.rating || null,
           campaignReviews: row.reviews || null,
           campaignCategory: row.category || null,
           campaignWebsite: row.website || null,
-          campaignLink: row.link || null,
+          campaignCity: 'Mumbai',
           assignedTo: user?.id ?? '',
           assignedToName: user?.name ?? null,
           aiScore: Math.min(100, Math.round(30 + (row.rating / 5) * 40 + (row.reviews > 50 ? 15 : row.reviews > 10 ? 8 : 0))),
@@ -253,25 +269,32 @@ function ImportTab() {
         existingPhones.add(phone)
         created++
       } catch { /* skip on error */ }
-      setProgress(Math.round((i + 1) / filtered.length * 100))
+      setProgress(Math.round((i + 1) / rows.length * 100))
     }
     setImporting(false)
     setDone(true)
     toast.success(`Imported ${created} leads${skipped ? `, skipped ${skipped} duplicates` : ''}`)
   }
 
-  const cityStats = useMemo(() => {
-    const map: Record<string, { count: number; model: string; withPhone: number }> = {}
-    rows.forEach(r => {
-      if (!map[r.city]) map[r.city] = { count: 0, model: r.model, withPhone: 0 }
-      map[r.city].count++
-      if (r.phone) map[r.city].withPhone++
-    })
-    return Object.entries(map).sort((a, b) => b[1].count - a[1].count)
-  }, [rows])
-
   return (
     <div className="space-y-5">
+      {/* Segment selector */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <p className="text-xs text-gray-500">Which tab are you importing?</p>
+        {([
+          ['auto', 'Auto-detect from category'],
+          ['electrical_trade', 'Electrical Trade (Reseller/Stockist)'],
+          ['interior_design', 'Interior & Design (Spec/Referral)'],
+        ] as const).map(([val, label]) => (
+          <button key={val} onClick={() => setForcedSegment(val)}
+            className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+              forcedSegment === val ? 'border-gold-500 bg-gold-500/10 text-gold-400' : 'border-gray-700 text-gray-500 hover:border-gray-600'
+            )}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Upload zone */}
       <div
         onClick={() => fileRef.current?.click()}
@@ -280,57 +303,44 @@ function ImportTab() {
         <Upload className="w-8 h-8 text-gray-600 group-hover:text-gold-500 mx-auto mb-3 transition-colors" />
         <p className="text-sm font-medium text-gray-300">Drop CSV here or click to browse</p>
         <p className="text-xs text-gray-600 mt-1">
-          Accepts <span className="text-gray-400">raw_direct.csv</span>,{' '}
-          <span className="text-gray-400">raw_channel.csv</span>, or{' '}
-          <span className="text-gray-400">Elysia_Call_List.csv</span> from the scraper
+          Export each tab from <span className="text-gray-400">Electrical & Interior Sheet 2026</span> as CSV and import here
         </p>
+        <p className="text-xs text-gray-700 mt-1">Columns: Business Name, Phone, Category, Rating, Reviews, Website, Address, Call Notes</p>
         <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
       </div>
 
       {rows.length > 0 && (
         <>
-          {/* City breakdown */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {cityStats.map(([city, { count, model, withPhone }]) => (
-              <div key={city} className={cn(
-                'rounded-xl p-3 border cursor-pointer transition-colors',
-                cityFilter === city ? 'border-gold-500 bg-gold-500/10' : 'border-gray-800 hover:border-gray-700',
-                model === 'M1_Direct' ? 'bg-blue-900/10' : model === 'M2_Channel' ? 'bg-amber-900/10' : 'bg-gray-900/10',
-              )} onClick={() => setCityFilter(c => c === city ? 'all' : city)}>
-                <p className="text-xs font-semibold text-gray-200">{city}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{model === 'M1_Direct' ? 'M1 Direct' : model === 'M2_Channel' ? 'M2 Channel' : 'Other'}</p>
-                <p className="text-lg font-bold text-white mt-1">{count}</p>
-                <p className="text-[10px] text-gray-600">{withPhone} with phone</p>
+          {/* Segment summary */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { key: 'electrical_trade', label: 'Electrical Trade', color: 'border-blue-900 bg-blue-900/10', text: 'text-blue-400' },
+              { key: 'interior_design',  label: 'Interior & Design', color: 'border-purple-900 bg-purple-900/10', text: 'text-purple-400' },
+              { key: 'unknown',          label: 'Undetected',        color: 'border-gray-800 bg-gray-900/10',  text: 'text-gray-500' },
+            ].map(s => (
+              <div key={s.key} className={cn('rounded-xl p-3 border', s.color)}>
+                <p className={cn('text-xs font-semibold', s.text)}>{s.label}</p>
+                <p className="text-2xl font-bold text-white mt-1">{segmentCounts[s.key] || 0}</p>
+                <p className="text-[10px] text-gray-600">leads</p>
               </div>
             ))}
           </div>
 
-          {/* Filter + action row */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <select
-              value={cityFilter}
-              onChange={e => setCityFilter(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none"
+          {/* Action row */}
+          <div className="flex items-center justify-end gap-3">
+            {done && <span className="text-xs text-green-400 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Import complete</span>}
+            <button
+              onClick={handleImport}
+              disabled={importing || done}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gold-500 text-black text-sm font-semibold hover:bg-gold-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              <option value="all">All Cities ({rows.length})</option>
-              {cities.map(c => <option key={c} value={c}>{c} ({rows.filter(r => r.city === c).length})</option>)}
-            </select>
-
-            <div className="ml-auto flex items-center gap-3">
-              {done && <span className="text-xs text-green-400 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Import complete</span>}
-              <button
-                onClick={handleImport}
-                disabled={importing || done}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gold-500 text-black text-sm font-semibold hover:bg-gold-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {importing
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Importing… {progress}%</>
-                  : done
-                  ? <><CheckCircle className="w-4 h-4" /> Done</>
-                  : <><Upload className="w-4 h-4" /> Import {filtered.length} Leads</>
-                }
-              </button>
-            </div>
+              {importing
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Importing… {progress}%</>
+                : done
+                ? <><CheckCircle className="w-4 h-4" /> Done</>
+                : <><Upload className="w-4 h-4" /> Import {rows.length} Leads</>
+              }
+            </button>
           </div>
 
           {/* Preview table */}
@@ -339,23 +349,17 @@ function ImportTab() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-gray-900 border-b border-gray-700">
                   <tr>
-                    {['Business Name', 'Phone', 'City', 'Model', 'Category', 'Rating', 'Website'].map(h => (
+                    {['Business Name', 'Phone', 'Segment', 'Category', 'Rating', 'Notes'].map(h => (
                       <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {filtered.map((row, i) => (
+                  {rows.map((row, i) => (
                     <tr key={i} className="hover:bg-gray-800/30">
                       <td className="px-3 py-2 text-gray-200 font-medium max-w-[180px] truncate">{row.name}</td>
                       <td className="px-3 py-2 text-gray-400">{row.phone || <span className="text-red-500">—</span>}</td>
-                      <td className="px-3 py-2 text-gray-400">{row.city}</td>
-                      <td className="px-3 py-2">
-                        <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium',
-                          row.model === 'M1_Direct' ? 'bg-blue-900/40 text-blue-400' :
-                          row.model === 'M2_Channel' ? 'bg-amber-900/40 text-amber-400' : 'bg-gray-800 text-gray-500'
-                        )}>{row.model}</span>
-                      </td>
+                      <td className="px-3 py-2"><SegmentBadge segment={row.segment} /></td>
                       <td className="px-3 py-2 text-gray-500 max-w-[140px] truncate">{row.category}</td>
                       <td className="px-3 py-2">
                         {row.rating > 0 && (
@@ -364,9 +368,7 @@ function ImportTab() {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-blue-400 max-w-[160px] truncate">
-                        {row.website ? <a href={row.website} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="hover:underline">{row.website.replace(/^https?:\/\//, '')}</a> : '—'}
-                      </td>
+                      <td className="px-3 py-2 text-gray-500 max-w-[160px] truncate">{row.existingNotes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -386,8 +388,7 @@ function CallModeTab() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [idx, setIdx] = useState(0)
-  const [cityFilter, setCityFilter] = useState('all')
-  const [modelFilter, setModelFilter] = useState('all')
+  const [segmentFilter, setSegmentFilter] = useState<'all' | CampaignSegment>('all')
   const [outcomeFilter, setOutcomeFilter] = useState('all')
   const [note, setNote] = useState('')
   const [followUp, setFollowUp] = useState('')
@@ -409,18 +410,17 @@ function CallModeTab() {
     return unsub
   }, [])
 
-  const cities = useMemo(() => Array.from(new Set(leads.map(l => (l as any).campaignCity).filter(Boolean))).sort(), [leads])
-
   const filtered = useMemo(() => leads.filter(l => {
     const la = l as any
-    if (cityFilter !== 'all' && la.campaignCity !== cityFilter) return false
-    if (modelFilter !== 'all' && la.campaignModel !== modelFilter) return false
+    if (segmentFilter !== 'all' && la.campaignSegment !== segmentFilter) return false
     if (outcomeFilter === 'uncalled' && l.status !== 'new') return false
     if (outcomeFilter === 'contacted' && l.status !== 'contacted') return false
     return true
-  }), [leads, cityFilter, modelFilter, outcomeFilter])
+  }), [leads, segmentFilter, outcomeFilter])
 
   const lead = filtered[idx]
+  const segment: CampaignSegment = (lead as any)?.campaignSegment || 'unknown'
+  const script = segment === 'interior_design' ? INTERIOR_SCRIPT : ELECTRICAL_SCRIPT
 
   const logCall = async () => {
     if (!lead) return
@@ -436,10 +436,7 @@ function CallModeTab() {
         performedByName: user?.name ?? '',
         createdAt: serverTimestamp(),
       })
-      const updates: Record<string, unknown> = {
-        status: 'contacted',
-        updatedAt: serverTimestamp(),
-      }
+      const updates: Record<string, unknown> = { status: 'contacted', updatedAt: serverTimestamp() }
       if (followUp) updates.nextFollowUp = Timestamp.fromDate(new Date(followUp))
       await updateDoc(doc(db, 'leads', lead.id), updates)
       toast.success('Call logged')
@@ -467,16 +464,11 @@ function CallModeTab() {
     <div className="space-y-4">
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
-        <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setIdx(0) }}
+        <select value={segmentFilter} onChange={e => { setSegmentFilter(e.target.value as any); setIdx(0) }}
           className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
-          <option value="all">All Cities</option>
-          {cities.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={modelFilter} onChange={e => { setModelFilter(e.target.value); setIdx(0) }}
-          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
-          <option value="all">All Models</option>
-          <option value="M1_Direct">M1 Direct</option>
-          <option value="M2_Channel">M2 Channel</option>
+          <option value="all">All Segments</option>
+          <option value="electrical_trade">Electrical Trade</option>
+          <option value="interior_design">Interior & Design</option>
         </select>
         <select value={outcomeFilter} onChange={e => { setOutcomeFilter(e.target.value); setIdx(0) }}
           className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
@@ -484,24 +476,21 @@ function CallModeTab() {
           <option value="uncalled">Uncalled Only</option>
           <option value="contacted">Contacted</option>
         </select>
-        <span className="text-xs text-gray-600 ml-auto">{idx + 1} / {filtered.length}</span>
+        <span className="text-xs text-gray-600 ml-auto">{filtered.length > 0 ? `${idx + 1} / ${filtered.length}` : '0'}</span>
       </div>
 
       {!lead ? (
         <div className="text-center py-16 text-gray-600 text-sm">No leads match these filters.</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Left: Lead card */}
+          {/* Left: Lead card + log */}
           <div className="space-y-4">
             <Card padding="none">
               <div className="p-4 border-b border-gray-800 flex items-start justify-between">
                 <div>
                   <p className="text-base font-semibold text-white">{lead.name}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={cn('text-[10px] px-2 py-0.5 rounded font-medium',
-                      (lead as any).campaignModel === 'M1_Direct' ? 'bg-blue-900/40 text-blue-400' : 'bg-amber-900/40 text-amber-400'
-                    )}>{(lead as any).campaignModel}</span>
-                    {(lead as any).campaignCity && <span className="text-xs text-gray-500">{(lead as any).campaignCity}</span>}
+                    <SegmentBadge segment={segment} />
                     {(lead as any).campaignRating > 0 && (
                       <span className={cn('text-xs font-bold', (lead as any).campaignRating >= 4.5 ? 'text-green-400' : 'text-gray-400')}>
                         {(lead as any).campaignRating}★
@@ -551,6 +540,13 @@ function CallModeTab() {
                     <p className="text-xs text-gray-400">{(lead as any).campaignReviews} Google reviews</p>
                   </div>
                 )}
+                {/* Existing notes from sheet */}
+                {lead.notes && lead.notes.includes('Call Notes:') && (
+                  <div className="mt-1 rounded-lg bg-amber-900/20 border border-amber-800 px-3 py-2">
+                    <p className="text-[10px] font-bold text-amber-400 mb-0.5">PREV NOTE FROM SHEET</p>
+                    <p className="text-xs text-gray-300">{lead.notes.split('Call Notes:')[1]?.trim()}</p>
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -566,6 +562,8 @@ function CallModeTab() {
                     className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500">
                     <option value="answered">Answered</option>
                     <option value="interested">Interested</option>
+                    <option value="catalogue_sent">Catalogue Sent</option>
+                    <option value="sample_requested">Sample Requested</option>
                     <option value="callback_requested">Callback Requested</option>
                     <option value="not_interested">Not Interested</option>
                     <option value="ringing">Ringing / No Answer</option>
@@ -575,7 +573,9 @@ function CallModeTab() {
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Notes</label>
                   <textarea value={note} onChange={e => setNote(e.target.value)}
-                    placeholder="What did they say? Any competitor mentioned? Budget range?"
+                    placeholder={segment === 'interior_design'
+                      ? 'Which brand do they spec? Commission accepted? Project pipeline size?'
+                      : 'What brand do they stock? Margin preference? MOQ concern?'}
                     rows={3}
                     className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 placeholder-gray-700 resize-none" />
                 </div>
@@ -607,8 +607,13 @@ function CallModeTab() {
 
           {/* Right: Call Script */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Call Script — 5 min validation</p>
-            {CALL_SCRIPT_STEPS.map((step, i) => (
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                {segment === 'interior_design' ? 'Interior & Design Script' : 'Electrical Trade Script'}
+              </p>
+              <SegmentBadge segment={segment} />
+            </div>
+            {script.map((step, i) => (
               <div
                 key={step.label}
                 onClick={() => setScriptStep(i)}
@@ -623,11 +628,10 @@ function CallModeTab() {
               </div>
             ))}
 
-            {/* M2 note */}
-            {(lead as any).campaignModel === 'M2_Channel' && (
-              <div className="rounded-xl border border-rose-800 bg-rose-900/20 p-3">
-                <p className="text-[10px] font-bold text-rose-400 tracking-widest mb-1">M2 DISTRIBUTOR PITCH</p>
-                <p className="text-xs text-gray-300">This is a <strong>channel city</strong> ({(lead as any).campaignCity}). Lead with the exclusive distributor offer — 30–42% margin, co-op marketing support.</p>
+            {segment === 'interior_design' && (
+              <div className="rounded-xl border border-purple-800 bg-purple-900/20 p-3">
+                <p className="text-[10px] font-bold text-purple-400 tracking-widest mb-1">COMMISSION MODEL</p>
+                <p className="text-xs text-gray-300">No stock required. Galaxy delivers to site. Designer earns a referral commission per project. Focus on: aesthetics, finish options, client value vs Phlipton pricing.</p>
               </div>
             )}
           </div>
@@ -653,25 +657,26 @@ function StatsTab() {
   }, [])
 
   const stats = useMemo(() => {
-    const cityMap: Record<string, { total: number; contacted: number; model: string }> = {}
-    const modelMap: Record<string, number> = { M1_Direct: 0, M2_Channel: 0, Unknown: 0 }
+    const segMap: Record<string, { total: number; contacted: number }> = {
+      electrical_trade: { total: 0, contacted: 0 },
+      interior_design:  { total: 0, contacted: 0 },
+      unknown:          { total: 0, contacted: 0 },
+    }
     const statusMap: Record<string, number> = {}
     let withPhone = 0, highRating = 0
 
     leads.forEach(l => {
       const la = l as any
-      const city = la.campaignCity || 'Other'
-      const model = la.campaignModel || 'Unknown'
-      if (!cityMap[city]) cityMap[city] = { total: 0, contacted: 0, model }
-      cityMap[city].total++
-      if (l.status !== 'new') cityMap[city].contacted++
-      modelMap[model] = (modelMap[model] || 0) + 1
+      const seg = la.campaignSegment || 'unknown'
+      if (!segMap[seg]) segMap[seg] = { total: 0, contacted: 0 }
+      segMap[seg].total++
+      if (l.status !== 'new') segMap[seg].contacted++
       statusMap[l.status] = (statusMap[l.status] || 0) + 1
       if (l.phone) withPhone++
       if ((la.campaignRating || 0) >= 4.5) highRating++
     })
 
-    return { cityMap, modelMap, statusMap, withPhone, highRating }
+    return { segMap, statusMap, withPhone, highRating }
   }, [leads])
 
   if (loading) return <div className="flex items-center justify-center py-20 text-gray-600 text-sm gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
@@ -681,11 +686,11 @@ function StatsTab() {
 
   return (
     <div className="space-y-5">
-      {/* Summary cards */}
+      {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Total B2B Leads', value: total, sub: 'Imported', color: 'text-white' },
-          { label: 'Contacted', value: contacted, sub: `${total ? Math.round(contacted / total * 100) : 0}% of total`, color: 'text-green-400' },
+          { label: 'Contacted', value: contacted, sub: `${total ? Math.round(contacted / total * 100) : 0}% contact rate`, color: 'text-green-400' },
           { label: 'With Phone', value: stats.withPhone, sub: `${total ? Math.round(stats.withPhone / total * 100) : 0}% coverage`, color: 'text-blue-400' },
           { label: 'High Rating (4.5★+)', value: stats.highRating, sub: 'Priority leads', color: 'text-amber-400' },
         ].map(s => (
@@ -697,73 +702,43 @@ function StatsTab() {
         ))}
       </div>
 
-      {/* City breakdown */}
-      <div className="rounded-xl border border-gray-800 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-800/40 border-b border-gray-800">
-          <p className="text-sm font-semibold text-white">City Breakdown</p>
-        </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800">
-              {['City', 'Model', 'Total', 'Contacted', 'Contact Rate'].map(h => (
-                <th key={h} className="px-4 py-2.5 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800">
-            {Object.entries(stats.cityMap).sort((a, b) => b[1].total - a[1].total).map(([city, s]) => (
-              <tr key={city} className="hover:bg-gray-800/20">
-                <td className="px-4 py-2.5 text-gray-200 font-medium">{city}</td>
-                <td className="px-4 py-2.5">
-                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium',
-                    s.model === 'M1_Direct' ? 'bg-blue-900/40 text-blue-400' :
-                    s.model === 'M2_Channel' ? 'bg-amber-900/40 text-amber-400' : 'bg-gray-800 text-gray-500'
-                  )}>{s.model}</span>
-                </td>
-                <td className="px-4 py-2.5 text-gray-300">{s.total}</td>
-                <td className="px-4 py-2.5 text-green-400">{s.contacted}</td>
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-gray-800 rounded-full h-1.5 max-w-[80px]">
-                      <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${s.total ? Math.round(s.contacted / s.total * 100) : 0}%` }} />
-                    </div>
-                    <span className="text-xs text-gray-400">{s.total ? Math.round(s.contacted / s.total * 100) : 0}%</span>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {Object.keys(stats.cityMap).length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-600 text-xs">No data yet</td></tr>
-            )}
-          </tbody>
-        </table>
+      {/* Segment breakdown */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { key: 'electrical_trade', label: 'Electrical Trade', sub: 'Reseller / Stockist', color: 'text-blue-400', bg: 'bg-blue-900/10 border-blue-900' },
+          { key: 'interior_design',  label: 'Interior & Design', sub: 'Spec / Referral',    color: 'text-purple-400', bg: 'bg-purple-900/10 border-purple-900' },
+        ].map(s => {
+          const seg = stats.segMap[s.key] || { total: 0, contacted: 0 }
+          return (
+            <div key={s.key} className={cn('rounded-xl border p-4', s.bg)}>
+              <p className={cn('text-xs font-bold', s.color)}>{s.label}</p>
+              <p className="text-[10px] text-gray-600 mb-2">{s.sub}</p>
+              <p className="text-3xl font-bold text-white">{seg.total}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex-1 bg-gray-800 rounded-full h-1.5">
+                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${seg.total ? Math.round(seg.contacted / seg.total * 100) : 0}%` }} />
+                </div>
+                <span className="text-xs text-gray-400">{seg.contacted} contacted</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Status breakdown */}
       <div className="rounded-xl border border-gray-800 p-4">
-        <p className="text-sm font-semibold text-white mb-3">Lead Status Breakdown</p>
+        <p className="text-sm font-semibold text-white mb-3">Outcome Breakdown</p>
         <div className="flex flex-wrap gap-2">
           {Object.entries(stats.statusMap).map(([status, count]) => (
             <div key={status} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-gray-400 capitalize">{status.replace('_', ' ')}</span>
+              <span className="text-xs text-gray-400 capitalize">{status.replace(/_/g, ' ')}</span>
               <span className="text-xs font-bold text-white">{count}</span>
             </div>
           ))}
+          {Object.keys(stats.statusMap).length === 0 && (
+            <p className="text-xs text-gray-600">No calls logged yet</p>
+          )}
         </div>
-      </div>
-
-      {/* M1 vs M2 */}
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { label: 'M1 Direct', key: 'M1_Direct', color: 'text-blue-400', bg: 'bg-blue-900/10 border-blue-900', desc: 'Bangalore, Hyderabad, Mumbai, Pune' },
-          { label: 'M2 Channel', key: 'M2_Channel', color: 'text-amber-400', bg: 'bg-amber-900/10 border-amber-900', desc: 'Surat, Coimbatore, Jaipur, Nashik…' },
-        ].map(m => (
-          <div key={m.key} className={cn('rounded-xl border p-4', m.bg)}>
-            <p className={cn('text-xs font-bold', m.color)}>{m.label}</p>
-            <p className="text-3xl font-bold text-white mt-1">{stats.modelMap[m.key] || 0}</p>
-            <p className="text-xs text-gray-600 mt-1">{m.desc}</p>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -786,10 +761,9 @@ export function B2BCampaignPage() {
     <div className="space-y-5">
       <div>
         <h1 className="page-title">B2B Campaign</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Import scraped leads, run your call session, track outcomes</p>
+        <p className="text-sm text-gray-500 mt-0.5">Mumbai lead list — Electrical Trade &amp; Interior &amp; Design segments</p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 bg-gray-900 rounded-xl p-1 w-fit border border-gray-800">
         {tabs.map(t => (
           <button
