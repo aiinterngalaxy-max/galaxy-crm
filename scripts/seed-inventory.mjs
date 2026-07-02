@@ -53,6 +53,11 @@ const items = [
   { itemCode: 'SINGLE SKT BLACK',  category: 'SOCKET',  itemName: 'SINGLE SKT BLACK',          location: '',       openingStock: 1,  importedQty: 0,  issuedQty: 0, reorderLevel: 0 },
   { itemCode: 'DOUBLE SKT GREY',   category: 'SOCKET',  itemName: 'DOUBLE SKT GREY',           location: '',       openingStock: 2,  importedQty: 0,  issuedQty: 0, reorderLevel: 0 },
   { itemCode: 'DOUBLE SKT WHITE',  category: 'SOCKET',  itemName: 'DOUBLE SKT WHITE',          location: '',       openingStock: 1,  importedQty: 0,  issuedQty: 0, reorderLevel: 0 },
+
+  // Sensors
+  { itemCode: 'GHA-SN-001', category: 'SENSORS', itemName: 'PRESENCE SENSOR',     productLine: 'general', location: 'Rack 1', openingStock: 0, importedQty: 0, issuedQty: 0, reorderLevel: 2 },
+  { itemCode: 'GHA-SN-002', category: 'SENSORS', itemName: 'MOTION SENSOR',       productLine: 'general', location: 'Rack 1', openingStock: 0, importedQty: 0, issuedQty: 0, reorderLevel: 2 },
+  { itemCode: 'GHA-SN-003', category: 'SENSORS', itemName: 'SMART MOTION SENSOR', productLine: 'general', location: 'Rack 1', openingStock: 0, importedQty: 0, issuedQty: 0, reorderLevel: 2 },
 ]
 
 async function seed() {

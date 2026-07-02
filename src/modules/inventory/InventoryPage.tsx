@@ -165,6 +165,7 @@ const CATEGORIES_BY_LINE: Record<string, string[]> = {
   elysia:    ['1T', '2T', '3T', '4T', 'D/T Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'SOCKET', 'OTHER'],
   vitrum:    ['1M', '2M', '3M', '4M', '6M', '7M', '8M', '10M', 'CITRUM', 'OTHER'],
   curtains:  ['Motor', 'Remote', 'Carriers', 'Drive Pulley', 'Hook', 'Runners', 'Roller', 'Track', 'AM 35', 'Clamp', 'Bracket', 'OTHER'],
+  general:   ['SENSORS', 'HUB', 'CAMERA', 'NETWORKING', 'BACKBOX', 'SOCKET', 'OTHER'],
 }
 
 const ELYSIA_MATERIALS = ['Skin', 'Aluminium', 'PC']
