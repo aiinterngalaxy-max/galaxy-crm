@@ -60,7 +60,18 @@ function normalisePhone(p: string): string {
 function parseCSV(text: string, forcedSegment: CampaignSegment | 'auto'): ScrapedRow[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''))
+
+  // Find the actual header row — scan first 10 lines for one containing 'phone' or 'business name'
+  let headerIdx = 0
+  for (let i = 0; i < Math.min(10, lines.length); i++) {
+    const lower = lines[i].toLowerCase()
+    if (lower.includes('phone') || lower.includes('business name') || lower.includes('title')) {
+      headerIdx = i
+      break
+    }
+  }
+
+  const headers = lines[headerIdx].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''))
 
   const col = (row: string[], ...names: string[]) => {
     for (const n of names) {
@@ -83,7 +94,7 @@ function parseCSV(text: string, forcedSegment: CampaignSegment | 'auto'): Scrape
   }
 
   const rows: ScrapedRow[] = []
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
     const r = splitRow(lines[i])
     const name = col(r, 'business name', 'title', 'name')
     if (!name) continue
