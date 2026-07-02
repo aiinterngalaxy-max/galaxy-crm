@@ -125,7 +125,7 @@ export function LeadsPage() {
   useEffect(() => {
     if (!user || !role) return
 
-    const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(100))
+    const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(500))
     const unsub = onSnapshot(q, snap => {
       setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
       setLoading(false)
