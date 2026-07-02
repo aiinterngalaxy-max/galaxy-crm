@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Upload, Phone, MessageSquare, ChevronLeft, ChevronRight,
   BarChart2, CheckCircle, Globe, MapPin, Star, Hash,
-  Loader2, Zap, Palette,
+  Loader2, Zap, Palette, List, ExternalLink,
 } from 'lucide-react'
 import {
   db, collection, addDoc, getDocs,
@@ -766,17 +766,158 @@ function StatsTab() {
   )
 }
 
+// ─── Tab: Leads List ─────────────────────────────────────────────────────────
+
+function LeadsListTab() {
+  const [leads, setLeads] = useState<Lead[]>([])
+  const [loading, setLoading] = useState(true)
+  const [segmentFilter, setSegmentFilter] = useState<'all' | CampaignSegment>('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const q = query(collection(db, 'leads'), where('businessType', '==', 'b2b'))
+    const unsub = onSnapshot(q, snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+        .filter(l => (l as any).source === 'cold_call')
+        .sort((a, b) => ((b as any).campaignRating || 0) - ((a as any).campaignRating || 0))
+      setLeads(all)
+      setLoading(false)
+    })
+    return unsub
+  }, [])
+
+  const filtered = useMemo(() => leads.filter(l => {
+    const la = l as any
+    if (segmentFilter !== 'all' && la.campaignSegment !== segmentFilter) return false
+    if (statusFilter !== 'all' && l.status !== statusFilter) return false
+    if (search) {
+      const s = search.toLowerCase()
+      if (!l.name?.toLowerCase().includes(s) && !l.phone?.includes(s) && !la.campaignCategory?.toLowerCase().includes(s)) return false
+    }
+    return true
+  }), [leads, segmentFilter, statusFilter, search])
+
+  const STATUS_COLORS: Record<string, string> = {
+    new: 'bg-gray-800 text-gray-400',
+    contacted: 'bg-blue-900/40 text-blue-400',
+    interested: 'bg-green-900/40 text-green-400',
+    not_interested: 'bg-red-900/40 text-red-400',
+    qualified: 'bg-purple-900/40 text-purple-400',
+    won: 'bg-gold-500/20 text-gold-400',
+    lost: 'bg-red-900/40 text-red-500',
+  }
+
+  if (loading) return <div className="flex items-center justify-center py-20 text-gray-600 text-sm gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search name, phone, category…"
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 w-56 placeholder-gray-600"
+        />
+        <select value={segmentFilter} onChange={e => setSegmentFilter(e.target.value as any)}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+          <option value="all">All Segments</option>
+          <option value="electrical_trade">Electrical Trade</option>
+          <option value="interior_design">Interior & Design</option>
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+          <option value="all">All Status</option>
+          <option value="new">New</option>
+          <option value="contacted">Contacted</option>
+          <option value="interested">Interested</option>
+          <option value="not_interested">Not Interested</option>
+        </select>
+        <span className="text-xs text-gray-600 ml-auto">{filtered.length} leads</span>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-xl border border-gray-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-900 border-b border-gray-700">
+              <tr>
+                {['Business Name', 'Phone', 'Segment', 'Category', 'Rating', 'Status', 'Website', ''].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-left text-gray-500 font-medium uppercase tracking-wider whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {filtered.map(lead => {
+                const la = lead as any
+                return (
+                  <tr key={lead.id} className="hover:bg-gray-800/30">
+                    <td className="px-3 py-2.5 text-gray-200 font-medium max-w-[200px] truncate">{lead.name}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">{lead.phone || '—'}</span>
+                        {lead.phone && (
+                          <a href={`https://wa.me/91${lead.phone}`} target="_blank" rel="noopener noreferrer"
+                            className="text-gray-600 hover:text-green-400 transition-colors">
+                            <MessageSquare className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5"><SegmentBadge segment={la.campaignSegment || 'unknown'} /></td>
+                    <td className="px-3 py-2.5 text-gray-500 max-w-[140px] truncate">{la.campaignCategory || '—'}</td>
+                    <td className="px-3 py-2.5">
+                      {la.campaignRating > 0 && (
+                        <span className={cn('font-bold', la.campaignRating >= 4.5 ? 'text-green-400' : 'text-gray-400')}>
+                          {la.campaignRating}★ <span className="text-gray-600 font-normal">({la.campaignReviews})</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={cn('px-2 py-0.5 rounded text-[10px] font-medium', STATUS_COLORS[lead.status] || 'bg-gray-800 text-gray-500')}>
+                        {lead.status.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {la.campaignWebsite && (
+                        <a href={la.campaignWebsite} target="_blank" rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 truncate max-w-[140px] block">
+                          {la.campaignWebsite.replace(/^https?:\/\//, '').slice(0, 25)}…
+                        </a>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <a href={`/leads/${lead.id}`}
+                        className="text-gray-600 hover:text-gray-300 transition-colors">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </td>
+                  </tr>
+                )
+              })}
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-600">No leads match these filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type Tab = 'import' | 'call' | 'stats'
+type Tab = 'import' | 'call' | 'stats' | 'leads'
 
 export function B2BCampaignPage() {
   const [tab, setTab] = useState<Tab>('import')
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'import', label: 'Import Call List', icon: <Upload className="w-4 h-4" /> },
-    { id: 'call',   label: 'Call Mode',        icon: <Phone className="w-4 h-4" /> },
-    { id: 'stats',  label: 'Stats',            icon: <BarChart2 className="w-4 h-4" /> },
+    { id: 'import', label: 'Import',    icon: <Upload className="w-4 h-4" /> },
+    { id: 'leads',  label: 'All Leads', icon: <List className="w-4 h-4" /> },
+    { id: 'call',   label: 'Call Mode', icon: <Phone className="w-4 h-4" /> },
+    { id: 'stats',  label: 'Stats',     icon: <BarChart2 className="w-4 h-4" /> },
   ]
 
   return (
@@ -803,6 +944,7 @@ export function B2BCampaignPage() {
       </div>
 
       {tab === 'import' && <ImportTab />}
+      {tab === 'leads'  && <LeadsListTab />}
       {tab === 'call'   && <CallModeTab />}
       {tab === 'stats'  && <StatsTab />}
     </div>

@@ -127,7 +127,7 @@ export function LeadsPage() {
 
     const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(500))
     const unsub = onSnapshot(q, snap => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => (l as any).businessType !== 'b2b'))
       setLoading(false)
     }, err => {
       console.error(err)
