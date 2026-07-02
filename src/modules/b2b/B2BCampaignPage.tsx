@@ -605,6 +605,7 @@ function CallModeTab() {
   const [cityFilter, setCityFilter]       = useState('all')
   const [modelFilter, setModelFilter]     = useState('all')
   const [outcomeFilter, setOutcomeFilter] = useState('all')
+  const [search, setSearch]               = useState('')
   const [note, setNote]                   = useState('')
   const [followUp, setFollowUp]           = useState('')
   const [outcome, setOutcome]             = useState('answered')
@@ -620,8 +621,12 @@ function CallModeTab() {
     if (modelFilter  !== 'all' && la.campaignModel !== modelFilter)  return false
     if (outcomeFilter === 'uncalled'  && l.status !== 'new')        return false
     if (outcomeFilter === 'contacted' && l.status !== 'contacted')  return false
+    if (search) {
+      const s = search.toLowerCase()
+      if (!l.name?.toLowerCase().includes(s) && !la.campaignOwnerName?.toLowerCase().includes(s) && !l.phone?.includes(s)) return false
+    }
     return true
-  }), [leads, cityFilter, modelFilter, outcomeFilter])
+  }), [leads, cityFilter, modelFilter, outcomeFilter, search])
 
   const lead    = filtered[idx]
   const la      = lead as any
@@ -665,6 +670,9 @@ function CallModeTab() {
     <div className="space-y-4">
       {/* Filters row */}
       <div className="flex flex-wrap gap-2 items-center">
+        <input value={search} onChange={e => { setSearch(e.target.value); setIdx(0) }}
+          placeholder="Search name, owner, phone…"
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none w-48 placeholder-gray-600 min-w-0" />
         <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setIdx(0) }}
           className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none min-w-0 flex-1 sm:flex-none">
           <option value="all">All Cities</option>
