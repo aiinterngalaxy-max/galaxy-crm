@@ -201,9 +201,13 @@ function SegmentBadge({ segment }: { segment: CampaignSegment }) {
 
 // ─── Tab: Import ──────────────────────────────────────────────────────────────
 
+const SESSION_KEY = 'b2b_import_rows'
+
 function ImportTab() {
   const { user } = useAuth()
-  const [rows, setRows] = useState<ScrapedRow[]>([])
+  const [rows, setRows] = useState<ScrapedRow[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || '[]') } catch { return [] }
+  })
   const [importing, setImporting] = useState(false)
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
@@ -224,6 +228,7 @@ function ImportTab() {
       const text = ev.target?.result as string
       const parsed = parseCSV(text, forcedSegment)
       setRows(parsed)
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(parsed))
       setDone(false)
       setProgress(0)
       if (parsed.length === 0) toast.error('No rows found — check column headers')
