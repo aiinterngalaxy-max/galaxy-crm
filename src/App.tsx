@@ -40,6 +40,7 @@ const PartnersPage = lazy(() => import('./modules/partners/PartnersPage').then(m
 const PartnerDetail = lazy(() => import('./modules/partners/PartnerDetail').then(m => ({ default: m.PartnerDetail })))
 const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').then(m => ({ default: m.InventoryPage })))
+const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -137,6 +138,9 @@ function AppRoutes() {
 
           {/* Notifications — everyone */}
           <Route path="notifications" element={<NotificationsPage />} />
+
+          {/* B2B Campaign */}
+          <Route path="b2b-campaign" element={<RequireRole module="b2b-campaign"><B2BCampaignPage /></RequireRole>} />
 
           {/* Inventory */}
           <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
