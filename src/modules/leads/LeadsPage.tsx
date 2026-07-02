@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock } from 'lucide-react'
+import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock, Table2 } from 'lucide-react'
+import { LeadsSpreadsheetView } from './LeadsSpreadsheetView'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
@@ -18,7 +19,7 @@ import type { Lead, LeadStatus } from '../../types'
 const PIPELINE_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent']
 const ALL_STAGES: LeadStatus[] = ['new', 'contacted', 'qualified', 'floor_plan', 'quote_sent', 'won', 'lost']
 
-type ViewMode = 'kanban' | 'list'
+type ViewMode = 'kanban' | 'list' | 'spreadsheet'
 
 // ─── Lead Hover Tooltip ────────────────────────────────────────────────────────
 
@@ -311,14 +312,23 @@ export function LeadsPage() {
           <button
             onClick={() => setViewMode('kanban')}
             className={cn('p-1.5 rounded', viewMode === 'kanban' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300')}
+            title="Kanban view"
           >
             <LayoutGrid className="w-4 h-4" />
           </button>
           <button
             onClick={() => setViewMode('list')}
             className={cn('p-1.5 rounded', viewMode === 'list' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300')}
+            title="List view"
           >
             <List className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('spreadsheet')}
+            className={cn('p-1.5 rounded', viewMode === 'spreadsheet' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300')}
+            title="Spreadsheet view"
+          >
+            <Table2 className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -457,6 +467,15 @@ export function LeadsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Spreadsheet View */}
+      {viewMode === 'spreadsheet' && (
+        <LeadsSpreadsheetView
+          leads={filtered}
+          loading={loading}
+          canEdit={canCreate}
+        />
       )}
 
       {/* Won/Lost summary */}
