@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import {
   db, collection, addDoc, getDocs,
-  serverTimestamp, updateDoc, doc, onSnapshot, orderBy,
+  serverTimestamp, updateDoc, doc, onSnapshot,
 } from '../../lib/firebase'
 import { where, query } from 'firebase/firestore'
 import { useAuth } from '../../contexts/AuthContext'
@@ -416,11 +416,17 @@ function CallModeTab() {
     const q = query(
       collection(db, 'leads'),
       where('businessType', '==', 'b2b'),
-      where('source', '==', 'cold_call'),
-      orderBy('createdAt', 'desc'),
     )
     const unsub = onSnapshot(q, snap => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
+      const sorted = all
+        .filter(l => (l as any).source === 'cold_call')
+        .sort((a, b) => {
+          const aT = (a.createdAt as any)?.toMillis?.() ?? 0
+          const bT = (b.createdAt as any)?.toMillis?.() ?? 0
+          return bT - aT
+        })
+      setLeads(sorted)
       setLoading(false)
     })
     return unsub
@@ -664,9 +670,9 @@ function StatsTab() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const q = query(collection(db, 'leads'), where('businessType', '==', 'b2b'), where('source', '==', 'cold_call'))
+    const q = query(collection(db, 'leads'), where('businessType', '==', 'b2b'))
     const unsub = onSnapshot(q, snap => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead))
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => (l as any).source === 'cold_call'))
       setLoading(false)
     })
     return unsub
