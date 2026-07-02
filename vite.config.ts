@@ -8,6 +8,11 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  build: {
+    rollupOptions: {
+      external: ['@libsql/client/web'],
+    },
+  },
   test: {
     environment: 'node',
     globals: true,

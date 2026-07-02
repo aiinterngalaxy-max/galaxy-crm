@@ -325,6 +325,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
             material: exact.material || 'Aluminium',
             color: exact.color || 'Grey',
             auto: true,
+            isCurtain: false,
           }
         }
 

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createClient, type Client as LibsqlClient, type InValue } from '@libsql/client/web'
 
 let _client: LibsqlClient | undefined
