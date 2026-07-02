@@ -589,6 +589,7 @@ function CallModeTab() {
   const [outcome, setOutcome]             = useState('answered')
   const [saving, setSaving]               = useState(false)
   const [scriptStep, setScriptStep]       = useState(0)
+  const [scriptOpen, setScriptOpen]       = useState(false)
 
   const cities = useMemo(() => Array.from(new Set(leads.map(l => (l as any).campaignCity).filter(Boolean))).sort(), [leads])
 
@@ -623,7 +624,7 @@ function CallModeTab() {
       if (followUp) updates.nextFollowUp = Timestamp.fromDate(new Date(followUp))
       await updateDoc(doc(db, 'leads', lead.id), updates)
       toast.success('Call logged')
-      setNote(''); setFollowUp(''); setOutcome('answered')
+      setNote(''); setFollowUp(''); setOutcome('answered'); setScriptOpen(false)
       if (idx < filtered.length - 1) setIdx(i => i + 1)
     } catch { toast.error('Failed to log call') }
     finally { setSaving(false) }
@@ -634,36 +635,39 @@ function CallModeTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 items-center">
+      {/* Filters row */}
+      <div className="flex flex-wrap gap-2 items-center">
         <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setIdx(0) }}
-          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none min-w-0 flex-1 sm:flex-none">
           <option value="all">All Cities</option>
           {cities.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={modelFilter} onChange={e => { setModelFilter(e.target.value); setIdx(0) }}
-          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none min-w-0 flex-1 sm:flex-none">
           <option value="all">M1 + M2</option>
           <option value="M1_Direct">M1 Direct</option>
           <option value="M2_Channel">M2 Channel</option>
         </select>
         <select value={outcomeFilter} onChange={e => { setOutcomeFilter(e.target.value); setIdx(0) }}
-          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+          className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none min-w-0 flex-1 sm:flex-none">
           <option value="all">All Leads</option>
           <option value="uncalled">Uncalled Only</option>
           <option value="contacted">Contacted</option>
         </select>
-        <span className="text-xs text-gray-600 ml-auto">{filtered.length > 0 ? `${idx + 1} / ${filtered.length}` : '0'}</span>
+        <span className="text-xs text-gray-600 ml-auto shrink-0">{filtered.length > 0 ? `${idx + 1} / ${filtered.length}` : '0'}</span>
       </div>
 
       {!lead ? (
         <div className="text-center py-16 text-gray-600 text-sm">No leads match these filters.</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Left column — lead card + log form + nav */}
           <div className="space-y-4">
+            {/* Lead card */}
             <Card padding="none">
-              <div className="p-4 border-b border-gray-800 flex items-start justify-between">
-                <div>
-                  <p className="text-base font-semibold text-white">{lead.name}</p>
+              <div className="p-4 border-b border-gray-800 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-white truncate">{lead.name}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <ModelBadge model={model} />
                     {la.campaignCity && <span className="text-xs text-gray-500">{la.campaignCity}</span>}
@@ -671,16 +675,22 @@ function CallModeTab() {
                     {la.campaignRating > 0 && <span className={cn('text-xs font-bold', la.campaignRating >= 4.5 ? 'text-green-400' : 'text-gray-400')}>{la.campaignRating}★</span>}
                   </div>
                 </div>
-                <span className={cn('text-[10px] px-2 py-1 rounded border',
+                <span className={cn('text-[10px] px-2 py-1 rounded border shrink-0',
                   lead.status === 'new' ? 'border-gray-700 text-gray-500' : 'border-green-800 text-green-400 bg-green-900/20'
                 )}>{lead.status}</span>
               </div>
-              <div className="p-4 space-y-2.5">
+              <div className="p-4 space-y-3">
                 {lead.phone && (
                   <div className="flex items-center gap-3">
-                    <Phone className="w-3.5 h-3.5 text-gray-600 shrink-0" />
-                    <a href={`tel:${lead.phone}`} className="text-sm text-gray-300 hover:text-white font-medium">{lead.phone}</a>
-                    <a href={`https://wa.me/91${lead.phone}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-gray-600 hover:text-green-400"><MessageSquare className="w-4 h-4" /></a>
+                    <a href={`tel:${lead.phone}`}
+                      className="flex-1 flex items-center gap-3 py-3 px-4 rounded-xl bg-indigo-900/30 border border-indigo-800 hover:bg-indigo-900/50 active:scale-95 transition-all touch-manipulation">
+                      <Phone className="w-5 h-5 text-indigo-400 shrink-0" />
+                      <span className="text-base font-bold text-white tracking-wide">{lead.phone}</span>
+                    </a>
+                    <a href={`https://wa.me/91${lead.phone}`} target="_blank" rel="noopener noreferrer"
+                      className="p-3 rounded-xl bg-green-900/30 border border-green-800 hover:bg-green-900/50 active:scale-95 transition-all">
+                      <MessageSquare className="w-5 h-5 text-green-400" />
+                    </a>
                   </div>
                 )}
                 {la.campaignCategory && <div className="flex items-start gap-3"><Hash className="w-3.5 h-3.5 text-gray-600 shrink-0 mt-0.5" /><p className="text-xs text-gray-400">{la.campaignCategory}</p></div>}
@@ -701,13 +711,35 @@ function CallModeTab() {
               </div>
             </Card>
 
+            {/* Script — mobile collapsible, desktop always visible */}
+            <div className="lg:hidden">
+              <button onClick={() => setScriptOpen(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-700 bg-gray-900/50 text-sm text-gray-300 font-medium touch-manipulation active:bg-gray-800">
+                <span>{scriptLabel}</span>
+                <ChevronRight className={cn('w-4 h-4 transition-transform', scriptOpen && 'rotate-90')} />
+              </button>
+              {scriptOpen && (
+                <div className="mt-2 space-y-2">
+                  {script.map((step, i) => (
+                    <div key={step.label} onClick={() => setScriptStep(i)}
+                      className={cn('rounded-xl border p-3 cursor-pointer transition-all touch-manipulation', step.bg,
+                        scriptStep === i ? 'ring-1 ring-white/20' : 'opacity-75')}>
+                      <p className={cn('text-[10px] font-bold tracking-widest mb-1', step.color)}>{step.label}</p>
+                      <p className="text-xs text-gray-300 leading-relaxed">{step.script}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Log form */}
             <Card padding="none">
               <div className="p-4 border-b border-gray-800"><p className="text-sm font-semibold text-white">Log Call</p></div>
               <div className="p-4 space-y-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Outcome</label>
                   <select value={outcome} onChange={e => setOutcome(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none">
+                    className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none">
                     <option value="answered">Answered</option>
                     <option value="interested">Interested</option>
                     <option value="catalogue_sent">Catalogue Sent</option>
@@ -727,29 +759,31 @@ function CallModeTab() {
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Next Follow-up</label>
                   <input type="date" value={followUp} onChange={e => setFollowUp(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2 focus:outline-none" />
+                    className="w-full bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg px-3 py-2.5 focus:outline-none" />
                 </div>
                 <button onClick={logCall} disabled={saving}
-                  className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-base font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation">
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
                   {saving ? 'Saving…' : 'Log & Next'}
                 </button>
               </div>
             </Card>
 
+            {/* Prev / Next nav */}
             <div className="flex items-center gap-3">
               <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}
-                className="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-30 transition-colors flex items-center justify-center gap-1">
+                className="flex-1 py-3.5 rounded-xl border border-gray-700 text-sm font-medium text-gray-400 hover:text-white hover:border-gray-600 active:scale-95 disabled:opacity-30 transition-all flex items-center justify-center gap-1.5 touch-manipulation">
                 <ChevronLeft className="w-4 h-4" /> Prev
               </button>
               <button onClick={() => setIdx(i => Math.min(filtered.length - 1, i + 1))} disabled={idx === filtered.length - 1}
-                className="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-30 transition-colors flex items-center justify-center gap-1">
+                className="flex-1 py-3.5 rounded-xl border border-gray-700 text-sm font-medium text-gray-400 hover:text-white hover:border-gray-600 active:scale-95 disabled:opacity-30 transition-all flex items-center justify-center gap-1.5 touch-manipulation">
                 Next <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          <div className="space-y-3">
+          {/* Right column — script (desktop only) */}
+          <div className="hidden lg:block space-y-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{scriptLabel}</p>
             {script.map((step, i) => (
               <div key={step.label} onClick={() => setScriptStep(i)}

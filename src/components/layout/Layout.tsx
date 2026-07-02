@@ -5,6 +5,7 @@ import { Header } from './Header'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
+import { useFollowUpReminders } from '../../hooks/useFollowUpReminders'
 import { HelpTour } from '../ui/HelpTour'
 
 export function Layout() {
@@ -14,6 +15,7 @@ export function Layout() {
 
   const isBD = ['super_admin', 'management', 'bd_exec', 'dept_head'].includes(role ?? '')
   useFollowUpNotifier(user?.id, isBD)
+  useFollowUpReminders()
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
