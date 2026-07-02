@@ -608,6 +608,7 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
             </tr>
           </thead>
           <tbody>
+            <NewLeadRow canEdit={canEdit} />
             {leads.length === 0 && !loading && (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-xs text-gray-600">
@@ -615,10 +616,13 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
                 </td>
               </tr>
             )}
-            {leads.map(lead => (
+            {[...leads].sort((a, b) => {
+              const aTs = (a.createdAt as any)?.toDate?.() ?? new Date(a.createdAt as any)
+              const bTs = (b.createdAt as any)?.toDate?.() ?? new Date(b.createdAt as any)
+              return bTs - aTs
+            }).map(lead => (
               <LeadRow key={lead.id} lead={lead} canEdit={canEdit} />
             ))}
-            <NewLeadRow canEdit={canEdit} />
           </tbody>
         </table>
       </div>
