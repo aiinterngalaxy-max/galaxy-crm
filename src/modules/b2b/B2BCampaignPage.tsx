@@ -35,6 +35,9 @@ interface ScrapedRow {
   model: CampaignModel
   segment: CampaignSegment
   existingNotes: string
+  ownerName: string
+  ownerEvidence: string
+  ownerHits: number
 }
 
 // ─── City / Model detection (mirrors make_call_list.py) ──────────────────────
@@ -138,22 +141,27 @@ function parseCSV(text: string, forcedSegment: CampaignSegment | 'auto', forcedC
     if (!name) continue
     const address  = col(r, 'address')
     const category = col(r, 'category')
-    const city     = forcedCity !== 'auto' ? forcedCity : (col(r, 'city') || detectCity(address))
+    const area     = col(r, 'area')
+    const city     = forcedCity !== 'auto' ? forcedCity : (col(r, 'city') || (area ? detectCity(area) : '') || detectCity(address))
     const model    = (col(r, 'model') as CampaignModel) || detectModel(city)
     const segment  = forcedSegment !== 'auto' ? forcedSegment : detectSegment(category)
+    const ownerHits = parseInt(col(r, 'owner_name_hits') || '0') || 0
     rows.push({
       name,
-      phone:         normalisePhone(col(r, 'phone')),
-      address,
+      phone:         normalisePhone(col(r, 'phone', 'phone_intl')),
+      address:       address || area,
       category,
       website:       col(r, 'website'),
-      link:          col(r, 'link'),
+      link:          col(r, 'link', 'maps_url'),
       rating:        parseFloat(col(r, 'review_rating', 'rating') || '0') || 0,
       reviews:       parseInt(col(r, 'review_count', 'reviews') || '0') || 0,
       city,
       model,
       segment,
       existingNotes: col(r, 'call notes', 'call_notes', 'notes'),
+      ownerName:     col(r, 'owner_name_candidate'),
+      ownerEvidence: col(r, 'owner_name_evidence'),
+      ownerHits,
     })
   }
   return rows
@@ -326,14 +334,17 @@ function ImportTab() {
             row.website  ? `Website: ${row.website}` : '',
             row.existingNotes ? `Call Notes: ${row.existingNotes}` : '',
           ].filter(Boolean).join(' | ') || null,
-          campaignCity:     row.city,
-          campaignModel:    row.model,
-          campaignSegment:  row.segment,
-          campaignRating:   row.rating   || null,
-          campaignReviews:  row.reviews  || null,
-          campaignCategory: row.category || null,
-          campaignWebsite:  row.website  || null,
-          campaignLink:     row.link     || null,
+          campaignCity:          row.city,
+          campaignModel:         row.model,
+          campaignSegment:       row.segment,
+          campaignRating:        row.rating        || null,
+          campaignReviews:       row.reviews       || null,
+          campaignCategory:      row.category      || null,
+          campaignWebsite:       row.website       || null,
+          campaignLink:          row.link          || null,
+          campaignOwnerName:     row.ownerName     || null,
+          campaignOwnerEvidence: row.ownerEvidence || null,
+          campaignOwnerHits:     row.ownerHits     || null,
           assignedTo:       user?.id     ?? '',
           assignedToName:   user?.name   ?? null,
           aiScore: Math.min(100, Math.round(30 + (row.rating / 5) * 40 + (row.reviews > 50 ? 15 : row.reviews > 10 ? 8 : 0))),
@@ -384,9 +395,9 @@ function ImportTab() {
         <Upload className="w-8 h-8 text-gray-600 group-hover:text-gold-500 mx-auto mb-3 transition-colors" />
         <p className="text-sm font-medium text-gray-300">Drop CSV here or click to browse</p>
         <p className="text-xs text-gray-600 mt-1">
-          Accepts <span className="text-gray-400">raw_direct.csv</span> · <span className="text-gray-400">raw_channel.csv</span> · or Mumbai sheet CSV export
+          Accepts <span className="text-gray-400">channel_new_leads.csv</span> · <span className="text-gray-400">raw_direct.csv</span> · <span className="text-gray-400">raw_channel.csv</span> · Mumbai sheet export
         </p>
-        <p className="text-xs text-gray-700 mt-0.5">Columns auto-detected: title/Business Name, phone, address, category, rating, reviews, website</p>
+        <p className="text-xs text-gray-700 mt-0.5">Auto-detects: owner name, confidence, phone, city, model, rating — from any scraper format</p>
         <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
       </div>
 
@@ -424,7 +435,7 @@ function ImportTab() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-gray-900 border-b border-gray-700">
                   <tr>
-                    {['Business Name', 'Phone', 'City', 'Model', 'Category', 'Rating', 'Notes'].map(h => (
+                    {['Business Name', 'Owner / Boss', 'Confidence', 'Phone', 'City', 'Model', 'Rating'].map(h => (
                       <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -433,14 +444,24 @@ function ImportTab() {
                   {rows.map((row, i) => (
                     <tr key={i} className="hover:bg-gray-800/30">
                       <td className="px-3 py-2 text-gray-200 font-medium max-w-[180px] truncate">{row.name}</td>
+                      <td className="px-3 py-2 max-w-[140px]">
+                        {row.ownerName
+                          ? <span className="text-purple-300 font-medium">{row.ownerName}</span>
+                          : <span className="text-gray-700">—</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.ownerName
+                          ? row.ownerHits >= 2
+                            ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-900/40 text-green-400">Strong</span>
+                            : <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-400">Weak</span>
+                          : <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-800 text-gray-600">None</span>}
+                      </td>
                       <td className="px-3 py-2 text-gray-400">{row.phone || <span className="text-red-500">—</span>}</td>
                       <td className="px-3 py-2 text-gray-400">{row.city}</td>
                       <td className="px-3 py-2"><ModelBadge model={row.model} /></td>
-                      <td className="px-3 py-2 text-gray-500 max-w-[140px] truncate">{row.category}</td>
                       <td className="px-3 py-2">
                         {row.rating > 0 && <span className={cn('font-bold', row.rating >= 4.5 ? 'text-green-400' : 'text-gray-400')}>{row.rating}★</span>}
                       </td>
-                      <td className="px-3 py-2 text-gray-500 max-w-[160px] truncate">{row.existingNotes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -606,7 +627,14 @@ function CallModeTab() {
   const la      = lead as any
   const model: CampaignModel   = la?.campaignModel  || 'Unknown'
   const segment: CampaignSegment = la?.campaignSegment || 'unknown'
-  const { script, label: scriptLabel } = getScript(model, segment)
+  const ownerName = la?.campaignOwnerName || ''
+  const { script: rawScript, label: scriptLabel } = getScript(model, segment)
+  const script = rawScript.map(step => ({
+    ...step,
+    script: ownerName
+      ? step.script.replace('[Name]', ownerName)
+      : step.script,
+  }))
 
   const logCall = async () => {
     if (!lead) return
@@ -680,14 +708,43 @@ function CallModeTab() {
                 )}>{lead.status}</span>
               </div>
               <div className="p-4 space-y-3">
+                {/* Owner name — primary call target */}
+                {la.campaignOwnerName && (
+                  <div className={cn('rounded-xl px-4 py-3 border',
+                    (la.campaignOwnerHits ?? 0) >= 2
+                      ? 'bg-purple-900/20 border-purple-800'
+                      : 'bg-amber-900/20 border-amber-800'
+                  )}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <p className="text-[10px] font-bold tracking-widest text-purple-400">ASK FOR</p>
+                      <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium',
+                        (la.campaignOwnerHits ?? 0) >= 2
+                          ? 'bg-green-900/50 text-green-400'
+                          : 'bg-amber-900/50 text-amber-400'
+                      )}>
+                        {(la.campaignOwnerHits ?? 0) >= 2 ? 'Strong confidence' : 'Weak — verify first'}
+                      </span>
+                    </div>
+                    <p className="text-lg font-bold text-white">{la.campaignOwnerName}</p>
+                    {la.campaignOwnerEvidence && (
+                      <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-2">"{la.campaignOwnerEvidence}"</p>
+                    )}
+                  </div>
+                )}
+
                 {lead.phone && (
                   <div className="flex items-center gap-3">
                     <a href={`tel:${lead.phone}`}
                       className="flex-1 flex items-center gap-3 py-3 px-4 rounded-xl bg-indigo-900/30 border border-indigo-800 hover:bg-indigo-900/50 active:scale-95 transition-all touch-manipulation">
                       <Phone className="w-5 h-5 text-indigo-400 shrink-0" />
-                      <span className="text-base font-bold text-white tracking-wide">{lead.phone}</span>
+                      <div className="min-w-0">
+                        {la.campaignOwnerName && <p className="text-[10px] text-indigo-400 font-medium">Call {la.campaignOwnerName}</p>}
+                        <span className="text-base font-bold text-white tracking-wide">{lead.phone}</span>
+                      </div>
                     </a>
-                    <a href={`https://wa.me/91${lead.phone}`} target="_blank" rel="noopener noreferrer"
+                    <a href={`https://wa.me/91${lead.phone}?text=${encodeURIComponent(
+                      `Hi ${la.campaignOwnerName || ''}! 👋\n\nCame across ${lead.name}'s work${la.campaignCity ? ` in ${la.campaignCity}` : ''} — really impressed with the design quality. We supply smart-home automation systems for interior projects in Mumbai (lighting, AC, security, entertainment control).\n\nWould love to explore if this is something you'd want to add to your client offerings. Could chat for 15 mins?\n\n- Galaxy Smart Homes`
+                    )}`} target="_blank" rel="noopener noreferrer"
                       className="p-3 rounded-xl bg-green-900/30 border border-green-800 hover:bg-green-900/50 active:scale-95 transition-all">
                       <MessageSquare className="w-5 h-5 text-green-400" />
                     </a>
@@ -702,6 +759,12 @@ function CallModeTab() {
                   </div>
                 )}
                 {la.campaignReviews > 0 && <div className="flex items-center gap-3"><Star className="w-3.5 h-3.5 text-gray-600 shrink-0" /><p className="text-xs text-gray-400">{la.campaignReviews} Google reviews</p></div>}
+                {la.campaignLink && (
+                  <div className="flex items-center gap-3">
+                    <MapPin className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                    <a href={la.campaignLink} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">View on Google Maps</a>
+                  </div>
+                )}
                 {lead.notes?.includes('Call Notes:') && (
                   <div className="rounded-lg bg-amber-900/20 border border-amber-800 px-3 py-2">
                     <p className="text-[10px] font-bold text-amber-400 mb-0.5">PREV NOTE FROM SHEET</p>
