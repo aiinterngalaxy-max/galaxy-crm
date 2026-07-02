@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Plus, Check, X, Loader2 } from 'lucide-react'
 import {
   db, collection, query, orderBy, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp,
+  addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit,
 } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
-import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn } from '../../lib/utils'
+import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { Timestamp } from 'firebase/firestore'
+import { nextLeadCode } from '../../lib/counters'
 import toast from 'react-hot-toast'
 import type { Lead, LeadActivity, ActivityType, LeadStatus, LeadSource } from '../../types'
 
@@ -424,6 +425,157 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   )
 }
 
+// ─── New Lead Row ─────────────────────────────────────────────────────────────
+
+function NewLeadRow({ canEdit }: { canEdit: boolean }) {
+  const { user } = useAuth()
+  const [active, setActive] = useState(false)
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [source, setSource] = useState<LeadSource>('cold_call')
+  const [status, setStatus] = useState<LeadStatus>('new')
+  const [budget, setBudget] = useState('')
+  const [assignedToName, setAssignedToName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (active) nameRef.current?.focus()
+  }, [active])
+
+  const reset = () => {
+    setName(''); setPhone(''); setSource('cold_call'); setStatus('new')
+    setBudget(''); setAssignedToName(''); setActive(false)
+  }
+
+  const save = async () => {
+    if (!name.trim()) { toast.error('Name is required'); nameRef.current?.focus(); return }
+    if (!phone.trim()) { toast.error('Phone is required'); return }
+    setSaving(true)
+    try {
+      const normalizedPhone = phone.replace(/\D/g, '')
+      const dupSnap = await getDocs(query(collection(db, 'leads'), where('phone', '==', normalizedPhone), fsLimit(1)))
+      if (!dupSnap.empty) {
+        toast.error(`Phone already used by "${dupSnap.docs[0].data().name}"`)
+        setSaving(false)
+        return
+      }
+      const leadCode = await nextLeadCode()
+      const aiScore = calculateLeadScore({ source, estimatedBudget: budget ? Number(budget) : undefined })
+      await addDoc(collection(db, 'leads'), {
+        leadCode,
+        status,
+        source,
+        name: name.trim(),
+        phone: normalizedPhone,
+        estimatedBudget: budget ? Number(budget) : null,
+        assignedTo: user?.id ?? '',
+        assignedToName: assignedToName.trim() || user?.name || null,
+        aiScore,
+        aiScoreNote: 'Auto-scored based on source and budget.',
+        demoGiven: false,
+        createdBy: user?.id ?? '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success(`Lead "${name.trim()}" created`)
+      reset()
+    } catch {
+      toast.error('Failed to create lead')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') save()
+    if (e.key === 'Escape') reset()
+  }
+
+  if (!canEdit) return null
+
+  if (!active) {
+    return (
+      <tr
+        className="border-t border-dashed border-gray-800 hover:bg-gray-800/20 cursor-pointer transition-colors"
+        onClick={() => setActive(true)}
+      >
+        <td colSpan={9} className="px-4 py-2.5 text-xs text-gray-600 hover:text-gray-400 transition-colors">
+          <span className="flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Add new lead…
+          </span>
+        </td>
+      </tr>
+    )
+  }
+
+  const inputCls = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600 focus:outline-none'
+  const selectCls = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 rounded px-1 py-1 text-xs text-gray-200 focus:outline-none'
+
+  return (
+    <tr className="border-t-2 border-indigo-500/40 bg-gray-800/10">
+      <td className="pl-3 pr-1 py-2 text-gray-600 text-xs">★</td>
+
+      {/* Name */}
+      <td className="px-2 py-2 min-w-[140px]">
+        <input ref={nameRef} value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown}
+          placeholder="Full name *" className={inputCls} />
+      </td>
+
+      {/* Phone */}
+      <td className="px-2 py-2 min-w-[120px]">
+        <input value={phone} onChange={e => setPhone(e.target.value)} onKeyDown={handleKeyDown}
+          placeholder="Phone *" className={inputCls} />
+      </td>
+
+      {/* Source */}
+      <td className="px-2 py-2 min-w-[110px]">
+        <select value={source} onChange={e => setSource(e.target.value as LeadSource)} className={selectCls}>
+          {SOURCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </td>
+
+      {/* Status */}
+      <td className="px-2 py-2 min-w-[110px]">
+        <select value={status} onChange={e => setStatus(e.target.value as LeadStatus)} className={selectCls}>
+          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </td>
+
+      {/* Budget */}
+      <td className="px-2 py-2 min-w-[90px]">
+        <input type="number" value={budget} onChange={e => setBudget(e.target.value)} onKeyDown={handleKeyDown}
+          placeholder="Budget" className={inputCls} />
+      </td>
+
+      {/* Score — auto */}
+      <td className="px-2 py-2 text-center text-xs text-gray-600">auto</td>
+
+      {/* Assigned To */}
+      <td className="px-2 py-2 min-w-[110px]">
+        <input value={assignedToName} onChange={e => setAssignedToName(e.target.value)} onKeyDown={handleKeyDown}
+          placeholder={user?.name ?? 'Assigned to'} className={inputCls} />
+      </td>
+
+      {/* Actions */}
+      <td className="px-2 py-2 whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <button onClick={save} disabled={saving}
+            className="p-1.5 rounded bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/40 transition-colors disabled:opacity-50"
+            title="Save (Enter)">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+          </button>
+          <button onClick={reset}
+            className="p-1.5 rounded text-gray-600 hover:text-gray-300 transition-colors"
+            title="Cancel (Esc)">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ─── Main Spreadsheet View ────────────────────────────────────────────────────
 
 interface Props {
@@ -438,12 +590,6 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
       <div className="flex items-center justify-center py-16 text-gray-600 text-sm gap-2">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading…
       </div>
-    )
-  }
-
-  if (leads.length === 0) {
-    return (
-      <div className="text-center py-16 text-gray-600 text-sm">No leads match the current filters.</div>
     )
   }
 
@@ -462,9 +608,17 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
             </tr>
           </thead>
           <tbody>
+            {leads.length === 0 && !loading && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-xs text-gray-600">
+                  No leads match the current filters.
+                </td>
+              </tr>
+            )}
             {leads.map(lead => (
               <LeadRow key={lead.id} lead={lead} canEdit={canEdit} />
             ))}
+            <NewLeadRow canEdit={canEdit} />
           </tbody>
         </table>
       </div>
