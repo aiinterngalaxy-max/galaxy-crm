@@ -298,7 +298,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
       const iName = find('item name', 'name', 'product', 'description')
       const iPanel = find('panels', 'panel', 'panel name')
       const iQty = find('quantity', 'qty', 'ordered', 'ordered qty', 'rooms', 'total qty')
-      const iPrice = find('unit price', 'price', 'rate')
+      const iPrice = find('unit price', 'price', 'rate', 'discounted rate', 'discountd rate', 'discount rate')
 
       if (iCode === -1 && iName === -1 && iPanel === -1) {
         toast.error('CSV needs an Item Code, Item Name, or Panels column')
