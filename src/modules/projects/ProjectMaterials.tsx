@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Package, Upload, Truck, X, AlertTriangle, Check } from 'lucide-react'
+import { Package, Upload, Truck, X, AlertTriangle, Check, Trash2 } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import {
   db, collection, doc, addDoc, updateDoc, onSnapshot, query, orderBy, where,
-  serverTimestamp, runTransaction,
+  serverTimestamp, runTransaction, getDocs, writeBatch,
 } from '../../lib/firebase'
 import type { InventoryItem, StockStatus } from '../../types'
 import { formatCurrency } from '../../lib/utils'
@@ -537,6 +537,20 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
     }
   }
 
+  // ── Clear all order items ─────────────────────────────────────────────────────
+  const clearOrder = async () => {
+    if (!window.confirm('Delete all order items for this project? This cannot be undone.')) return
+    try {
+      const snap = await getDocs(query(collection(db, 'projects', projectId, 'orderItems')))
+      const batch = writeBatch(db)
+      snap.docs.forEach(d => batch.delete(d.ref))
+      await batch.commit()
+      toast.success('Order cleared')
+    } catch {
+      toast.error('Failed to clear order')
+    }
+  }
+
   // ── Totals ────────────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
     let ordered = 0, delivered = 0, orderValue = 0, deliveredValue = 0
@@ -563,6 +577,11 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           )}
           {canManage && (
             <>
+              {orderItems.length > 0 && (
+                <Button size="sm" variant="ghost" icon={<Trash2 className="w-3.5 h-3.5 text-red-400" />} onClick={clearOrder}>
+                  <span className="text-red-400">Clear Order</span>
+                </Button>
+              )}
               <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />} onClick={() => fileRef.current?.click()}>
                 Upload Order (CSV)
               </Button>
