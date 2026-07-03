@@ -124,7 +124,7 @@ function computeStatus(closing: number, reorder: number): StockStatus {
 
 // ─── Elysia module/code generation (mirrors InventoryPage.tsx's Add Item logic) ──
 
-const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', 'Music Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch']
+const ELYSIA_SWITCH_MODULES = ['1T', '2T', '3T', '4T', 'D/T Knob', 'Music Knob', '4T LCD', '6T', '8T', 'Multifunctional Switch', 'Multifunctional Type-C']
 const ELYSIA_SOCKET_MODULES = ['Single Socket USB C', 'Single Socket 5Pin', 'Single Socket 3Pin', 'Double Socket USB C', 'Double Socket 5Pin', 'Apple Wire Socket']
 const ELYSIA_MODULES = [...ELYSIA_SWITCH_MODULES, ...ELYSIA_SOCKET_MODULES]
 const ELYSIA_MATERIALS = ['Aluminium', 'Skin', 'PC']
