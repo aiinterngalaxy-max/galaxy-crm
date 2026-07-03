@@ -182,9 +182,11 @@ export function ProjectDetail() {
   const sopInputRef = useRef<HTMLInputElement>(null)
   const layoutInputRef = useRef<HTMLInputElement>(null)
   const imagesInputRef = useRef<HTMLInputElement>(null)
+  const dwgInputRef = useRef<HTMLInputElement>(null)
   const [uploadingSop, setUploadingSop] = useState(false)
   const [uploadingLayout, setUploadingLayout] = useState(false)
   const [uploadingImages, setUploadingImages] = useState(false)
+  const [uploadingDwg, setUploadingDwg] = useState(false)
 
   // Access code
   const [regeneratingCode, setRegeneratingCode] = useState(false)
@@ -450,6 +452,25 @@ export function ProjectDetail() {
     }
   }
 
+  async function handleDwgUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !id) return
+    setUploadingDwg(true)
+    try {
+      const url = await uploadFile(`projects/${id}/dwg/${Date.now()}_${file.name}`, file)
+      const current: string[] = (project as any)?.dwgUrls || []
+      const dwgUrls = [...current, url]
+      await updateDoc(doc(db, 'projects', id), { dwgUrls, updatedAt: serverTimestamp() })
+      setProject(prev => prev ? { ...prev, dwgUrls } as Project : null)
+      toast.success('DWG file uploaded')
+    } catch {
+      toast.error('Upload failed')
+    } finally {
+      setUploadingDwg(false)
+      if (dwgInputRef.current) dwgInputRef.current.value = ''
+    }
+  }
+
   async function handleLayoutUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !id) return
@@ -688,8 +709,36 @@ export function ProjectDetail() {
         )}
       </Card>
 
-      {/* ── File Sections: SOP & Layout ── */}
+      {/* ── File Sections: SOP, Layout & DWG ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {/* DWG Files */}
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-200">DWG Files</h2>
+            {canManage && (
+              <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />}
+                loading={uploadingDwg}
+                onClick={() => dwgInputRef.current?.click()}>
+                Upload
+              </Button>
+            )}
+            <input ref={dwgInputRef} type="file" accept=".dwg,.dxf" className="hidden" onChange={handleDwgUpload} />
+          </div>
+          {((project as any)?.dwgUrls?.length ?? 0) === 0 ? (
+            <p className="text-xs text-gray-600">No DWG files uploaded.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {((project as any)?.dwgUrls || []).map((url: string, i: number) => (
+                <a key={i} href={url} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300">
+                  <ExternalLink className="w-3 h-3" />
+                  DWG File {i + 1}
+                </a>
+              ))}
+            </div>
+          )}
+        </Card>
+
         {/* Site SOP */}
         <Card>
           <div className="flex items-center justify-between mb-3">
