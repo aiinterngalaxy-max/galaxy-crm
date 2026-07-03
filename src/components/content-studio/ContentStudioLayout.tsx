@@ -6,7 +6,6 @@ import { GlobalSearch } from './GlobalSearch'
 import { NotificationBell, type NotifSection } from './NotificationBell'
 import { ViewerContext } from '@/lib/content-studio/viewer-context'
 import { getTeam } from '@/lib/content-studio/queries'
-import { isTursoConfigured } from '@/lib/content-studio/db'
 import { useAuth } from '@/contexts/AuthContext'
 import type { TeamMember } from '@/types/content-studio'
 
@@ -21,22 +20,7 @@ export function ContentStudioLayout() {
   const [sections] = useState<NotifSection[]>([])
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1')
 
-  if (!isTursoConfigured) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-amber-900/30 border border-amber-800 flex items-center justify-center">
-          <span className="text-amber-400 text-xl">⚙</span>
-        </div>
-        <h2 className="text-lg font-semibold text-white">Content Studio not configured</h2>
-        <p className="text-sm text-gray-400 max-w-sm">
-          Content Studio requires a Turso database connection.<br />
-          Add <code className="text-amber-400 bg-gray-800 px-1 rounded">VITE_TURSO_DATABASE_URL</code> and <code className="text-amber-400 bg-gray-800 px-1 rounded">VITE_TURSO_AUTH_TOKEN</code> to your environment variables to enable it.
-        </p>
-      </div>
-    )
-  }
-
-  useEffect(() => {
+useEffect(() => {
     getTeam().then(setTeam).catch(console.error)
   }, [])
 

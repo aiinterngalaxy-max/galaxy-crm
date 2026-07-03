@@ -8,14 +8,6 @@ export default defineConfig({
       '@': '/src',
     },
   },
-  optimizeDeps: {
-    exclude: ['@libsql/client'],
-  },
-  build: {
-    rollupOptions: {
-      external: ['@libsql/client', '@libsql/client/web'],
-    },
-  },
   test: {
     environment: 'node',
     globals: true,
