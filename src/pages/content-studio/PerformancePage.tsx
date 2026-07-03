@@ -37,7 +37,7 @@ export function PerformancePage() {
   if (error) return <FirstRun error={error} onSeeded={load} />
 
   const syncedCount = perf.filter((p: any) => p.source === 'sync').length
-  const isLive = syncedCount > 0
+  const isLive = syncedCount > 0 || connected.length > 0
 
   if (!brands.length) {
     return (
