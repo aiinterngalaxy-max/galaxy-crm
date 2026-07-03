@@ -8,9 +8,12 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  optimizeDeps: {
+    exclude: ['@libsql/client'],
+  },
   build: {
     rollupOptions: {
-      external: ['@libsql/client/web'],
+      external: ['@libsql/client', '@libsql/client/web'],
     },
   },
   test: {
