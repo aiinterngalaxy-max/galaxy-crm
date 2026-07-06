@@ -45,7 +45,7 @@ const app = initializeApp(firebaseConfig)
 
 export const auth = getAuth(app)
 export const db = getFirestore(app)
-export const storage = getStorage(app)
+export const storage = getStorage(app, `gs://${import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'placeholder.appspot.com'}`)
 
 // ─── Auth ───────────────────────────────────────────────────────────────────────
 

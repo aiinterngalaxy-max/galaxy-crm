@@ -463,8 +463,9 @@ export function ProjectDetail() {
       await updateDoc(doc(db, 'projects', id), { dwgUrls, updatedAt: serverTimestamp() })
       setProject(prev => prev ? { ...prev, dwgUrls } as Project : null)
       toast.success('DWG file uploaded')
-    } catch {
-      toast.error('Upload failed')
+    } catch (err: any) {
+      console.error('DWG upload error:', err)
+      toast.error(err?.message || 'Upload failed')
     } finally {
       setUploadingDwg(false)
       if (dwgInputRef.current) dwgInputRef.current.value = ''
@@ -711,10 +712,10 @@ export function ProjectDetail() {
 
       {/* ── File Sections: SOP, Layout & DWG ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {/* DWG Files */}
+        {/* ZIP Files */}
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-200">DWG Files</h2>
+            <h2 className="text-sm font-semibold text-gray-200">ZIP Files</h2>
             {canManage && (
               <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />}
                 loading={uploadingDwg}
@@ -722,17 +723,17 @@ export function ProjectDetail() {
                 Upload
               </Button>
             )}
-            <input ref={dwgInputRef} type="file" accept=".dwg,.dxf" className="hidden" onChange={handleDwgUpload} />
+            <input ref={dwgInputRef} type="file" accept=".zip,.rar,.7z" className="hidden" onChange={handleDwgUpload} />
           </div>
           {((project as any)?.dwgUrls?.length ?? 0) === 0 ? (
-            <p className="text-xs text-gray-600">No DWG files uploaded.</p>
+            <p className="text-xs text-gray-600">No ZIP files uploaded.</p>
           ) : (
             <div className="space-y-1.5">
               {((project as any)?.dwgUrls || []).map((url: string, i: number) => (
                 <a key={i} href={url} target="_blank" rel="noreferrer"
                   className="flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300">
                   <ExternalLink className="w-3 h-3" />
-                  DWG File {i + 1}
+                  ZIP File {i + 1}
                 </a>
               ))}
             </div>
