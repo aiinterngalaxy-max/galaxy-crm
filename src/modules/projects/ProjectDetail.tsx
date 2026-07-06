@@ -25,6 +25,7 @@ import {
 import type { Project, Milestone, MilestoneStatus, SiteReport, User as AppUser } from '../../types'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
 import { ProjectMaterials } from './ProjectMaterials'
+import { ProjectFaultyItems } from './ProjectFaultyItems'
 import toast from 'react-hot-toast'
 
 // ─── Workflow Types ────────────────────────────────────────────────────────────
@@ -169,11 +170,13 @@ export function ProjectDetail() {
   const [editingSiteDetails, setEditingSiteDetails] = useState(false)
   const [siteFields, setSiteFields] = useState({
     clientContact: '',
+    clientDesignation: '',
     city: '',
     landmark: '',
     siteAddress: '',
     mapsLink: '',
     architectContact: '',
+    electricianName: '',
     electricianContact: '',
   })
   const [savingSite, setSavingSite] = useState(false)
@@ -224,19 +227,22 @@ export function ProjectDetail() {
         ])
         if (projSnap.exists()) {
           const p = { id: projSnap.id, ...projSnap.data() } as Project & {
-            clientContact?: string; city?: string; landmark?: string
+            clientContact?: string; clientDesignation?: string; city?: string; landmark?: string
             siteAddress?: string; mapsLink?: string; architectContact?: string
-            electricianContact?: string; sopUrls?: string[]; layoutUrls?: string[]
+            electricianName?: string; electricianContact?: string
+            sopUrls?: string[]; layoutUrls?: string[]
             siteImages?: string[]; accessCode?: string
           }
           setProject(p as Project)
           setSiteFields({
             clientContact: p.clientContact || '',
+            clientDesignation: p.clientDesignation || '',
             city: p.city || '',
             landmark: p.landmark || '',
             siteAddress: p.siteAddress || '',
             mapsLink: p.mapsLink || '',
             architectContact: p.architectContact || '',
+            electricianName: p.electricianName || '',
             electricianContact: p.electricianContact || '',
           })
         }
@@ -563,9 +569,9 @@ export function ProjectDetail() {
   if (!project) return <div className="text-center py-16 text-gray-500">Project not found</div>
 
   const p = project as Project & {
-    accessCode?: string; siteAddress?: string; clientContact?: string
+    accessCode?: string; siteAddress?: string; clientContact?: string; clientDesignation?: string
     city?: string; landmark?: string; mapsLink?: string
-    architectContact?: string; electricianContact?: string
+    architectContact?: string; electricianName?: string; electricianContact?: string
     sopUrls?: string[]; layoutUrls?: string[]; siteImages?: string[]
     totalValue?: number
   }
@@ -664,6 +670,9 @@ export function ProjectDetail() {
               <Input label="Client Contact" placeholder="+91 98765 43210"
                 value={siteFields.clientContact}
                 onChange={e => setSiteFields(f => ({ ...f, clientContact: e.target.value }))} />
+              <Input label="Client Designation" placeholder="e.g. Architect, Builder, Owner"
+                value={siteFields.clientDesignation}
+                onChange={e => setSiteFields(f => ({ ...f, clientDesignation: e.target.value }))} />
               <Input label="City" placeholder="Ahmedabad"
                 value={siteFields.city}
                 onChange={e => setSiteFields(f => ({ ...f, city: e.target.value }))} />
@@ -676,6 +685,9 @@ export function ProjectDetail() {
               <Input label="Architect Contact" placeholder="+91 98765 43210"
                 value={siteFields.architectContact}
                 onChange={e => setSiteFields(f => ({ ...f, architectContact: e.target.value }))} />
+              <Input label="Electrician Name" placeholder="e.g. Ramesh Patel"
+                value={siteFields.electricianName}
+                onChange={e => setSiteFields(f => ({ ...f, electricianName: e.target.value }))} />
               <Input label="Electrician Contact" placeholder="+91 98765 43210"
                 value={siteFields.electricianContact}
                 onChange={e => setSiteFields(f => ({ ...f, electricianContact: e.target.value }))} />
@@ -691,10 +703,12 @@ export function ProjectDetail() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <InfoRow icon={<Phone className="w-3.5 h-3.5" />} label="Client Contact" value={p.clientContact} />
+            <InfoRow icon={<User className="w-3.5 h-3.5" />} label="Client Designation" value={p.clientDesignation} />
             <InfoRow icon={<MapPin className="w-3.5 h-3.5" />} label="City" value={p.city} />
             <InfoRow icon={<MapPin className="w-3.5 h-3.5" />} label="Landmark" value={p.landmark} />
             <InfoRow icon={<User className="w-3.5 h-3.5" />} label="Architect" value={p.architectContact} />
-            <InfoRow icon={<User className="w-3.5 h-3.5" />} label="Electrician" value={p.electricianContact} />
+            <InfoRow icon={<User className="w-3.5 h-3.5" />} label="Electrician Name" value={p.electricianName} />
+            <InfoRow icon={<Phone className="w-3.5 h-3.5" />} label="Electrician Contact" value={p.electricianContact} />
             {p.mapsLink && (
               <div className="flex items-start gap-2">
                 <ExternalLink className="w-3.5 h-3.5 text-gray-500 mt-0.5 shrink-0" />
@@ -716,7 +730,7 @@ export function ProjectDetail() {
                 </div>
               </div>
             )}
-            {!p.clientContact && !p.city && !p.siteAddress && (
+            {!p.clientContact && !p.city && !p.siteAddress && !p.electricianName && (
               <p className="text-gray-600 text-xs sm:col-span-2">No site details added yet.</p>
             )}
           </div>
@@ -1078,6 +1092,15 @@ export function ProjectDetail() {
           projectCode={(project as any).projectCode || project.title}
           canManage={canManage}
           userId={user.id}
+          userName={user.name}
+        />
+      )}
+
+      {/* ── Non-Working Inventory ── */}
+      {user && (
+        <ProjectFaultyItems
+          projectId={id!}
+          canManage={canManage}
           userName={user.name}
         />
       )}
