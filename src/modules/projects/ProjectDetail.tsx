@@ -457,15 +457,22 @@ export function ProjectDetail() {
     if (!file || !id) return
     setUploadingDwg(true)
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Upload timed out — check Firebase Storage is enabled in your Firebase console')), 15000)
-      )
-      const url = await Promise.race([
-        uploadFile(`projects/${id}/zip/${Date.now()}_${file.name}`, file),
-        timeout,
-      ])
-      const current: string[] = (project as any)?.dwgUrls || []
-      const dwgUrls = [...current, url]
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
+      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('upload_preset', uploadPreset)
+      formData.append('resource_type', 'raw')
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) throw new Error(`Cloudinary error: ${res.statusText}`)
+      const data = await res.json()
+      const url: string = data.secure_url
+      const fileName: string = file.name
+      const current: { url: string; name: string }[] = (project as any)?.dwgUrls || []
+      const dwgUrls = [...current, { url, name: fileName }]
       await updateDoc(doc(db, 'projects', id), { dwgUrls, updatedAt: serverTimestamp() })
       setProject(prev => prev ? { ...prev, dwgUrls } as Project : null)
       toast.success('ZIP file uploaded')
@@ -735,13 +742,17 @@ export function ProjectDetail() {
             <p className="text-xs text-gray-600">No ZIP files uploaded.</p>
           ) : (
             <div className="space-y-1.5">
-              {((project as any)?.dwgUrls || []).map((url: string, i: number) => (
-                <a key={i} href={url} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300">
-                  <ExternalLink className="w-3 h-3" />
-                  ZIP File {i + 1}
-                </a>
-              ))}
+              {((project as any)?.dwgUrls || []).map((entry: any, i: number) => {
+                const url = typeof entry === 'string' ? entry : entry.url
+                const name = typeof entry === 'string' ? `ZIP File ${i + 1}` : entry.name
+                return (
+                  <a key={i} href={url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300">
+                    <ExternalLink className="w-3 h-3" />
+                    {name}
+                  </a>
+                )
+              })}
             </div>
           )}
         </Card>
