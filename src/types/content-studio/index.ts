@@ -122,6 +122,7 @@ export interface PerfRow extends Performance {
   title: string;
   brand_name: string;
   platform: string;
+  source?: string;
 }
 
 export interface ActivityEntry {

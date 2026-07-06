@@ -642,7 +642,7 @@ export function getPerformance(): Promise<PerfRow[]> {
   return all<PerfRow>(
     `SELECT p.id, p.content_id, p.views, p.reach, p.likes, p.comments,
             p.shares, p.saves, p.watch_time_sec, p.clicks, p.follower_growth, p.captured_at,
-            ct.title, ct.platform, br.name AS brand_name
+            ct.title, ct.platform, ct.source, br.name AS brand_name
      FROM cmo_performance p
      JOIN cmo_content ct ON ct.id = p.content_id
      JOIN cmo_brands br ON br.id = ct.brand_id
