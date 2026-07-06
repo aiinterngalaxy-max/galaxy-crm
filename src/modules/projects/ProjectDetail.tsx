@@ -457,14 +457,20 @@ export function ProjectDetail() {
     if (!file || !id) return
     setUploadingDwg(true)
     try {
-      const url = await uploadFile(`projects/${id}/dwg/${Date.now()}_${file.name}`, file)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Upload timed out — check Firebase Storage is enabled in your Firebase console')), 15000)
+      )
+      const url = await Promise.race([
+        uploadFile(`projects/${id}/zip/${Date.now()}_${file.name}`, file),
+        timeout,
+      ])
       const current: string[] = (project as any)?.dwgUrls || []
       const dwgUrls = [...current, url]
       await updateDoc(doc(db, 'projects', id), { dwgUrls, updatedAt: serverTimestamp() })
       setProject(prev => prev ? { ...prev, dwgUrls } as Project : null)
-      toast.success('DWG file uploaded')
+      toast.success('ZIP file uploaded')
     } catch (err: any) {
-      console.error('DWG upload error:', err)
+      console.error('ZIP upload error:', err)
       toast.error(err?.message || 'Upload failed')
     } finally {
       setUploadingDwg(false)
