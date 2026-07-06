@@ -5,7 +5,10 @@ const API = 'https://www.googleapis.com/youtube/v3'
 export const YT_NEEDS = ['VITE_YT_API_KEY', 'VITE_YT_CHANNEL_ID (UC… or @handle)']
 
 function env(key: string): string | undefined {
-  return (import.meta.env as any)[key]
+  const val = (import.meta.env as any)[key]
+  if (!val) return val
+  const prefix = key + '='
+  return String(val).startsWith(prefix) ? String(val).slice(prefix.length) : String(val)
 }
 
 export function ytConfigured(): boolean {

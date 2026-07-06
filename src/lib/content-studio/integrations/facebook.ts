@@ -6,7 +6,12 @@ const G = `https://graph.facebook.com/${V}`
 export const FB_NEEDS = ['VITE_FB_ACCESS_TOKEN (Page access token)', 'VITE_FB_PAGE_ID (numeric page id)']
 
 function env(key: string): string | undefined {
-  return (import.meta.env as any)[key]
+  const val = (import.meta.env as any)[key]
+  if (!val) return val
+  // Guard: if the value accidentally includes the key name (e.g. "VITE_FB_PAGE_ID=123"),
+  // strip the prefix so only the actual value is returned.
+  const prefix = key + '='
+  return String(val).startsWith(prefix) ? String(val).slice(prefix.length) : String(val)
 }
 
 export function fbConfigured(): boolean {

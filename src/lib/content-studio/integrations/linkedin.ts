@@ -5,7 +5,10 @@ const API = 'https://api.linkedin.com/rest'
 export const LI_NEEDS = ['VITE_LI_ACCESS_TOKEN (OAuth)', 'VITE_LI_ORG_ID (numeric org id)']
 
 function env(key: string): string | undefined {
-  return (import.meta.env as any)[key]
+  const val = (import.meta.env as any)[key]
+  if (!val) return val
+  const prefix = key + '='
+  return String(val).startsWith(prefix) ? String(val).slice(prefix.length) : String(val)
 }
 
 export function liConfigured(): boolean {

@@ -6,7 +6,10 @@ const G = `https://graph.facebook.com/${V}`
 export const IG_NEEDS = ['VITE_IG_ACCESS_TOKEN (long-lived)', 'VITE_IG_USER_ID (ig business id)']
 
 function env(key: string): string | undefined {
-  return (import.meta.env as any)[key]
+  const val = (import.meta.env as any)[key]
+  if (!val) return val
+  const prefix = key + '='
+  return String(val).startsWith(prefix) ? String(val).slice(prefix.length) : String(val)
 }
 
 export function igConfigured(): boolean {
