@@ -40,6 +40,7 @@ const PartnersPage = lazy(() => import('./modules/partners/PartnersPage').then(m
 const PartnerDetail = lazy(() => import('./modules/partners/PartnerDetail').then(m => ({ default: m.PartnerDetail })))
 const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').then(m => ({ default: m.InventoryPage })))
+const NonWorkingPage = lazy(() => import('./modules/inventory/NonWorkingPage').then(m => ({ default: m.NonWorkingPage })))
 const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
 
 // Route guard
@@ -144,6 +145,7 @@ function AppRoutes() {
 
           {/* Inventory */}
           <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
+          <Route path="inventory/non-working" element={<RequireRole module="inventory"><NonWorkingPage /></RequireRole>} />
           <Route path="inventory/:line" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
 
           {/* Settings */}
