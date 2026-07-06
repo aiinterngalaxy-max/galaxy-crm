@@ -124,7 +124,7 @@ export function NonWorkingPage() {
     }
   }
 
-  const canManage = (user?.role as string) === 'admin' || (user?.role as string) === 'manager'
+  const canManage = !!user
 
   return (
     <div className="p-6 space-y-5 max-w-6xl mx-auto">
