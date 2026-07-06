@@ -463,7 +463,7 @@ export function ProjectDetail() {
       formData.append('file', file)
       formData.append('upload_preset', uploadPreset)
       formData.append('resource_type', 'raw')
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -475,7 +475,7 @@ export function ProjectDetail() {
       const dwgUrls = [...current, { url, name: fileName }]
       await updateDoc(doc(db, 'projects', id), { dwgUrls, updatedAt: serverTimestamp() })
       setProject(prev => prev ? { ...prev, dwgUrls } as Project : null)
-      toast.success('ZIP file uploaded')
+      toast.success('DWG file uploaded')
     } catch (err: any) {
       console.error('ZIP upload error:', err)
       toast.error(err?.message || 'Upload failed')
@@ -728,7 +728,7 @@ export function ProjectDetail() {
         {/* ZIP Files */}
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-200">ZIP Files</h2>
+            <h2 className="text-sm font-semibold text-gray-200">DWG Files</h2>
             {canManage && (
               <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />}
                 loading={uploadingDwg}
@@ -736,10 +736,10 @@ export function ProjectDetail() {
                 Upload
               </Button>
             )}
-            <input ref={dwgInputRef} type="file" accept=".zip,.rar,.7z" className="hidden" onChange={handleDwgUpload} />
+            <input ref={dwgInputRef} type="file" accept=".dwg,.dxf" className="hidden" onChange={handleDwgUpload} />
           </div>
           {((project as any)?.dwgUrls?.length ?? 0) === 0 ? (
-            <p className="text-xs text-gray-600">No ZIP files uploaded.</p>
+            <p className="text-xs text-gray-600">No DWG files uploaded.</p>
           ) : (
             <div className="space-y-1.5">
               {((project as any)?.dwgUrls || []).map((entry: any, i: number) => {
