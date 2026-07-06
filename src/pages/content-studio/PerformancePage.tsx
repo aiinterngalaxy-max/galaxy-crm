@@ -16,6 +16,7 @@ export function PerformancePage() {
   const [connected, setConnected] = useState<string[]>([])
   const [platFilter, setPlatFilter] = useState('all')
   const [brandFilter, setBrandFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'views' | 'date'>('views')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -98,7 +99,14 @@ export function PerformancePage() {
   ).sort((a, b) => b[1].views - a[1].views)
   const maxPlatViews = Math.max(1, ...platforms.map(([, v]) => v.views))
 
-  const top = [...filtered].sort((a, b) => b.views - a.views)
+  const top = [...filtered].sort((a, b) => {
+    if (sortBy === 'date') {
+      const da = a.publish_date || a.captured_at || ''
+      const db = b.publish_date || b.captured_at || ''
+      return db.localeCompare(da)
+    }
+    return b.views - a.views
+  })
 
   return (
     <Page>
@@ -234,9 +242,25 @@ export function PerformancePage() {
 
       {/* Top content table */}
       <div className="glass-card mt-6 overflow-hidden">
-        <div className="p-5 border-b border-gray-800 flex items-center justify-between">
-          <h2 className="font-bold text-gray-100">Top performing content</h2>
-          <span className="text-xs text-gray-500">{filtered.length} piece{filtered.length !== 1 ? 's' : ''}</span>
+        <div className="p-5 border-b border-gray-800 flex items-center justify-between gap-4">
+          <h2 className="font-bold text-gray-100">All content</h2>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500">{filtered.length} piece{filtered.length !== 1 ? 's' : ''}</span>
+            <div className="flex items-center rounded-lg overflow-hidden border border-gray-800 text-xs font-semibold">
+              <button
+                onClick={() => setSortBy('views')}
+                className={`px-3 py-1.5 transition-colors ${sortBy === 'views' ? 'bg-gold-500 text-gray-950' : 'bg-gray-900 text-gray-400 hover:text-gray-200'}`}
+              >
+                Top views
+              </button>
+              <button
+                onClick={() => setSortBy('date')}
+                className={`px-3 py-1.5 transition-colors border-l border-gray-800 ${sortBy === 'date' ? 'bg-gold-500 text-gray-950' : 'bg-gray-900 text-gray-400 hover:text-gray-200'}`}
+              >
+                Newest first
+              </button>
+            </div>
+          </div>
         </div>
         {top.length === 0 ? (
           <div className="p-10 text-center text-sm text-gray-500">No content matches the selected filters.</div>
@@ -248,6 +272,7 @@ export function PerformancePage() {
                   <th className="px-5 py-2.5 font-semibold">#</th>
                   <th className="px-3 py-2.5 font-semibold">Content</th>
                   <th className="px-3 py-2.5 font-semibold">Platform</th>
+                  <th className="px-3 py-2.5 font-semibold">Date</th>
                   <th className="px-3 py-2.5 font-semibold text-right">Views</th>
                   <th className="px-3 py-2.5 font-semibold text-right">Reach</th>
                   <th className="px-3 py-2.5 font-semibold text-right">Likes</th>
@@ -269,6 +294,7 @@ export function PerformancePage() {
                         <div className="text-[11px] text-gray-500">{p.brand_name}</div>
                       </td>
                       <td className="px-3 py-2.5"><PlatformChip platform={p.platform} /></td>
+                      <td className="px-3 py-2.5 text-gray-400 text-xs whitespace-nowrap">{p.publish_date ? p.publish_date.slice(0, 10) : '—'}</td>
                       <td className="px-3 py-2.5 text-right font-semibold text-gray-100">{num(p.views)}</td>
                       <td className="px-3 py-2.5 text-right text-gray-400">{num(p.reach)}</td>
                       <td className="px-3 py-2.5 text-right text-gray-400">{num(p.likes)}</td>
