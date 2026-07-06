@@ -33,29 +33,51 @@ export async function igPull(limit: number): Promise<AccountResult> {
     base.handle = me.username || uid
     base.follower_count = n(me.followers_count)
 
-    const media = await j(
-      `${G}/${uid}/media?fields=id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count&limit=${Math.min(limit, 50)}&access_token=${token}`,
-    )
+    const cap = Math.min(limit, 100)
+    const mediaFields = 'id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count'
+
+    const media = await j(`${G}/${uid}/media?fields=${mediaFields}&limit=${cap}&access_token=${token}`)
+
+    // /reels returns Reels-tab posts not shared to the feed — these are invisible
+    // to /media, which is why newly-uploaded Reels don't appear after sync.
+    let reelsData: any[] = []
+    try {
+      const reels = await j(`${G}/${uid}/reels?fields=${mediaFields}&limit=${cap}&access_token=${token}`)
+      reelsData = reels.data || []
+    } catch {
+      // endpoint unavailable for this account type — skip
+    }
+
+    // Merge feed posts and reels, deduplicating by Instagram media id.
+    const seen = new Set<string>()
+    const allMedia: any[] = []
+    for (const m of [...(media.data || []), ...reelsData]) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id)
+        allMedia.push(m)
+      }
+    }
 
     const posts: NormPost[] = []
-    for (const m of media.data || []) {
+    for (const m of allMedia) {
       const mediaType = (m.media_type || '').toUpperCase()
       const metrics = { ...ZERO, likes: n(m.like_count), comments: n(m.comments_count) }
-      const insightMetrics = ['reach', 'saved', 'shares', 'views']
-      for (const metric of insightMetrics) {
-        try {
-          const ins = await j(`${G}/${m.id}/insights?metric=${metric}&access_token=${token}`)
-          for (const row of ins.data || []) {
-            const val = n(row.values?.[0]?.value ?? row.value)
-            if (row.name === 'reach') metrics.reach = val
-            else if (row.name === 'saved') metrics.saves = val
-            else if (row.name === 'shares') metrics.shares = val
-            else if (row.name === 'views') metrics.views = Math.max(metrics.views, val)
-          }
-        } catch {
-          // unsupported metric for this media type — keep zero
+
+      // Batch all insight metrics into one request instead of four separate calls.
+      // `plays` is the Reels-specific view count; `views` covers feed videos.
+      try {
+        const ins = await j(`${G}/${m.id}/insights?metric=reach,saved,shares,views,plays&access_token=${token}`)
+        for (const row of ins.data || []) {
+          const val = n(row.values?.[0]?.value ?? row.value)
+          if (row.name === 'reach') metrics.reach = val
+          else if (row.name === 'saved') metrics.saves = val
+          else if (row.name === 'shares') metrics.shares = val
+          else if (row.name === 'views' || row.name === 'plays') metrics.views = Math.max(metrics.views, val)
         }
+      } catch {
+        // insights not yet available (new post) or unsupported for this media type — keep zeros
       }
+
       const title = (m.caption || '').split('\n')[0].slice(0, 80) || `Instagram ${mediaType || 'post'}`
       posts.push({
         ext_id: m.id,
