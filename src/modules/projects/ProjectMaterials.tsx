@@ -249,6 +249,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
   const [bulkDispatchOpen, setBulkDispatchOpen] = useState(false)
   const [dispatchHistory, setDispatchHistory] = useState<DispatchRecord[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [showAddItem, setShowAddItem] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -585,6 +586,9 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
               <Button size="sm" variant="secondary" icon={<Upload className="w-3.5 h-3.5" />} onClick={() => fileRef.current?.click()}>
                 Upload Order (CSV)
               </Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowAddItem(true)}>
+                + Add Item
+              </Button>
               <input
                 ref={fileRef} type="file" accept=".csv" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
@@ -733,6 +737,17 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           invById={invById}
           onConfirm={doBulkDispatch}
           onClose={() => setBulkDispatchOpen(false)}
+        />
+      )}
+
+      {/* Manual add item modal */}
+      {showAddItem && (
+        <AddItemModal
+          inventory={inventory}
+          projectId={projectId}
+          userId={userId}
+          userName={userName}
+          onClose={() => setShowAddItem(false)}
         />
       )}
 
@@ -1012,6 +1027,116 @@ function BulkDispatchModal({ orders, invById, onConfirm, onClose }: {
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
             <Button type="submit" variant="primary" className="flex-1" loading={saving}>Confirm Dispatch</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Add Item modal ────────────────────────────────────────────────────────────
+
+function AddItemModal({ inventory, projectId, userId, userName, onClose }: {
+  inventory: InventoryItem[]
+  projectId: string
+  userId: string
+  userName: string
+  onClose: () => void
+}) {
+  const [itemCode, setItemCode] = useState('')
+  const [itemName, setItemName] = useState('')
+  const [qty, setQty] = useState('')
+  const [unitPrice, setUnitPrice] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const byCode = useMemo(() => new Map(inventory.map(i => [i.itemCode.trim().toUpperCase(), i])), [inventory])
+  const byName = useMemo(() => new Map(inventory.map(i => [i.itemName.trim().toUpperCase(), i])), [inventory])
+
+  const handleCodeBlur = () => {
+    const match = byCode.get(itemCode.trim().toUpperCase())
+    if (match && !itemName) setItemName(match.itemName)
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const orderedQty = Number(qty)
+    if (!itemCode.trim() || !itemName.trim() || orderedQty <= 0) {
+      toast.error('Fill in Item Code, Item Name and Quantity')
+      return
+    }
+    setSaving(true)
+    try {
+      const existing = byCode.get(itemCode.trim().toUpperCase()) || byName.get(itemName.trim().toUpperCase())
+      let itemId = existing?.id
+      if (!itemId) {
+        const newRef = await addDoc(collection(db, 'inventory'), {
+          itemCode: itemCode.trim().toUpperCase(),
+          itemName: itemName.trim(),
+          category: itemCode.trim().toUpperCase(),
+          location: '', material: '', color: '', productLine: 'other',
+          openingStock: 0, importedQty: 0, issuedQty: 0, closingStock: 0, reorderLevel: 0,
+          stockStatus: 'out_of_stock',
+          createdBy: userId, createdByName: userName,
+          createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+        })
+        itemId = newRef.id
+      }
+      await addDoc(collection(db, 'projects', projectId, 'orderItems'), {
+        itemId,
+        itemCode: itemCode.trim().toUpperCase(),
+        itemName: itemName.trim(),
+        unitPrice: Number(unitPrice) || 0,
+        orderedQty,
+        deliveredQty: 0,
+        createdAt: serverTimestamp(),
+      })
+      toast.success('Item added')
+      onClose()
+    } catch (err) {
+      toast.error('Failed to add item')
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+      <div className="glass-card w-full max-w-sm rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-100">Add Item Manually</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="form-label">Item Code *</label>
+            <input
+              autoFocus className="form-input" placeholder="e.g. 2T-GREY-ALUMINIUM"
+              value={itemCode} onChange={e => setItemCode(e.target.value)} onBlur={handleCodeBlur}
+            />
+          </div>
+          <div>
+            <label className="form-label">Item Name *</label>
+            <input
+              className="form-input" placeholder="e.g. 2 Touch Grey"
+              value={itemName} onChange={e => setItemName(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Quantity *</label>
+              <input type="number" min="1" className="form-input" placeholder="0"
+                value={qty} onChange={e => setQty(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">Unit Price (₹)</label>
+              <input type="number" min="0" className="form-input" placeholder="0"
+                value={unitPrice} onChange={e => setUnitPrice(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="primary" className="flex-1" loading={saving}>Add Item</Button>
           </div>
         </form>
       </div>
