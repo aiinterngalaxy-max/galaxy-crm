@@ -63,10 +63,15 @@ export async function igPull(limit: number): Promise<AccountResult> {
       const mediaType = (m.media_type || '').toUpperCase()
       const metrics = { ...ZERO, likes: n(m.like_count), comments: n(m.comments_count) }
 
-      // Batch all insight metrics into one request instead of four separate calls.
-      // `plays` is the Reels-specific view count; `views` covers feed videos.
+      // Try a single batched insights request first (reach/saved/shares/views work for
+      // feed posts; plays is Reels-only). If the batch fails because a metric is
+      // unsupported for this media type, fall back to individual calls so a single
+      // unsupported metric doesn't wipe out all the others.
+      const isReel = (m.media_product_type || '').toUpperCase() === 'REELS'
+      const batchMetrics = isReel ? 'reach,saved,shares,plays' : 'reach,saved,shares,views'
+      let batchOk = false
       try {
-        const ins = await j(`${G}/${m.id}/insights?metric=reach,saved,shares,views,plays&access_token=${token}`)
+        const ins = await j(`${G}/${m.id}/insights?metric=${batchMetrics}&access_token=${token}`)
         for (const row of ins.data || []) {
           const val = n(row.values?.[0]?.value ?? row.value)
           if (row.name === 'reach') metrics.reach = val
@@ -74,8 +79,25 @@ export async function igPull(limit: number): Promise<AccountResult> {
           else if (row.name === 'shares') metrics.shares = val
           else if (row.name === 'views' || row.name === 'plays') metrics.views = Math.max(metrics.views, val)
         }
+        batchOk = true
       } catch {
-        // insights not yet available (new post) or unsupported for this media type — keep zeros
+        // batch failed — fall back to individual calls so partial data still lands
+      }
+      if (!batchOk) {
+        for (const metric of ['reach', 'saved', 'shares', isReel ? 'plays' : 'views']) {
+          try {
+            const ins = await j(`${G}/${m.id}/insights?metric=${metric}&access_token=${token}`)
+            for (const row of ins.data || []) {
+              const val = n(row.values?.[0]?.value ?? row.value)
+              if (row.name === 'reach') metrics.reach = val
+              else if (row.name === 'saved') metrics.saves = val
+              else if (row.name === 'shares') metrics.shares = val
+              else if (row.name === 'views' || row.name === 'plays') metrics.views = Math.max(metrics.views, val)
+            }
+          } catch {
+            // metric unsupported for this media type — keep zero
+          }
+        }
       }
 
       const title = (m.caption || '').split('\n')[0].slice(0, 80) || `Instagram ${mediaType || 'post'}`
