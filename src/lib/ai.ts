@@ -1,33 +1,30 @@
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 
 export async function callClaude(
   userPrompt: string,
   systemPrompt?: string,
-  maxTokens = 2048
+  _maxTokens = 2048
 ): Promise<string> {
-  if (!API_KEY) throw new Error('VITE_ANTHROPIC_API_KEY is not set in .env')
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in .env — get a free key at aistudio.google.com/app/apikey')
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      ...(systemPrompt ? { system: systemPrompt } : {}),
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-  })
+  const body: Record<string, unknown> = {
+    contents: [{ parts: [{ text: userPrompt }] }],
+    generationConfig: { maxOutputTokens: _maxTokens, temperature: 0.7 },
+  }
+  if (systemPrompt) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] }
+  }
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+  )
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Anthropic API error (${res.status}): ${text}`)
+    throw new Error(`Gemini API error (${res.status}): ${text}`)
   }
 
   const data = await res.json()
-  return (data.content?.[0]?.text as string) ?? ''
+  return (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? ''
 }
