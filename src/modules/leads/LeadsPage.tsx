@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate } from 'react-router-dom'
 import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock, Table2 } from 'lucide-react'
 import { LeadsSpreadsheetView } from './LeadsSpreadsheetView'
@@ -192,6 +193,30 @@ export function LeadsPage() {
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
   }, [filtered])
 
+  // ── Virtual scrolling for list view ──────────────────────────────────────────
+
+  type FlatItem =
+    | { kind: 'header'; label: string; count: number }
+    | { kind: 'row'; lead: Lead }
+
+  const flatListItems = useMemo((): FlatItem[] => {
+    const items: FlatItem[] = []
+    for (const [, { label, leads: monthLeads }] of groupedByMonth) {
+      items.push({ kind: 'header', label, count: monthLeads.length })
+      for (const lead of monthLeads) items.push({ kind: 'row', lead })
+    }
+    return items
+  }, [groupedByMonth])
+
+  const listParentRef = useRef<HTMLDivElement>(null)
+
+  const virtualizer = useVirtualizer({
+    count: flatListItems.length,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: i => flatListItems[i]?.kind === 'header' ? 44 : 56,
+    overscan: 8,
+  })
+
   const wonLost = leads.filter(l => ['won', 'lost'].includes(l.status))
 
   return (
@@ -354,9 +379,9 @@ export function LeadsPage() {
         </div>
       )}
 
-      {/* List View — grouped by month */}
+      {/* List View — virtualised, grouped by month */}
       {viewMode === 'list' && (
-        <div className="space-y-4">
+        <div>
           {loading && (
             <Card padding="none">
               <div className="px-4 py-8 text-center text-sm text-gray-600">Loading…</div>
@@ -369,32 +394,54 @@ export function LeadsPage() {
               action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
             />
           )}
-          {groupedByMonth.map(([monthKey, { label, leads: monthLeads }]) => (
-            <div key={monthKey}>
-              {/* Month header */}
-              <div className="flex items-center gap-3 mb-2 px-1">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
-                <span className="text-xs bg-gray-800 text-gray-500 rounded-full px-2 py-0.5">{monthLeads.length}</span>
-                <div className="flex-1 h-px bg-gray-800" />
+          {!loading && flatListItems.length > 0 && (
+            <Card padding="none">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800">
+                      {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
+                        <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 bg-gray-900 sticky top-0 z-10">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                </table>
               </div>
-              <Card padding="none">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-800">
-                        {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
-                          <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-800">
-                      {monthLeads.map(lead => (
+              <div
+                ref={listParentRef}
+                className="overflow-y-auto overflow-x-auto"
+                style={{ maxHeight: 'calc(100vh - 300px)' }}
+              >
+                <table className="w-full text-sm">
+                  <tbody>
+                    {virtualizer.getVirtualItems()[0]?.start > 0 && (
+                      <tr><td colSpan={10} style={{ height: virtualizer.getVirtualItems()[0].start }} /></tr>
+                    )}
+                    {virtualizer.getVirtualItems().map(vRow => {
+                      const item = flatListItems[vRow.index]
+                      if (item.kind === 'header') {
+                        return (
+                          <tr key={vRow.key} data-index={vRow.index} ref={virtualizer.measureElement}>
+                            <td colSpan={10} className="px-4 pt-5 pb-2">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{item.label}</span>
+                                <span className="text-xs bg-gray-800 text-gray-500 rounded-full px-2 py-0.5">{item.count}</span>
+                                <div className="flex-1 h-px bg-gray-800" />
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+                      const lead = item.lead
+                      return (
                         <tr
-                          key={lead.id}
+                          key={vRow.key}
+                          data-index={vRow.index}
+                          ref={virtualizer.measureElement}
                           onClick={() => navigate(`/leads/${lead.id}`)}
-                          className="hover:bg-gray-800/50 cursor-pointer transition-colors"
+                          className="hover:bg-gray-800/50 cursor-pointer transition-colors border-t border-gray-800/50"
                           onMouseEnter={e => handleRowEnter(lead, e)}
                           onMouseLeave={handleRowLeave}
                         >
@@ -447,13 +494,21 @@ export function LeadsPage() {
                             </div>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </div>
-          ))}
+                      )
+                    })}
+                    {(() => {
+                      const vItems = virtualizer.getVirtualItems()
+                      const last = vItems[vItems.length - 1]
+                      const paddingBottom = last ? virtualizer.getTotalSize() - last.end : 0
+                      return paddingBottom > 0
+                        ? <tr><td colSpan={10} style={{ height: paddingBottom }} /></tr>
+                        : null
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
