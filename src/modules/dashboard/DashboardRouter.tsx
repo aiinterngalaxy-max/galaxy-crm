@@ -21,6 +21,8 @@ export function DashboardRouter() {
       return <PMDashboard />
     case 'ai_team':
       return <AIDashboard />
+    case 'hr':
+      return <GenericDashboard />
     case 'dept_head':
       return <ManagementDashboard />
     default:

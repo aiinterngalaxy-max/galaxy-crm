@@ -10,6 +10,7 @@ export type UserRole =
   | 'project_manager'
   | 'marketing'
   | 'ai_team'
+  | 'hr'
   | 'pending'
 
 export type Department =
@@ -18,6 +19,7 @@ export type Department =
   | 'project_management'
   | 'marketing'
   | 'ai_department'
+  | 'hr'
 
 export interface User {
   id: string
@@ -549,6 +551,60 @@ export interface Partner {
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp
+}
+
+// ─── HR Module ─────────────────────────────────────────────────────────────────
+
+export type EmploymentType = 'full_time' | 'part_time' | 'internship' | 'contract'
+export type ExperienceLevel = 'fresher' | 'junior' | 'mid' | 'senior'
+export type HireRecommendation = 'strong_yes' | 'yes' | 'maybe' | 'no'
+
+export interface JDCompensation {
+  type: 'salary' | 'stipend'
+  min?: number
+  max?: number
+  note?: string
+}
+
+export interface JobDescription {
+  id: string
+  title: string
+  department: string
+  employmentType: EmploymentType
+  experienceLevel: ExperienceLevel
+  prerequisites: string[]
+  responsibilities: string[]
+  compensation: JDCompensation
+  rawJD: string
+  createdBy: string
+  createdByName?: string
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+export interface ScoreBreakdown {
+  skills: number
+  experience: number
+  education: number
+}
+
+export interface Candidate {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  jobDescriptionId: string
+  jobTitle: string
+  resumeText: string
+  score: number
+  breakdown: ScoreBreakdown
+  summary: string
+  strengths: string[]
+  gaps: string[]
+  recommendation: HireRecommendation
+  createdBy: string
+  createdByName?: string
+  createdAt: Timestamp
 }
 
 // ─── Utility Types ─────────────────────────────────────────────────────────────

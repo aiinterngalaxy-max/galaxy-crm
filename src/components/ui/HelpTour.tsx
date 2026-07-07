@@ -195,6 +195,18 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
     ],
   },
 
+  // ── HR ─────────────────────────────────────────────────────────────────────
+  '/hr': {
+    default: [
+      { title: 'HR Dashboard', content: 'This is the HR module — your central place for hiring. Create job descriptions with AI, then score candidate resumes against those JDs to find the best fit.' },
+      { title: 'Job Descriptions', content: 'The Job Descriptions tab lists all open roles. Click "New Job Description" to launch the AI wizard — it asks you a few questions and writes the full JD for you.', selector: '[data-tour="new-jd-btn"]' },
+      { title: 'JD Wizard', content: 'The wizard has 4 quick steps: Role Setup → Responsibilities → Requirements → Compensation. On the last step, AI generates a polished JD you can edit before saving.' },
+      { title: 'Score Resume', content: 'Once a JD is saved, click "Score Resume" on it. Paste or upload the candidate\'s resume text — AI analyses it against the JD and gives a 0-100 score with a breakdown.' },
+      { title: 'Score Breakdown', content: 'Each score shows Skills Match, Experience Match, and Education Match. It also lists the candidate\'s strengths and any gaps compared to your JD.' },
+      { title: 'Candidates Tab', content: 'All scored candidates appear in the Candidates tab, sorted by most recent. Use the scores and hire recommendations to shortlist quickly.' },
+    ],
+  },
+
   // ── Settings ───────────────────────────────────────────────────────────────
   '/settings': {
     default: [

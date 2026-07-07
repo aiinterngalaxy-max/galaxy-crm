@@ -134,6 +134,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   project_manager: 'Project Manager',
   marketing:       'Marketing',
   ai_team:         'AI Team',
+  hr:              'HR',
   pending:         'Pending Approval',
 }
 
@@ -159,6 +160,7 @@ export function canAccess(role: UserRole, module: string): boolean {
     // Role-specific
     'content-studio':['marketing'],
     inventory:       ['dept_head', 'project_manager'],
+    hr:              ['hr'],
     settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
 
