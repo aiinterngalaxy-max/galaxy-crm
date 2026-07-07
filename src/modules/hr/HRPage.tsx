@@ -18,6 +18,10 @@ import type { JobDescription, Candidate, HireRecommendation } from '../../types'
 const EMP_TYPE_LABELS: Record<string, string> = {
   full_time: 'Full-Time', part_time: 'Part-Time', internship: 'Internship', contract: 'Contract',
 }
+
+function formatEmpTypes(raw: string): string[] {
+  return raw.split(',').map(t => EMP_TYPE_LABELS[t.trim()] || t.trim())
+}
 const EXP_LABELS: Record<string, string> = {
   fresher: 'Fresher', junior: 'Junior', mid: 'Mid-level', senior: 'Senior',
 }
@@ -142,7 +146,9 @@ export function HRPage() {
                       <p className="text-xs text-gray-500 mt-0.5">{jd.department}</p>
                     </div>
                     <div className="flex gap-1.5 shrink-0 flex-wrap">
-                      <Badge color="text-blue-400" bg="bg-blue-900/30">{EMP_TYPE_LABELS[jd.employmentType] || jd.employmentType}</Badge>
+                      {formatEmpTypes(jd.employmentType).map(t => (
+                        <Badge key={t} color="text-blue-400" bg="bg-blue-900/30">{t}</Badge>
+                      ))}
                       <Badge color="text-violet-400" bg="bg-violet-900/30">{EXP_LABELS[jd.experienceLevel] || jd.experienceLevel}</Badge>
                     </div>
                   </div>
@@ -225,7 +231,9 @@ export function HRPage() {
         {viewingJD && (
           <div className="space-y-4">
             <div className="flex gap-2 flex-wrap">
-              <Badge color="text-blue-400" bg="bg-blue-900/30">{EMP_TYPE_LABELS[viewingJD.employmentType]}</Badge>
+              {formatEmpTypes(viewingJD.employmentType).map(t => (
+                <Badge key={t} color="text-blue-400" bg="bg-blue-900/30">{t}</Badge>
+              ))}
               <Badge color="text-violet-400" bg="bg-violet-900/30">{EXP_LABELS[viewingJD.experienceLevel]}</Badge>
               <Badge color="text-gray-400" bg="bg-gray-800">{viewingJD.department}</Badge>
             </div>

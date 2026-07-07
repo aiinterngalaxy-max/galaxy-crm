@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Sparkles, Save, Check } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
+
 import { Textarea } from '../../components/ui/Textarea'
 import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
@@ -11,7 +12,7 @@ import { db, collection, addDoc, serverTimestamp } from '../../lib/firebase'
 import { callClaude } from '../../lib/ai'
 import toast from 'react-hot-toast'
 
-interface Step1Data { title: string; department: string; employmentType: string; experienceLevel: string }
+interface Step1Data { title: string; department: string; employmentTypes: string[]; experienceLevel: string }
 interface Step2Data { dayToDay: string; outcomes: string; reportingTo: string }
 interface Step3Data { mustHave: string; niceToHave: string; education: string; tools: string }
 interface Step4Data { compensationType: 'salary' | 'stipend'; minAmount: string; maxAmount: string; perks: string }
@@ -22,7 +23,7 @@ export function JDWizard() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [step, setStep] = useState(0)
-  const [s1, setS1] = useState<Step1Data>({ title: '', department: '', employmentType: 'full_time', experienceLevel: 'junior' })
+  const [s1, setS1] = useState<Step1Data>({ title: '', department: '', employmentTypes: [], experienceLevel: 'junior' })
   const [s2, setS2] = useState<Step2Data>({ dayToDay: '', outcomes: '', reportingTo: '' })
   const [s3, setS3] = useState<Step3Data>({ mustHave: '', niceToHave: '', education: 'bachelors', tools: '' })
   const [s4, setS4] = useState<Step4Data>({ compensationType: 'salary', minAmount: '', maxAmount: '', perks: '' })
@@ -30,8 +31,17 @@ export function JDWizard() {
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  const toggleEmpType = (type: string) => {
+    setS1(p => ({
+      ...p,
+      employmentTypes: p.employmentTypes.includes(type)
+        ? p.employmentTypes.filter(t => t !== type)
+        : [...p.employmentTypes, type],
+    }))
+  }
+
   const canProceed = () => {
-    if (step === 0) return s1.title.trim() !== '' && s1.department.trim() !== ''
+    if (step === 0) return s1.title.trim() !== '' && s1.department.trim() !== '' && s1.employmentTypes.length > 0
     if (step === 1) return s2.dayToDay.trim() !== ''
     if (step === 2) return s3.mustHave.trim() !== ''
     if (step === 3) return s4.minAmount !== '' || s4.maxAmount !== ''
@@ -42,6 +52,7 @@ export function JDWizard() {
     setGenerating(true)
     try {
       const empLabel: Record<string, string> = { full_time: 'Full-Time', part_time: 'Part-Time', internship: 'Internship', contract: 'Contract / Freelance' }
+      const empTypes = s1.employmentTypes.map(t => empLabel[t] || t).join(' / ')
       const expLabel: Record<string, string> = { fresher: 'Fresher (0–1 year)', junior: 'Junior (1–3 years)', mid: 'Mid-level (3–5 years)', senior: 'Senior (5+ years)' }
       const eduLabel: Record<string, string> = { no_pref: 'No preference', diploma: 'Diploma', bachelors: "Bachelor's degree", masters: "Master's degree", phd: 'PhD' }
       const compText = s4.compensationType === 'stipend'
@@ -52,7 +63,7 @@ export function JDWizard() {
 
 **Role:** ${s1.title}
 **Department:** ${s1.department}
-**Employment Type:** ${empLabel[s1.employmentType] || s1.employmentType}
+**Employment Type:** ${empTypes}
 **Experience Level:** ${expLabel[s1.experienceLevel] || s1.experienceLevel}
 
 **Day-to-day tasks:**
@@ -123,7 +134,7 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
       await addDoc(collection(db, 'jobDescriptions'), {
         title: s1.title,
         department: s1.department,
-        employmentType: s1.employmentType,
+        employmentType: s1.employmentTypes.join(','),
         experienceLevel: s1.experienceLevel,
         prerequisites: prerequisites.length ? prerequisites : s3.mustHave.split('\n').filter(Boolean),
         responsibilities: responsibilities.length ? responsibilities : s2.dayToDay.split('\n').filter(Boolean),
@@ -196,19 +207,77 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
               <Input label="Job Title *" placeholder="e.g. Business Development Executive" value={s1.title} onChange={e => setS1(p => ({ ...p, title: e.target.value }))} />
               <Input label="Department / Team *" placeholder="e.g. Sales, Operations, Tech" value={s1.department} onChange={e => setS1(p => ({ ...p, department: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select label="Employment Type" value={s1.employmentType} onChange={e => setS1(p => ({ ...p, employmentType: e.target.value }))} options={[
-                { value: 'full_time', label: 'Full-Time' },
-                { value: 'part_time', label: 'Part-Time' },
-                { value: 'internship', label: 'Internship' },
-                { value: 'contract', label: 'Contract / Freelance' },
-              ]} />
-              <Select label="Experience Level" value={s1.experienceLevel} onChange={e => setS1(p => ({ ...p, experienceLevel: e.target.value }))} options={[
-                { value: 'fresher', label: 'Fresher (0–1 year)' },
-                { value: 'junior', label: 'Junior (1–3 years)' },
-                { value: 'mid', label: 'Mid-level (3–5 years)' },
-                { value: 'senior', label: 'Senior (5+ years)' },
-              ]} />
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-gray-400 mb-2">Employment Type * <span className="text-gray-600 font-normal">(select all that apply)</span></p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'full_time', label: 'Full-Time' },
+                    { value: 'part_time', label: 'Part-Time' },
+                    { value: 'internship', label: 'Internship' },
+                    { value: 'contract', label: 'Contract / Freelance' },
+                  ].map(opt => {
+                    const checked = s1.employmentTypes.includes(opt.value)
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => toggleEmpType(opt.value)}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm transition-all text-left ${
+                          checked
+                            ? 'border-gold-400/60 bg-gold-400/10 text-gold-300'
+                            : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                          checked ? 'bg-gold-400 border-gold-400' : 'border-gray-600'
+                        }`}>
+                          {checked && <Check className="w-2.5 h-2.5 text-gray-950" />}
+                        </span>
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                {s1.employmentTypes.length === 0 && (
+                  <p className="text-xs text-gray-600 mt-1.5">Select at least one type to continue</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-400 mb-2">Experience Level *</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'fresher', label: 'Fresher', sub: '0–1 year' },
+                    { value: 'junior',  label: 'Junior',  sub: '1–3 years' },
+                    { value: 'mid',     label: 'Mid-level', sub: '3–5 years' },
+                    { value: 'senior',  label: 'Senior',  sub: '5+ years' },
+                  ].map(opt => {
+                    const checked = s1.experienceLevel === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setS1(p => ({ ...p, experienceLevel: opt.value }))}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm transition-all text-left ${
+                          checked
+                            ? 'border-gold-400/60 bg-gold-400/10 text-gold-300'
+                            : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                          checked ? 'bg-gold-400 border-gold-400' : 'border-gray-600'
+                        }`}>
+                          {checked && <span className="w-2 h-2 rounded-full bg-gray-950" />}
+                        </span>
+                        <span>
+                          <span className="font-medium">{opt.label}</span>
+                          <span className="text-xs text-gray-500 ml-1.5">{opt.sub}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         )}
