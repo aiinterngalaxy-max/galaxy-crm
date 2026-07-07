@@ -1,11 +1,8 @@
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 
-// Models tried in order — falls back if one is overloaded
-const MODELS = [
-  'gemini-1.5-flash-8b',
-  'gemini-1.5-flash',
-  'gemini-2.0-flash-lite',
-]
+const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
 async function tryModel(model: string, userPrompt: string, systemPrompt: string | undefined, maxTokens: number): Promise<string> {
   const body: Record<string, unknown> = {
@@ -21,7 +18,7 @@ async function tryModel(model: string, userPrompt: string, systemPrompt: string 
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`${res.status}::${text}`)
+    throw Object.assign(new Error(text), { status: res.status })
   }
 
   const data = await res.json()
@@ -36,17 +33,23 @@ export async function callClaude(
   if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set — get a free key at aistudio.google.com/app/apikey')
 
   for (const model of MODELS) {
-    try {
-      return await tryModel(model, userPrompt, systemPrompt, maxTokens)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      // Only fall through on 503 (overloaded) or 429 (quota) — hard fail on anything else
-      if (!msg.startsWith('503') && !msg.startsWith('429') && !msg.startsWith('404')) {
-        throw new Error(`Gemini API error: ${msg.split('::')[1] || msg}`)
+    // Try each model up to 3 times before moving on
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await tryModel(model, userPrompt, systemPrompt, maxTokens)
+      } catch (err) {
+        const status = (err as { status?: number }).status
+        if (status === 503 || status === 429) {
+          if (attempt < 3) await sleep(attempt * 2000) // 2s, 4s
+          continue
+        }
+        // 404 = model not found, try next model immediately
+        if (status === 404) break
+        // Any other error — surface it
+        throw new Error(`Gemini API error (${status}): ${(err as Error).message}`)
       }
-      // Try next model
     }
   }
 
-  throw new Error('All Gemini models are currently busy — please try again in a few seconds.')
+  throw new Error('Gemini 2.5 Flash is overloaded right now — please try again in a few seconds.')
 }
