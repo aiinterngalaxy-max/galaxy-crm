@@ -1,5 +1,7 @@
 import { db, collection, getDocs, addDoc, serverTimestamp, query, where } from './firebase'
 import type { NotificationType, AppNotification } from '../types'
+import { toDate } from './utils'
+import type { Timestamp } from 'firebase/firestore'
 
 type RelatedEntityType = AppNotification['relatedEntityType']
 
@@ -36,9 +38,8 @@ export async function createNotificationIfNew({
     )
     // Client-side filter for today (avoids needing a composite index on createdAt)
     const alreadySentToday = existing.docs.some(d => {
-      const ts = d.data().createdAt
-      const date = ts?.toDate ? ts.toDate() : new Date(ts)
-      return date >= todayStart
+      const date = toDate(d.data().createdAt as Timestamp)
+      return date !== null && date >= todayStart
     })
     if (alreadySentToday) return false
   }
@@ -60,12 +61,12 @@ export async function createNotificationIfNew({
  * Check and fire follow-up due notifications for BD exec.
  * Call on dashboard load.
  */
-export async function checkFollowUpNotifications(userId: string, leads: Array<{ id: string; name: string; nextFollowUp?: any; status: string }>) {
+export async function checkFollowUpNotifications(userId: string, leads: Array<{ id: string; name: string; nextFollowUp?: Timestamp | Date | string | null; status: string }>) {
   const now = new Date()
   const overdue = leads.filter(l => {
     if (!l.nextFollowUp || ['won', 'lost'].includes(l.status)) return false
-    const d = l.nextFollowUp?.toDate ? l.nextFollowUp.toDate() : new Date(l.nextFollowUp)
-    return d <= now
+    const d = toDate(l.nextFollowUp)
+    return d !== null && d <= now
   })
 
   await Promise.all(overdue.map(lead =>
@@ -86,12 +87,12 @@ export async function checkFollowUpNotifications(userId: string, leads: Array<{ 
  * Check and fire overdue project notifications for PM.
  * Call on dashboard load.
  */
-export async function checkProjectOverdueNotifications(userId: string, projects: Array<{ id: string; title: string; expectedEndDate?: any; status: string }>) {
+export async function checkProjectOverdueNotifications(userId: string, projects: Array<{ id: string; title: string; expectedEndDate?: Timestamp | Date | string | null; status: string }>) {
   const now = new Date()
   const overdue = projects.filter(p => {
     if (!p.expectedEndDate || p.status === 'completed' || p.status === 'cancelled') return false
-    const d = p.expectedEndDate?.toDate ? p.expectedEndDate.toDate() : new Date(p.expectedEndDate)
-    return d < now
+    const d = toDate(p.expectedEndDate)
+    return d !== null && d < now
   })
 
   await Promise.all(overdue.map(project =>

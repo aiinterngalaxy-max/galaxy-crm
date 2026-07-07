@@ -197,6 +197,18 @@ export function generateInvoiceCode(seq: number): string {
   return `GHA-INV-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`
 }
 
+export function getMonthKey(value: Timestamp | Date | string | undefined | null): string {
+  const d = toDate(value)
+  if (!d) return 'unknown'
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function getMonthLabel(value: Timestamp | Date | string | undefined | null): string {
+  const d = toDate(value)
+  if (!d) return '—'
+  return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+}
+
 const SOURCE_SCORE: Record<string, number> = {
   referral:   25,
   partner:    20,

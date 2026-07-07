@@ -12,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
   cn, LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
-  formatCurrency, canManageLeads,
+  formatCurrency, canManageLeads, toDate, getMonthKey, getMonthLabel,
 } from '../../lib/utils'
 import type { Lead, LeadStatus } from '../../types'
 
@@ -127,7 +127,7 @@ export function LeadsPage() {
 
     const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(500))
     const unsub = onSnapshot(q, snap => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => (l as any).businessType !== 'b2b'))
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => l.businessType !== 'b2b'))
       setLoading(false)
     }, err => {
       console.error(err)
@@ -151,23 +151,15 @@ export function LeadsPage() {
 
   // Month options derived from createdAt of all leads, sorted newest first
   const monthOptions = useMemo(() => {
-    const seen = new Map<string, string>() // key: "2025-05", label: "May 2025"
+    const seen = new Map<string, string>()
     leads.forEach(l => {
-      const ts = l.createdAt as any
-      const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      if (!seen.has(key)) {
-        seen.set(key, d.toLocaleString('en-IN', { month: 'long', year: 'numeric' }))
-      }
+      const key = getMonthKey(l.createdAt)
+      if (!seen.has(key)) seen.set(key, getMonthLabel(l.createdAt))
     })
     return Array.from(seen.entries()).sort((a, b) => b[0].localeCompare(a[0]))
   }, [leads])
 
-  const getLeadMonth = (lead: Lead): string => {
-    const ts = lead.createdAt as any
-    const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  }
+  const getLeadMonth = (lead: Lead): string => getMonthKey(lead.createdAt)
 
   const filtered = useMemo(() => {
     let list = leads.filter(l => {
@@ -175,9 +167,8 @@ export function LeadsPage() {
       const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
       const matchEmployee = filterEmployee === 'all' || l.assignedToName === filterEmployee
       const matchDate = !filterDate || (() => {
-        const ts = l.createdAt as any
-        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-        return d.toISOString().slice(0, 10) === filterDate
+        const d = toDate(l.createdAt)
+        return d ? d.toISOString().slice(0, 10) === filterDate : false
       })()
       const matchMonth = filterMonth === 'all' || getLeadMonth(l) === filterMonth
       return matchStage && matchPlatform && matchEmployee && matchDate && matchMonth
@@ -194,10 +185,7 @@ export function LeadsPage() {
     filtered.forEach(l => {
       const key = getLeadMonth(l)
       if (!map.has(key)) {
-        const ts = l.createdAt as any
-        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-        const label = d.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
-        map.set(key, { label, leads: [] })
+        map.set(key, { label: getMonthLabel(l.createdAt), leads: [] })
       }
       map.get(key)!.leads.push(l)
     })
