@@ -1,15 +1,14 @@
+import { run, one } from '../db'
 import { AccountResult, NormPost, ZERO, n, isoDate } from './types'
 
 const V = 'v21.0'
 const G = `https://graph.facebook.com/${V}`
 
-export const FB_NEEDS = ['VITE_FB_ACCESS_TOKEN (Page access token)', 'VITE_FB_PAGE_ID (numeric page id)']
+export const FB_NEEDS = ['VITE_FB_ACCESS_TOKEN (User token)', 'VITE_FB_PAGE_ID (numeric page id)', 'VITE_FB_APP_ID', 'VITE_FB_APP_SECRET']
 
 function env(key: string): string | undefined {
   const val = (import.meta.env as any)[key]
   if (!val) return val
-  // Guard: if the value accidentally includes the key name (e.g. "VITE_FB_PAGE_ID=123"),
-  // strip the prefix so only the actual value is returned.
   const prefix = key + '='
   return String(val).startsWith(prefix) ? String(val).slice(prefix.length) : String(val)
 }
@@ -36,21 +35,78 @@ async function j(url: string) {
   return data
 }
 
+// Returns a long-lived token (60 days). Stores it in DB so we don't re-exchange every sync.
+// Re-exchanges whenever the env token changes.
+async function getLongLivedToken(userToken: string): Promise<string> {
+  const appId = env('VITE_FB_APP_ID')
+  const appSecret = env('VITE_FB_APP_SECRET')
+
+  // Try stored token — only valid if it came from the same env token
+  try {
+    const stored = await one<{ value: string; updated_at: string }>(
+      "SELECT value, updated_at FROM cmo_settings WHERE key='fb_long_lived_token'",
+    )
+    const storedSeed = await one<{ value: string }>(
+      "SELECT value FROM cmo_settings WHERE key='fb_token_seed'",
+    )
+    if (stored?.value && storedSeed?.value === userToken) {
+      const ageInDays = (Date.now() - new Date(stored.updated_at).getTime()) / (1000 * 60 * 60 * 24)
+      if (ageInDays < 55) return stored.value
+    }
+  } catch {
+    // DB not ready yet — fall through
+  }
+
+  // If no App ID/Secret, can't exchange — use user token directly
+  if (!appId || !appSecret) return userToken
+
+  // Exchange for long-lived token
+  try {
+    const res = await j(
+      `https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${userToken}`,
+    )
+    const longLived = res.access_token
+    if (longLived) {
+      await run(
+        `INSERT INTO cmo_settings(key, value, updated_at) VALUES('fb_long_lived_token', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+        [longLived],
+      )
+      await run(
+        `INSERT INTO cmo_settings(key, value, updated_at) VALUES('fb_token_seed', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+        [userToken],
+      )
+      return longLived
+    }
+  } catch {
+    // Exchange failed — use user token as fallback
+  }
+
+  return userToken
+}
+
 export async function fbPull(limit: number): Promise<AccountResult> {
-  const token = env('VITE_FB_ACCESS_TOKEN')!
+  const userToken = env('VITE_FB_ACCESS_TOKEN')!
   const pageId = env('VITE_FB_PAGE_ID')!.trim()
   const base: AccountResult = {
     ok: false, platform: 'Facebook', handle: '', account_id: pageId, follower_count: 0, posts: [],
   }
 
   try {
-    // Page basic info — fetch fields separately so a missing permission on one doesn't kill both
+    // Get long-lived user token (auto-exchanges and caches for 55 days)
+    const longLivedToken = await getLongLivedToken(userToken)
+
+    // Exchange for page access token
+    let token = longLivedToken
     try {
-      const page = await j(`${G}/${pageId}?fields=name&access_token=${token}`)
-      base.handle = page.name || pageId
+      const pageTokenRes = await j(`${G}/${pageId}?fields=access_token,name&access_token=${longLivedToken}`)
+      if (pageTokenRes.access_token) token = pageTokenRes.access_token
+      base.handle = pageTokenRes.name || pageId
     } catch {
       base.handle = pageId
     }
+
     try {
       const flw = await j(`${G}/${pageId}?fields=followers_count&access_token=${token}`)
       base.follower_count = n(flw.followers_count)
@@ -58,37 +114,24 @@ export async function fbPull(limit: number): Promise<AccountResult> {
       base.follower_count = 0
     }
 
-    // Field expansion on page object — different permission path than /posts endpoint
     const pageWithPosts = await j(
-      `${G}/${pageId}?fields=posts.limit(${Math.min(limit, 100)}){id,message,story,permalink_url,created_time,attachments{type},reactions.summary(true),comments.summary(true),shares}&access_token=${token}`,
+      `${G}/${pageId}/feed?fields=id,message,story,permalink_url,created_time,attachments{type},reactions.summary(true),comments.summary(true),shares,insights.metric(post_impressions,post_impressions_unique).period(lifetime)&limit=${Math.min(limit, 100)}&access_token=${token}`,
     )
-    const feed = { data: pageWithPosts?.posts?.data || [] }
+    const feed = { data: pageWithPosts?.data || [] }
 
     const posts: NormPost[] = []
 
     for (const post of feed.data || []) {
       const metrics = { ...ZERO }
 
-      // These come from post fields — always work with pages_read_engagement
       metrics.likes    = n(post.reactions?.summary?.total_count)
       metrics.comments = n(post.comments?.summary?.total_count)
       metrics.shares   = n(post.shares?.count)
 
-      // Try reach/impressions via insights (needs read_insights — optional)
-      try {
-        const ins = await j(
-          `${G}/${post.id}/insights?metric=post_impressions_unique,post_impressions&period=lifetime&access_token=${token}`,
-        )
-        for (const row of ins.data || []) {
-          const rawVal = row.values?.[row.values.length - 1]?.value
-          const val = n(typeof rawVal === 'object'
-            ? Object.values(rawVal as Record<string, number>).reduce((a: number, b) => a + Number(b), 0)
-            : rawVal)
-          if (row.name === 'post_impressions_unique') metrics.reach = val
-          else if (row.name === 'post_impressions') metrics.views = val
-        }
-      } catch {
-        // read_insights not available — reach/impressions stay 0, rest of metrics are fine
+      for (const row of post.insights?.data || []) {
+        const val = n(row.values?.[row.values.length - 1]?.value ?? row.value)
+        if (row.name === 'post_impressions_unique') metrics.reach = val
+        else if (row.name === 'post_impressions') metrics.views = val
       }
 
       const attachmentType = post.attachments?.data?.[0]?.type || ''

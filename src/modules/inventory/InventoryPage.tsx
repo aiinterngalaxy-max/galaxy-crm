@@ -1554,7 +1554,6 @@ export function InventoryPage() {
             )}
             {line === 'elysia' && (
               <Button
-                data-tour="scan-switch-btn"
                 variant="ghost"
                 size="sm"
                 icon={<ScanLine className="w-4 h-4" />}
@@ -1573,7 +1572,7 @@ export function InventoryPage() {
                 Dispatch
               </Button>
             )}
-            <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
+            <Button data-tour="add-btn" variant="primary" size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setShowAdd(true)}>
               Add Item
             </Button>
           </div>
@@ -1581,7 +1580,7 @@ export function InventoryPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-800">
+      <div data-tour="inv-tabs" className="flex gap-1 border-b border-gray-800">
         {([['stock', 'Stock Table', Package], ['log', 'Transaction Log', History]] as const).map(([t, label, Icon]) => (
           <button
             key={t}
@@ -1604,7 +1603,7 @@ export function InventoryPage() {
       ) : (
         <>
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div data-tour="filters" className="flex flex-col sm:flex-row gap-3">
             {/* Search */}
             <div className="relative flex-1 max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -1616,7 +1615,7 @@ export function InventoryPage() {
               />
             </div>
             {/* Status pills */}
-            <div data-tour="inventory-status" className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap">
               {(['all', 'in_stock', 'low_stock', 'out_of_stock'] as const).map(s => (
                 <button
                   key={s}
@@ -1750,7 +1749,7 @@ export function InventoryPage() {
           )}
 
           {/* Table */}
-          <Card padding="none">
+          <div data-tour="stock-table"><Card padding="none">
             {loading ? (
               <div className="p-12 text-center text-sm text-gray-600">Loading inventory…</div>
             ) : filtered.length === 0 ? (
@@ -1887,7 +1886,7 @@ export function InventoryPage() {
                 </table>
               </div>
             )}
-          </Card>
+          </Card></div>
         </>
       )}
 

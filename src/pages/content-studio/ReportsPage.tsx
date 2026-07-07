@@ -93,7 +93,7 @@ export function ReportsPage() {
         }
       />
 
-      <div className="glass-card p-5 mb-6">
+      <div data-tour="report-header" className="glass-card p-5 mb-6">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xs uppercase tracking-[0.2em] text-gold-400 font-bold">Galaxy Home Automation</div>
@@ -109,7 +109,7 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div className="glass-card overflow-hidden mb-6 page-break">
+      <div data-tour="brand-table" className="glass-card overflow-hidden mb-6 page-break">
         <div className="p-5 border-b border-gray-800">
           <h2 className="font-bold text-gray-100">Brand production report</h2>
         </div>
@@ -173,7 +173,7 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div className="glass-card overflow-hidden page-break">
+      <div data-tour="top-content" className="glass-card overflow-hidden page-break">
         <div className="p-5 border-b border-gray-800">
           <h2 className="font-bold text-gray-100">Top performing content</h2>
         </div>

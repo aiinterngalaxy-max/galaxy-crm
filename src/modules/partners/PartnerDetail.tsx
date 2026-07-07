@@ -126,7 +126,7 @@ export function PartnerDetail() {
           {partner.status === 'active' ? 'Active' : 'Inactive'}
         </Badge>
         {!editing ? (
-          <Button variant="secondary" icon={<Edit2 className="w-4 h-4" />} size="sm" onClick={() => setEditing(true)}>Edit</Button>
+          <Button data-tour="add-btn" variant="secondary" icon={<Edit2 className="w-4 h-4" />} size="sm" onClick={() => setEditing(true)}>Edit</Button>
         ) : (
           <div className="flex gap-2">
             <Button variant="secondary" icon={<X className="w-4 h-4" />} size="sm" onClick={() => { setEditing(false); setEditData(partner) }}>Cancel</Button>
@@ -220,7 +220,7 @@ export function PartnerDetail() {
         {/* Right: stats + leads */}
         <div className="lg:col-span-2 space-y-5">
           {/* Stats row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div data-tour="stat-cards" className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Total Leads" value={totalLeads} icon={<Users className="w-5 h-5 text-blue-400" />} iconBg="bg-blue-500/20" />
             <StatCard label="Won" value={wonLeads.length} icon={<CheckCircle2 className="w-5 h-5 text-green-400" />} iconBg="bg-green-500/20"
               subValue={`${conversionRate}% rate`}
@@ -230,7 +230,7 @@ export function PartnerDetail() {
           </div>
 
           {/* Leads table */}
-          <div className="glass-card overflow-hidden">
+          <div data-tour="partner-leads" className="glass-card overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-200">Leads from this Partner ({totalLeads})</h3>
               <Link

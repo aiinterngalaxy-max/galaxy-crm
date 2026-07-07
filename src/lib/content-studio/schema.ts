@@ -173,6 +173,11 @@ export const MIGRATE: string[] = [
      actor TEXT DEFAULT 'System',
      created_at TEXT DEFAULT (datetime('now'))
    )`,
+  `CREATE TABLE IF NOT EXISTS cmo_settings (
+     key TEXT PRIMARY KEY,
+     value TEXT NOT NULL,
+     updated_at TEXT DEFAULT (datetime('now'))
+   )`,
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.

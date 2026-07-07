@@ -39,7 +39,7 @@ export function BrandsPage() {
 
   return (
     <Page>
-      <BrandsView brands={brands} content={content} ideas={ideas} channels={channels} month={month} onChanged={load} />
+      <div data-tour="brands-view"><BrandsView brands={brands} content={content} ideas={ideas} channels={channels} month={month} onChanged={load} /></div>
     </Page>
   )
 }

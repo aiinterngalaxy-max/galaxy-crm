@@ -61,13 +61,13 @@ export function IdeasPage() {
     <Page>
       <PageHeader title="Idea Management" subtitle={`${monthLabel(month)} · ${totalPitched}/${totalReq} pitched · ${totalApproved} approved`} />
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div data-tour="stat-cards" className="grid grid-cols-3 gap-4 mb-6">
         <Stat n={totalReq} l="Ideas required" />
         <Stat n={totalPitched} l="Pitched" sub={pct(totalReq ? (totalPitched / totalReq) * 100 : 0)} />
         <Stat n={totalReq - totalPitched} l="Remaining to pitch" />
       </div>
 
-      <IdeasView brands={brands} ideas={ideas} onChanged={load} />
+      <div data-tour="ideas-view"><IdeasView brands={brands} ideas={ideas} onChanged={load} /></div>
     </Page>
   )
 }

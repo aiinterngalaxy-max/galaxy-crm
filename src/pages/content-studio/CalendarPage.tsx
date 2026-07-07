@@ -39,7 +39,7 @@ export function CalendarPage() {
 
   return (
     <Page>
-      <CalendarBoard initialContent={content} shoots={shoots} ym={ym} onChanged={load} />
+      <div data-tour="calendar-board"><CalendarBoard initialContent={content} shoots={shoots} ym={ym} onChanged={load} /></div>
     </Page>
   )
 }

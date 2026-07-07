@@ -103,7 +103,7 @@ export function ScriptsPage() {
         title="Script Management"
         subtitle={`${pending.length} in progress · ${overdue} overdue · ${scripts.filter((s) => s.status === 'Approved').length} approved`}
       />
-      <ScriptsView scripts={scripts} content={eligibleContent} onChanged={load} />
+      <div data-tour="scripts-view"><ScriptsView scripts={scripts} content={eligibleContent} onChanged={load} /></div>
     </Page>
   )
 }

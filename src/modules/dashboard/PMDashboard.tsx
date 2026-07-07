@@ -49,7 +49,7 @@ export function PMDashboard() {
         <p className="text-sm text-gray-500 mt-0.5">Your project portfolio at a glance.</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Active Projects"
           value={active.length}

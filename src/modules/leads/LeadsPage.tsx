@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate } from 'react-router-dom'
 import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock, Table2 } from 'lucide-react'
 import { LeadsSpreadsheetView } from './LeadsSpreadsheetView'
@@ -13,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
 import {
   cn, LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
-  formatCurrency, canManageLeads, toDate, getMonthKey, getMonthLabel,
+  formatCurrency, canManageLeads,
 } from '../../lib/utils'
 import type { Lead, LeadStatus } from '../../types'
 
@@ -128,7 +127,7 @@ export function LeadsPage() {
 
     const q = query(collection(db, 'leads'), orderBy('updatedAt', 'desc'), limit(500))
     const unsub = onSnapshot(q, snap => {
-      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => l.businessType !== 'b2b'))
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead).filter(l => (l as any).businessType !== 'b2b'))
       setLoading(false)
     }, err => {
       console.error(err)
@@ -152,15 +151,23 @@ export function LeadsPage() {
 
   // Month options derived from createdAt of all leads, sorted newest first
   const monthOptions = useMemo(() => {
-    const seen = new Map<string, string>()
+    const seen = new Map<string, string>() // key: "2025-05", label: "May 2025"
     leads.forEach(l => {
-      const key = getMonthKey(l.createdAt)
-      if (!seen.has(key)) seen.set(key, getMonthLabel(l.createdAt))
+      const ts = l.createdAt as any
+      const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!seen.has(key)) {
+        seen.set(key, d.toLocaleString('en-IN', { month: 'long', year: 'numeric' }))
+      }
     })
     return Array.from(seen.entries()).sort((a, b) => b[0].localeCompare(a[0]))
   }, [leads])
 
-  const getLeadMonth = (lead: Lead): string => getMonthKey(lead.createdAt)
+  const getLeadMonth = (lead: Lead): string => {
+    const ts = lead.createdAt as any
+    const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
 
   const filtered = useMemo(() => {
     let list = leads.filter(l => {
@@ -168,8 +175,9 @@ export function LeadsPage() {
       const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
       const matchEmployee = filterEmployee === 'all' || l.assignedToName === filterEmployee
       const matchDate = !filterDate || (() => {
-        const d = toDate(l.createdAt)
-        return d ? d.toISOString().slice(0, 10) === filterDate : false
+        const ts = l.createdAt as any
+        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+        return d.toISOString().slice(0, 10) === filterDate
       })()
       const matchMonth = filterMonth === 'all' || getLeadMonth(l) === filterMonth
       return matchStage && matchPlatform && matchEmployee && matchDate && matchMonth
@@ -186,36 +194,15 @@ export function LeadsPage() {
     filtered.forEach(l => {
       const key = getLeadMonth(l)
       if (!map.has(key)) {
-        map.set(key, { label: getMonthLabel(l.createdAt), leads: [] })
+        const ts = l.createdAt as any
+        const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+        const label = d.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
+        map.set(key, { label, leads: [] })
       }
       map.get(key)!.leads.push(l)
     })
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
-  }, [filtered])
-
-  // ── Virtual scrolling for list view ──────────────────────────────────────────
-
-  type FlatItem =
-    | { kind: 'header'; label: string; count: number }
-    | { kind: 'row'; lead: Lead }
-
-  const flatListItems = useMemo((): FlatItem[] => {
-    const items: FlatItem[] = []
-    for (const [, { label, leads: monthLeads }] of groupedByMonth) {
-      items.push({ kind: 'header', label, count: monthLeads.length })
-      for (const lead of monthLeads) items.push({ kind: 'row', lead })
-    }
-    return items
-  }, [groupedByMonth])
-
-  const listParentRef = useRef<HTMLDivElement>(null)
-
-  const virtualizer = useVirtualizer({
-    count: flatListItems.length,
-    getScrollElement: () => listParentRef.current,
-    estimateSize: i => flatListItems[i]?.kind === 'header' ? 44 : 56,
-    overscan: 8,
-  })
+  }, [filtered, viewMode])
 
   const wonLost = leads.filter(l => ['won', 'lost'].includes(l.status))
 
@@ -232,11 +219,11 @@ export function LeadsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" icon={<Clock className="w-4 h-4" />} onClick={() => navigate('/follow-ups')}>
+          <Button variant="secondary" data-tour="follow-ups" icon={<Clock className="w-4 h-4" />} onClick={() => navigate('/follow-ups')}>
             Follow-ups
           </Button>
           {canCreate && (
-            <Button data-tour="new-lead-btn" onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
+            <Button data-tour="add-lead" onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
               New Lead
             </Button>
           )}
@@ -244,7 +231,7 @@ export function LeadsPage() {
       </div>
 
       {/* Toolbar */}
-      <div data-tour="lead-filters" className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {/* Stage dropdown */}
         <select
           value={filterStage}
@@ -379,9 +366,9 @@ export function LeadsPage() {
         </div>
       )}
 
-      {/* List View — virtualised, grouped by month */}
+      {/* List View */}
       {viewMode === 'list' && (
-        <div>
+        <div className="space-y-4">
           {loading && (
             <Card padding="none">
               <div className="px-4 py-8 text-center text-sm text-gray-600">Loading…</div>
@@ -394,116 +381,79 @@ export function LeadsPage() {
               action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
             />
           )}
-          {!loading && flatListItems.length > 0 && (
+          {!loading && filtered.length > 0 && (
             <Card padding="none">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-800">
                       {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
-                        <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 bg-gray-900 sticky top-0 z-10">
+                        <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
                           {h}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                </table>
-              </div>
-              <div
-                ref={listParentRef}
-                className="overflow-y-auto overflow-x-auto"
-                style={{ maxHeight: 'calc(100vh - 300px)' }}
-              >
-                <table className="w-full text-sm">
-                  <tbody>
-                    {virtualizer.getVirtualItems()[0]?.start > 0 && (
-                      <tr><td colSpan={10} style={{ height: virtualizer.getVirtualItems()[0].start }} /></tr>
-                    )}
-                    {virtualizer.getVirtualItems().map(vRow => {
-                      const item = flatListItems[vRow.index]
-                      if (item.kind === 'header') {
-                        return (
-                          <tr key={vRow.key} data-index={vRow.index} ref={virtualizer.measureElement}>
-                            <td colSpan={10} className="px-4 pt-5 pb-2">
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{item.label}</span>
-                                <span className="text-xs bg-gray-800 text-gray-500 rounded-full px-2 py-0.5">{item.count}</span>
-                                <div className="flex-1 h-px bg-gray-800" />
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      }
-                      const lead = item.lead
-                      return (
-                        <tr
-                          key={vRow.key}
-                          data-index={vRow.index}
-                          ref={virtualizer.measureElement}
-                          onClick={() => navigate(`/leads/${lead.id}`)}
-                          className="hover:bg-gray-800/50 cursor-pointer transition-colors border-t border-gray-800/50"
-                          onMouseEnter={e => handleRowEnter(lead, e)}
-                          onMouseLeave={handleRowLeave}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-gray-200">{lead.name}</div>
-                            {lead.address && <div className="text-xs text-gray-500 truncate max-w-36">{lead.address}</div>}
-                          </td>
-                          <td className="px-4 py-3 text-gray-400">{lead.phone}</td>
-                          <td className="px-4 py-3 text-gray-400 capitalize">{lead.source?.replace('_', ' ')}</td>
-                          <td className="px-4 py-3">
-                            <Badge color={LEAD_STATUS_CONFIG[lead.status]?.color} bg={LEAD_STATUS_CONFIG[lead.status]?.bg}>
-                              {LEAD_STATUS_CONFIG[lead.status]?.label}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`font-bold ${getScoreColor(lead.aiScore)}`}>{lead.aiScore}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            {lead.demoGiven
-                              ? <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">Yes</span>
-                              : <span className="text-xs text-gray-600">No</span>}
-                          </td>
-                          <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(lead.createdAt)}</td>
-                          <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center gap-2 justify-end">
-                              <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}
-                                className="text-gray-600 hover:text-gray-300 p-1" title={`Call ${lead.phone}`}>
-                                <Phone className="w-3.5 h-3.5" />
-                              </a>
-                              <a href={`https://wa.me/91${(lead.phone ?? '').replace(/\D/g, '')}`}
-                                target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                className="text-gray-600 hover:text-green-400 p-1" title="WhatsApp">
-                                <MessageSquare className="w-3.5 h-3.5" />
-                              </a>
-                              {isAdmin && (
-                                confirmDelete === lead.id ? (
-                                  <button onClick={e => handleDelete(lead.id, e)}
-                                    className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">
-                                    Confirm?
-                                  </button>
-                                ) : (
-                                  <button onClick={e => handleDelete(lead.id, e)}
-                                    className="p-1 text-gray-700 hover:text-red-400 transition-colors">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                    {(() => {
-                      const vItems = virtualizer.getVirtualItems()
-                      const last = vItems[vItems.length - 1]
-                      const paddingBottom = last ? virtualizer.getTotalSize() - last.end : 0
-                      return paddingBottom > 0
-                        ? <tr><td colSpan={10} style={{ height: paddingBottom }} /></tr>
-                        : null
-                    })()}
+                  <tbody className="divide-y divide-gray-800" data-tour="lead-rows">
+                    {filtered.map((lead, idx) => (
+                      <tr
+                        key={lead.id}
+                        data-tour={idx === 0 ? 'lead-row' : undefined}
+                        onClick={() => navigate(`/leads/${lead.id}`)}
+                        className="hover:bg-gray-800/50 cursor-pointer transition-colors"
+                        onMouseEnter={e => handleRowEnter(lead, e)}
+                        onMouseLeave={handleRowLeave}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-gray-200">{lead.name}</div>
+                          {lead.address && <div className="text-xs text-gray-500 truncate max-w-36">{lead.address}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-400">{lead.phone}</td>
+                        <td className="px-4 py-3 text-gray-400 capitalize">{lead.source?.replace('_', ' ')}</td>
+                        <td className="px-4 py-3">
+                          <Badge color={LEAD_STATUS_CONFIG[lead.status]?.color} bg={LEAD_STATUS_CONFIG[lead.status]?.bg}>
+                            {LEAD_STATUS_CONFIG[lead.status]?.label}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`font-bold ${getScoreColor(lead.aiScore)}`}>{lead.aiScore}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {lead.demoGiven
+                            ? <span className="text-xs text-indigo-400 bg-indigo-900/30 px-2 py-0.5 rounded">Yes</span>
+                            : <span className="text-xs text-gray-600">No</span>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-400">{lead.assignedToName || '—'}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(lead.createdAt)}</td>
+                        <td className="px-4 py-3 text-gray-600 text-xs">{formatRelative(lead.updatedAt)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center gap-2 justify-end">
+                            <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}
+                              className="text-gray-600 hover:text-gray-300 p-1" title={`Call ${lead.phone}`}>
+                              <Phone className="w-3.5 h-3.5" />
+                            </a>
+                            <a href={`https://wa.me/91${(lead.phone ?? '').replace(/\D/g, '')}`}
+                              target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                              className="text-gray-600 hover:text-green-400 p-1" title="WhatsApp">
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </a>
+                            {isAdmin && (
+                              confirmDelete === lead.id ? (
+                                <button onClick={e => handleDelete(lead.id, e)}
+                                  className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">
+                                  Confirm?
+                                </button>
+                              ) : (
+                                <button onClick={e => handleDelete(lead.id, e)}
+                                  className="p-1 text-gray-700 hover:text-red-400 transition-colors">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

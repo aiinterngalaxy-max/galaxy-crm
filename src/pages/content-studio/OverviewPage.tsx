@@ -65,7 +65,7 @@ export function OverviewPage() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">Active brands</div><div className="text-3xl font-bold text-gray-100 mt-1">{stats.activeBrands}</div><div className="text-xs text-gray-500 mt-1">{stats.totalBrands} total</div></div>
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">In production</div><div className="text-3xl font-bold text-gold-400 mt-1">{stats.inProduction}</div></div>
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">Published / mo</div><div className="text-3xl font-bold text-emerald-400 mt-1">{stats.publishedThisMonth}</div></div>
@@ -76,7 +76,7 @@ export function OverviewPage() {
 
       <div className="grid lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="glass-card p-5">
+          <div data-tour="pipeline-card" className="glass-card p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-gray-100">Production pipeline</h2>
               <Link to="/content-studio/pipeline" className="text-sm font-semibold text-gold-400 hover:underline">
@@ -153,7 +153,7 @@ export function OverviewPage() {
             </div>
           </div>
 
-          <div className="glass-card p-5">
+          <div data-tour="team-workload" className="glass-card p-5">
             <h2 className="font-bold text-gray-100 mb-4">Team workload</h2>
             <div className="grid sm:grid-cols-2 gap-x-8 gap-y-3">
               {workload.map((m) => (
@@ -175,7 +175,7 @@ export function OverviewPage() {
         <div className="space-y-6">
           <Notifications stats={stats} />
 
-          <div className="glass-card">
+          <div data-tour="top-performing" className="glass-card">
             <div className="p-5 border-b border-gray-800">
               <h2 className="font-bold text-gray-100">Top performing</h2>
             </div>

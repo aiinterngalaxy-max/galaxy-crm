@@ -603,7 +603,7 @@ export function ProjectDetail() {
         </div>
         <div className="flex gap-2">
           {canManage && (
-            <Button size="sm" variant="secondary" icon={<Camera className="w-3.5 h-3.5" />}
+            <Button data-tour="add-btn" size="sm" variant="secondary" icon={<Camera className="w-3.5 h-3.5" />}
               onClick={() => setShowReportForm(true)}>
               Report
             </Button>
@@ -612,7 +612,7 @@ export function ProjectDetail() {
       </div>
 
       {/* ── Progress Bar ── */}
-      <Card>
+      <div data-tour="progress-overview"><Card>
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-sm font-medium text-gray-200">Overall Progress</p>
@@ -654,10 +654,10 @@ export function ProjectDetail() {
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-      </Card>
+      </Card></div>
 
       {/* ── Site & Client Details ── */}
-      <Card>
+      <div data-tour="site-details"><Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-200">Site &amp; Client Details</h2>
           {canManage && !editingSiteDetails && (
@@ -735,7 +735,7 @@ export function ProjectDetail() {
             )}
           </div>
         )}
-      </Card>
+      </Card></div>
 
       {/* ── File Sections: SOP, Layout & DWG ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -829,7 +829,7 @@ export function ProjectDetail() {
       </div>
 
       {/* ── Client Access ── */}
-      <Card>
+      <div data-tour="client-link"><Card>
         <h2 className="text-sm font-semibold text-gray-200 mb-4">Client Access</h2>
         {!accessCode ? (
           <div className="flex items-center gap-3">
@@ -865,7 +865,7 @@ export function ProjectDetail() {
             </div>
           </div>
         )}
-      </Card>
+      </Card></div>
 
       {/* ── Site Images ── */}
       <Card>
@@ -900,7 +900,7 @@ export function ProjectDetail() {
       </Card>
 
       {/* ── Workflow ── */}
-      <div>
+      <div data-tour="workflow-stages">
         <div className="flex items-center justify-between mb-3">
           <h2 className="section-header">Workflow</h2>
           {canManage && (
@@ -1087,13 +1087,15 @@ export function ProjectDetail() {
 
       {/* ── Materials & Delivery ── */}
       {user && (
-        <ProjectMaterials
-          projectId={id!}
-          projectCode={(project as any).projectCode || project.title}
-          canManage={canManage}
-          userId={user.id}
-          userName={user.name}
-        />
+        <div data-tour="materials-files">
+          <ProjectMaterials
+            projectId={id!}
+            projectCode={(project as any).projectCode || project.title}
+            canManage={canManage}
+            userId={user.id}
+            userName={user.name}
+          />
+        </div>
       )}
 
       {/* ── Non-Working Inventory ── */}
@@ -1106,7 +1108,7 @@ export function ProjectDetail() {
       )}
 
       {/* ── Site Reports sidebar-style list ── */}
-      <Card padding="none">
+      <div data-tour="site-reports"><Card padding="none">
         <div className="p-4 border-b border-gray-800 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-200">Site Reports</h3>
           {canManage && (
@@ -1132,7 +1134,7 @@ export function ProjectDetail() {
             )}
           </div>
         ))}
-      </Card>
+      </Card></div>
 
       {/* ── Add Stage Modal ── */}
       <Modal open={showAddStage} onClose={() => setShowAddStage(false)} title="Add Custom Stage" size="sm"

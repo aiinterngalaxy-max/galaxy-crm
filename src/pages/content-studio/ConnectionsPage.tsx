@@ -80,7 +80,7 @@ export function ConnectionsPage() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-5">
+      <div data-tour="platform-cards" className="grid lg:grid-cols-3 gap-5">
         {status.map((s) => {
           const setup = SETUP[s.key]
           return (
@@ -113,7 +113,7 @@ export function ConnectionsPage() {
         })}
       </div>
 
-      <div className="glass-card mt-6">
+      <div data-tour="sync-log" className="glass-card mt-6">
         <div className="p-5 border-b border-gray-800 flex items-center justify-between">
           <h2 className="font-bold text-gray-100">Recent syncs</h2>
           {anyConnected && <SyncButton small onSynced={load} />}

@@ -49,7 +49,7 @@ export function EditingPage() {
   return (
     <Page>
       <PageHeader title="Editing" subtitle={`${rows.length} in post-production · ${approved} approved · ${overdue} overdue`} />
-      <EditingView rows={rows} editors={editors} onChanged={load} />
+      <div data-tour="editing-view"><EditingView rows={rows} editors={editors} onChanged={load} /></div>
     </Page>
   )
 }

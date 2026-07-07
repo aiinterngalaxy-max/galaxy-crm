@@ -256,7 +256,7 @@ export function DailyReportsPage() {
           </p>
         </div>
         {!todayReport && (
-          <Button onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
+          <Button data-tour="add-btn" onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
             Submit Today's Report
           </Button>
         )}
@@ -286,7 +286,7 @@ export function DailyReportsPage() {
 
       {/* Today's auto-tracked activity (BD/PM only) */}
       {!isManagement && (
-        <Card>
+        <div data-tour="activity-tiles"><Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="section-header"><TrendingUp className="w-4 h-4 text-indigo-400" /> Today's Activity (Auto-tracked)</h2>
             <span className="text-xs text-gray-600">{format(new Date(), 'dd MMM yyyy')}</span>
@@ -403,12 +403,12 @@ export function DailyReportsPage() {
               </div>
             )
           })()}
-        </Card>
+        </Card></div>
       )}
 
       {/* ── MANAGEMENT VIEW ── */}
       {isManagement ? (
-        <Card padding="none">
+        <div data-tour="report-history"><Card padding="none">
           {/* Toolbar */}
           <div className="p-4 border-b border-gray-800 flex flex-wrap gap-3 items-center">
             <h2 className="section-header flex items-center gap-2 mr-auto">
@@ -562,10 +562,10 @@ export function DailyReportsPage() {
               </div>
             )
           })()}
-        </Card>
+        </Card></div>
       ) : (
       /* ── EMPLOYEE VIEW: own report history ── */
-      <Card padding="none">
+      <div data-tour="report-history"><Card padding="none">
         <div className="p-5 border-b border-gray-800">
           <h2 className="section-header"><ClipboardList className="w-4 h-4 text-indigo-400" /> Report History</h2>
         </div>
@@ -630,7 +630,7 @@ export function DailyReportsPage() {
             </div>
           ))}
         </div>
-      </Card>
+      </Card></div>
       )}
 
       {/* Submit Modal */}
@@ -643,7 +643,7 @@ export function DailyReportsPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button data-tour="submit-report-btn" onClick={submitReport} loading={submitting}>Submit Report</Button>
+            <Button onClick={submitReport} loading={submitting}>Submit Report</Button>
           </>
         }
       >

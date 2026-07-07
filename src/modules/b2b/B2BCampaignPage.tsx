@@ -390,7 +390,7 @@ function ImportTab() {
       </div>
 
       {/* Upload zone */}
-      <div onClick={() => fileRef.current?.click()}
+      <div data-tour="import-zone" onClick={() => fileRef.current?.click()}
         className="border-2 border-dashed border-gray-700 hover:border-gold-500/50 rounded-xl p-10 text-center cursor-pointer transition-colors group">
         <Upload className="w-8 h-8 text-gray-600 group-hover:text-gold-500 mx-auto mb-3 transition-colors" />
         <p className="text-sm font-medium text-gray-300">Drop CSV here or click to browse</p>
@@ -1017,7 +1017,7 @@ export function B2BCampaignPage() {
 
       <div className="flex gap-1 bg-gray-900 rounded-xl p-1 w-fit border border-gray-800">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} data-tour={`tab-${t.id}`} onClick={() => setTab(t.id)}
             className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
               tab === t.id ? 'bg-gray-700 text-white shadow' : 'text-gray-500 hover:text-gray-300')}>
             {t.icon}{t.label}

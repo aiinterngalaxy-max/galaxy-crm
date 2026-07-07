@@ -40,7 +40,7 @@ export function PipelinePage() {
   return (
     <Page>
       <PageHeader title="Content Pipeline" subtitle="Drag any card across stages — Idea → … → Published. Changes save to the shared database." />
-      <KanbanBoard initial={content} brands={brands.map((b) => ({ id: b.id, name: b.name }))} editId={editId} onChanged={load} />
+      <div data-tour="kanban-board"><KanbanBoard initial={content} brands={brands.map((b) => ({ id: b.id, name: b.name }))} editId={editId} onChanged={load} /></div>
     </Page>
   )
 }

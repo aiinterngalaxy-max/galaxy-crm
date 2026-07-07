@@ -50,7 +50,7 @@ export function BDDashboard() {
         <p className="text-sm text-gray-500 mt-0.5">Your BD pipeline at a glance.</p>
       </div>
 
-      <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="My Active Leads"
           value={activeLeads.length}

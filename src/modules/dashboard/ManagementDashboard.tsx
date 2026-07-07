@@ -132,7 +132,7 @@ export function ManagementDashboard() {
       )}
 
       {/* KPI Row */}
-      <div data-tour="dashboard-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Pipeline Value"
           value={formatCurrencyShort(pipelineValue)}

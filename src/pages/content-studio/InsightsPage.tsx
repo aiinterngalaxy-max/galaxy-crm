@@ -52,7 +52,7 @@ export function InsightsPage() {
         </div>
       ) : (
         <div className="grid lg:grid-cols-2 gap-6">
-          <div className="glass-card p-5">
+          <div data-tour="best-formats" className="glass-card p-5">
             <h2 className="font-bold text-gray-100 mb-1">Best performing formats</h2>
             <p className="text-xs text-gray-500 mb-4">Average engagement rate (likes+comments+shares+saves ÷ reach)</p>
             <div className="space-y-3">
@@ -103,7 +103,7 @@ export function InsightsPage() {
             </div>
           </div>
 
-          <div className="glass-card p-5">
+          <div data-tour="bottlenecks" className="glass-card p-5">
             <h2 className="font-bold text-gray-100 mb-1">Production bottlenecks</h2>
             <p className="text-xs text-gray-500 mb-4">Average days a piece has spent sitting in each stage right now</p>
             <div className="space-y-3">
@@ -121,7 +121,7 @@ export function InsightsPage() {
             </div>
           </div>
 
-          <div className="glass-card p-5 lg:col-span-2">
+          <div data-tour="team-efficiency" className="glass-card p-5 lg:col-span-2">
             <h2 className="font-bold text-gray-100 mb-1">Team efficiency</h2>
             <p className="text-xs text-gray-500 mb-4">Average revision rounds per published piece (lower = cleaner first-pass work)</p>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">

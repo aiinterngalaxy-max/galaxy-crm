@@ -217,7 +217,7 @@ export function QuotationsPage() {
           </p>
         </div>
         {canCreate && (
-          <Button data-tour="new-quotation-btn" onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>
+          <Button data-tour="add-btn" onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>
             New Quotation
           </Button>
         )}
@@ -254,7 +254,7 @@ export function QuotationsPage() {
           />
         )}
         <div className="divide-y divide-gray-800">
-          {filtered.map(q => {
+          {filtered.map((q, idx) => {
             const cfg = QUOTATION_STATUS_CONFIG[q.status]
             const isApproved = q.status === 'approved' || q.status === 'customer_approved'
             const isPending = q.status === 'pending_approval'
@@ -264,6 +264,7 @@ export function QuotationsPage() {
             return (
               <div
                 key={q.id}
+                data-tour={idx === 0 ? 'quotation-row' : undefined}
                 className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/50 cursor-pointer transition-colors"
                 onClick={() => navigate(`/quotations/${q.id}/edit`)}
               >
@@ -296,7 +297,7 @@ export function QuotationsPage() {
                 </Badge>
 
                 {/* Action buttons */}
-                <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                <div data-tour="quotation-actions" className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                   {isPending && !canApprove && (
                     <Button size="sm" variant="warning"
                       icon={<Send className="w-3.5 h-3.5" />}

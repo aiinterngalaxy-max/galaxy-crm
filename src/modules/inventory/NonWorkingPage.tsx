@@ -137,14 +137,14 @@ export function NonWorkingPage() {
           <p className="text-xs text-gray-500 mt-0.5">Track faulty or non-functional items across all product lines</p>
         </div>
         {canManage && (
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>
+          <Button data-tour="add-btn" variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>
             Log Item
           </Button>
         )}
       </div>
 
       {/* Filters */}
-      <Card>
+      <div data-tour="filters"><Card>
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
@@ -175,10 +175,10 @@ export function NonWorkingPage() {
             ))}
           </div>
         </div>
-      </Card>
+      </Card></div>
 
       {/* Table */}
-      <Card padding="none">
+      <div data-tour="items-table"><Card padding="none">
         {filtered.length === 0 ? (
           <p className="p-8 text-xs text-gray-600 text-center">
             {items.length === 0 ? 'No non-working items logged yet.' : 'No items match your filter.'}
@@ -225,7 +225,7 @@ export function NonWorkingPage() {
             </table>
           </div>
         )}
-      </Card>
+      </Card></div>
 
       {showForm && user && (
         <AddNonWorkingModal

@@ -65,7 +65,7 @@ export function ActivityPage() {
         <div className="glass-card p-5 text-sm text-rose-300">{error}</div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2 mb-5">
+          <div data-tour="filters" className="flex flex-wrap items-center gap-2 mb-5">
             <Link to="/content-studio/activity" className={`badge text-xs font-semibold ${!typeFilter ? 'bg-gold-500 text-gray-950' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
               All
             </Link>
@@ -83,7 +83,7 @@ export function ActivityPage() {
               <p className="text-gray-600 text-xs mt-1">Changes to content, brands, ideas, scripts, and shoots will appear here.</p>
             </div>
           ) : (
-            <div className="glass-card overflow-hidden">
+            <div data-tour="activity-table" className="glass-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-800 bg-gray-900/60">

@@ -70,7 +70,7 @@ export function CustomersPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Customers', value: customers.length },
           { label: 'Portfolio Value', value: formatCurrency(totalValue) },
@@ -103,9 +103,10 @@ export function CustomersPage() {
           />
         )}
         <div className="divide-y divide-gray-800">
-          {filtered.map(customer => (
+          {filtered.map((customer, idx) => (
             <div
               key={customer.id}
+              data-tour={idx === 0 ? 'customer-row' : undefined}
               onClick={() => navigate(`/customers/${customer.id}`)}
               className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/50 cursor-pointer transition-colors"
             >

@@ -117,7 +117,7 @@ export function PerformancePage() {
       />
 
       {/* Live data banner */}
-      <div className={`glass-card p-5 mb-6 border-l-4 ${isLive ? 'border-emerald-500' : 'border-amber-500'}`}>
+      <div data-tour="live-banner" className={`glass-card p-5 mb-6 border-l-4 ${isLive ? 'border-emerald-500' : 'border-amber-500'}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-semibold text-gray-100">
@@ -138,7 +138,7 @@ export function PerformancePage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
+      <div data-tour="filters" className="flex flex-wrap items-center gap-3 mb-6">
         {/* Platform pills */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 mr-1">Platform</span>
@@ -180,7 +180,7 @@ export function PerformancePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">Views</div><div className="text-3xl font-bold text-gray-100 mt-1">{compact(t.views)}</div></div>
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">Reach</div><div className="text-3xl font-bold text-gray-100 mt-1">{compact(t.reach)}</div></div>
         <div className="stat-card"><div className="text-xs uppercase text-gray-500">Engagement</div><div className="text-3xl font-bold text-gold-400 mt-1">{compact(engagement)}</div></div>
@@ -190,7 +190,7 @@ export function PerformancePage() {
       </div>
 
       {/* Charts row */}
-      <div className="grid lg:grid-cols-3 gap-6 mt-6">
+      <div data-tour="charts" className="grid lg:grid-cols-3 gap-6 mt-6">
         <div className="glass-card p-5">
           <h2 className="font-bold text-gray-100 mb-4">Views by platform</h2>
           {platforms.length ? (
@@ -241,7 +241,7 @@ export function PerformancePage() {
       </div>
 
       {/* Top content table */}
-      <div className="glass-card mt-6 overflow-hidden">
+      <div data-tour="content-table" className="glass-card mt-6 overflow-hidden">
         <div className="p-5 border-b border-gray-800 flex items-center justify-between gap-4">
           <h2 className="font-bold text-gray-100">All content</h2>
           <div className="flex items-center gap-3">

@@ -774,10 +774,10 @@ export function QuotationBuilder() {
       </div>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-0 px-6 py-4 bg-gray-900 border-b border-gray-800 shrink-0 overflow-x-auto">
+      <div data-tour="step-indicator" className="flex items-center gap-0 px-6 py-4 bg-gray-900 border-b border-gray-800 shrink-0 overflow-x-auto">
         {STEPS.map((s, i) => (
           <div key={s.id} className="flex items-center gap-0">
-            <button onClick={() => { if (i < step || (i === step + 1 && canGoNext())) setStep(i) }}
+            <button data-tour={`step-${s.id}-pill`} onClick={() => { if (i < step || (i === step + 1 && canGoNext())) setStep(i) }}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
                 i === step ? 'bg-indigo-600 text-white' : i < step ? 'text-indigo-400 hover:bg-indigo-900/20' : 'text-gray-600'
               }`}>
@@ -793,7 +793,7 @@ export function QuotationBuilder() {
 
       {/* Step content */}
       <div className="flex-1 overflow-y-auto">
-        {step === 0 && <ClientStep quote={quote} onChange={setQuote} customers={customers} setCustomers={setCustomers} />}
+        {step === 0 && <div data-tour="client-step-content"><ClientStep quote={quote} onChange={setQuote} customers={customers} setCustomers={setCustomers} /></div>}
         {step === 1 && <FloorPlanStep quote={quote} onChange={setQuote} products={products} />}
         {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} onGoToFloorPlan={() => setStep(1)} />}
         {step === 3 && <BOQStep quote={quote} onChange={setQuote} products={products} pricing={pricing} />}

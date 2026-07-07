@@ -60,7 +60,7 @@ export function CustomerDetail() {
       </div>
 
       {/* Summary Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card padding="sm"><p className="text-xs text-gray-500">Total Projects</p><p className="text-xl font-bold text-gray-100 mt-1">{projects.length}</p></Card>
         <Card padding="sm"><p className="text-xs text-gray-500">Portfolio Value</p><p className="text-xl font-bold text-gray-100 mt-1">{formatCurrency(customer.totalProjectValue)}</p></Card>
         <Card padding="sm"><p className="text-xs text-gray-500">Paid</p><p className="text-xl font-bold text-green-400 mt-1">{formatCurrency(customer.totalPaid)}</p></Card>
@@ -69,7 +69,7 @@ export function CustomerDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Contact */}
-        <div className="space-y-4">
+        <div data-tour="contact-info" className="space-y-4">
           <Card>
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Contact Info</h3>
             <div className="space-y-2.5 text-sm">
@@ -82,26 +82,29 @@ export function CustomerDetail() {
 
         {/* Projects */}
         <div className="lg:col-span-2 space-y-4">
-          <Card padding="none">
-            <div className="p-4 border-b border-gray-800 flex items-center gap-2">
-              <FolderKanban className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-sm font-semibold text-gray-200">Projects</h3>
-            </div>
-            {projects.length === 0 ? (
-              <p className="p-5 text-sm text-gray-600 text-center">No projects yet</p>
-            ) : projects.map(p => (
-              <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
-                className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 last:border-0 hover:bg-gray-800/50 cursor-pointer">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-200 truncate">{p.title}</p>
-                  <p className="text-xs text-gray-500">{p.projectCode} · {formatCurrency(p.projectValue)}</p>
-                </div>
-                <Badge color={PROJECT_STATUS_CONFIG[p.status]?.color} bg={PROJECT_STATUS_CONFIG[p.status]?.bg}>{PROJECT_STATUS_CONFIG[p.status]?.label}</Badge>
-                <ChevronRight className="w-3.5 h-3.5 text-gray-700" />
+          <div data-tour="projects-section">
+            <Card padding="none">
+              <div className="p-4 border-b border-gray-800 flex items-center gap-2">
+                <FolderKanban className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-semibold text-gray-200">Projects</h3>
               </div>
-            ))}
-          </Card>
+              {projects.length === 0 ? (
+                <p className="p-5 text-sm text-gray-600 text-center">No projects yet</p>
+              ) : projects.map(p => (
+                <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                  className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 last:border-0 hover:bg-gray-800/50 cursor-pointer">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-200 truncate">{p.title}</p>
+                    <p className="text-xs text-gray-500">{p.projectCode} · {formatCurrency(p.projectValue)}</p>
+                  </div>
+                  <Badge color={PROJECT_STATUS_CONFIG[p.status]?.color} bg={PROJECT_STATUS_CONFIG[p.status]?.bg}>{PROJECT_STATUS_CONFIG[p.status]?.label}</Badge>
+                  <ChevronRight className="w-3.5 h-3.5 text-gray-700" />
+                </div>
+              ))}
+            </Card>
+          </div>
 
+          <div data-tour="quotations-invoices" className="space-y-4">
           <Card padding="none">
             <div className="p-4 border-b border-gray-800 flex items-center gap-2">
               <FileText className="w-4 h-4 text-yellow-400" />
@@ -141,6 +144,7 @@ export function CustomerDetail() {
               </div>
             ))}
           </Card>
+          </div>
         </div>
       </div>
     </div>

@@ -200,14 +200,14 @@ export function ProjectsPage() {
           <p className="text-sm text-gray-500 mt-0.5">Track home automation projects and workflows in real time</p>
         </div>
         {canCreate && (
-          <Button onClick={() => setShowNewProject(true)} icon={<Plus className="w-4 h-4" />} variant="warning">
+          <Button data-tour="add-btn" onClick={() => setShowNewProject(true)} icon={<Plus className="w-4 h-4" />} variant="warning">
             New Project
           </Button>
         )}
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Projects', value: stats.total, active: statusFilter === 'all', onClick: () => setStatusFilter('all'), color: 'text-yellow-400', border: 'border-yellow-500/40' },
           { label: 'Planning',       value: stats.planning,   active: statusFilter === 'planning',    onClick: () => setStatusFilter('planning'),    color: 'text-blue-400',   border: '' },
@@ -273,7 +273,7 @@ export function ProjectsPage() {
         />
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map(project => {
+        {filtered.map((project, idx) => {
           const wf = workflowCounts[project.id]
           const pct = wf && wf.total > 0
             ? Math.round((wf.done / wf.total) * 100)
@@ -287,6 +287,7 @@ export function ProjectsPage() {
           return (
             <div
               key={project.id}
+              data-tour={idx === 0 ? 'project-card' : undefined}
               onClick={() => navigate(`/projects/${project.id}`)}
               className="bg-gray-900 border border-gray-800 rounded-2xl p-5 cursor-pointer hover:border-gray-700 hover:bg-gray-800/60 transition-all"
             >

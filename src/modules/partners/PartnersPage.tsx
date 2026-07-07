@@ -171,12 +171,12 @@ export function PartnersPage() {
           <p className="text-sm text-gray-500 mt-0.5">Architects, interior designers & builders who refer projects</p>
         </div>
         {canWrite && (
-          <Button data-tour="new-partner-btn" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>Add Partner</Button>
+          <Button data-tour="add-btn" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>Add Partner</Button>
         )}
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="stat-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Partners" value={totalPartners} icon={<Building2 className="w-5 h-5 text-violet-400" />} iconBg="bg-violet-500/20" />
         <StatCard label="Active Partners" value={activePartners} icon={<Star className="w-5 h-5 text-gold-400" />} iconBg="bg-gold-500/20" />
         <StatCard label="B2B Leads" value={totalB2BLeads} icon={<Users className="w-5 h-5 text-blue-400" />} iconBg="bg-blue-500/20" />
@@ -215,13 +215,14 @@ export function PartnersPage() {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(partner => {
+          {filtered.map((partner, idx) => {
             const stats = getPartnerStats(partner.id)
             const typeStyle = PARTNER_TYPE_COLORS[partner.type]
 
             return (
               <div
                 key={partner.id}
+                data-tour={idx === 0 ? 'partner-card' : undefined}
                 className="glass-card p-5 cursor-pointer hover:border-gold-500/30 transition-all"
                 onClick={() => navigate(`/partners/${partner.id}`)}
               >

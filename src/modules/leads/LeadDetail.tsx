@@ -384,7 +384,7 @@ export function LeadDetail() {
             <Badge color={statusCfg.color} bg={statusCfg.bg} className="text-sm px-3 py-1">
               {statusCfg.label}
             </Badge>
-            <span className={`text-sm font-bold px-2.5 py-1 rounded-lg ${getScoreBg(lead.aiScore)} ${getScoreColor(lead.aiScore)}`}>
+            <span data-tour="ai-score" className={`text-sm font-bold px-2.5 py-1 rounded-lg ${getScoreBg(lead.aiScore)} ${getScoreColor(lead.aiScore)}`}>
               Score: {lead.aiScore}/100
             </span>
             {isConverted && (
@@ -401,7 +401,7 @@ export function LeadDetail() {
             </Button>
           )}
           {canEdit && (
-            <Button variant="secondary" size="sm" icon={<Plus className="w-3.5 h-3.5" />}
+            <Button data-tour="add-btn" variant="secondary" size="sm" icon={<Plus className="w-3.5 h-3.5" />}
               onClick={() => setShowActivityForm(true)}>
               Log Activity
             </Button>
@@ -421,7 +421,7 @@ export function LeadDetail() {
             )
           )}
           {isWon && !isConverted && canEdit && (
-            <Button size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
+            <Button data-tour="convert-btn" size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
               onClick={() => setShowConvertModal(true)}>
               Convert to Customer
             </Button>
@@ -446,7 +446,7 @@ export function LeadDetail() {
             </div>
           </div>
           {canEdit && (
-            <Button size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
+            <Button data-tour="convert-btn" size="sm" variant="success" icon={<UserCheck className="w-3.5 h-3.5" />}
               onClick={() => setShowConvertModal(true)}>
               Convert Now
             </Button>
@@ -613,7 +613,7 @@ export function LeadDetail() {
           {canEdit && (
             <Card>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Update Status</h3>
-              <div className="grid grid-cols-1 gap-1.5">
+              <div data-tour="status-buttons" className="grid grid-cols-1 gap-1.5">
                 {Object.entries(LEAD_STATUS_CONFIG).map(([s, cfg]) => (
                   <button
                     key={s}
@@ -667,7 +667,7 @@ export function LeadDetail() {
         </div>
 
         {/* Right: Activity Timeline */}
-        <div className="lg:col-span-2">
+        <div data-tour="activity-timeline" className="lg:col-span-2">
           <Card padding="none">
             <div className="p-5 border-b border-gray-800 flex items-center justify-between">
               <h3 className="section-header">Activity Timeline</h3>
