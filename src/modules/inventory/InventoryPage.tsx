@@ -1554,6 +1554,7 @@ export function InventoryPage() {
             )}
             {line === 'elysia' && (
               <Button
+                data-tour="scan-switch-btn"
                 variant="ghost"
                 size="sm"
                 icon={<ScanLine className="w-4 h-4" />}
@@ -1615,7 +1616,7 @@ export function InventoryPage() {
               />
             </div>
             {/* Status pills */}
-            <div className="flex gap-2 flex-wrap">
+            <div data-tour="inventory-status" className="flex gap-2 flex-wrap">
               {(['all', 'in_stock', 'low_stock', 'out_of_stock'] as const).map(s => (
                 <button
                   key={s}

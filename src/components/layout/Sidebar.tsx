@@ -106,7 +106,7 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+      <nav data-tour="sidebar-nav" className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {visibleItems.map((item) => {
           const isActive =
             item.path === '/'
@@ -161,6 +161,7 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
               to={item.path}
               title={collapsed ? item.label : undefined}
               onClick={onNavClick}
+              data-tour={item.path === '/settings' ? 'settings-nav' : undefined}
               className={cn(
                 'sidebar-item',
                 isActive ? 'sidebar-item-active' : 'sidebar-item-inactive',

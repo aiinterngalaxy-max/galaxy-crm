@@ -236,7 +236,7 @@ export function LeadsPage() {
             Follow-ups
           </Button>
           {canCreate && (
-            <Button onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
+            <Button data-tour="new-lead-btn" onClick={() => setShowForm(true)} icon={<Plus className="w-4 h-4" />}>
               New Lead
             </Button>
           )}
@@ -244,7 +244,7 @@ export function LeadsPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div data-tour="lead-filters" className="flex flex-wrap items-center gap-3">
         {/* Stage dropdown */}
         <select
           value={filterStage}

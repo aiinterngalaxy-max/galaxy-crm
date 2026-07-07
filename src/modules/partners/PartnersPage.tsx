@@ -171,7 +171,7 @@ export function PartnersPage() {
           <p className="text-sm text-gray-500 mt-0.5">Architects, interior designers & builders who refer projects</p>
         </div>
         {canWrite && (
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>Add Partner</Button>
+          <Button data-tour="new-partner-btn" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>Add Partner</Button>
         )}
       </div>
 

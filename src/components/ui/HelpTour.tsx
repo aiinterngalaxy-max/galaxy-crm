@@ -21,30 +21,30 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
   '/': {
     default: [
       { title: 'Welcome to Galaxy CRM 👋', content: 'This is your Dashboard — your home base. Everything you need for your day is right here. Let\'s take a quick tour so you\'re comfortable using the system.' },
-      { title: 'Sidebar Navigation', content: 'On the left side you\'ll see the menu. Each item takes you to a different part of the system — Leads, Projects, Inventory, and more. Tap any item to navigate.', selector: 'nav, aside, [class*="sidebar"]' },
-      { title: 'Your Stats', content: 'These cards show you live numbers — how many leads are active, projects running, and tasks pending. They update automatically as the team uses the system.', selector: '[class*="stat"], [class*="card"]:first-of-type' },
-      { title: 'Notifications Bell 🔔', content: 'See that bell icon in the top right? That\'s where all your alerts go — new leads assigned to you, follow-up reminders, approvals needed. Always check it when you log in.', selector: '[href*="notification"], a[href="/notifications"]' },
+      { title: 'Sidebar Navigation', content: 'On the left side you\'ll see the menu. Each item takes you to a different part of the system — Leads, Projects, Inventory, and more. Tap any item to navigate.', selector: '[data-tour="sidebar-nav"]' },
+      { title: 'Your Stats', content: 'These cards show you live numbers — how many leads are active, projects running, and tasks pending. They update automatically as the team uses the system.', selector: '[data-tour="dashboard-stats"]' },
+      { title: 'Notifications Bell 🔔', content: 'See that bell icon in the top right? That\'s where all your alerts go — new leads assigned to you, follow-up reminders, approvals needed. Always check it when you log in.', selector: '[data-tour="notif-bell"]' },
       { title: 'You\'re all set!', content: 'That\'s the dashboard. Use the sidebar to explore each section. Tap "?" anytime on any page to get a guide for that specific page.' },
     ],
     bd_exec: [
       { title: 'Welcome to Galaxy CRM 👋', content: 'This is your Dashboard. As a BD Executive your main job here is managing leads — the people who are interested in Galaxy\'s products. Let\'s walk through it.' },
-      { title: 'Your Lead Stats', content: 'These numbers show how your leads are doing — how many are new, how many you\'ve contacted, how many have converted. Track this daily.', selector: '[class*="stat"], [class*="card"]:first-of-type' },
-      { title: 'Quick Access', content: 'The sidebar on the left has Leads, Follow Ups, and B2B Partners — those are your main sections. Everything else is secondary for your role.' },
-      { title: 'Notifications 🔔', content: 'The bell icon shows follow-up reminders and new leads assigned to you. Check it every morning when you start work.', selector: 'a[href="/notifications"]' },
+      { title: 'Your Lead Stats', content: 'These numbers show how your leads are doing — how many are new, how many you\'ve contacted, how many have converted. Track this daily.', selector: '[data-tour="dashboard-stats"]' },
+      { title: 'Quick Access', content: 'The sidebar on the left has Leads, Follow Ups, and B2B Partners — those are your main sections. Everything else is secondary for your role.', selector: '[data-tour="sidebar-nav"]' },
+      { title: 'Notifications 🔔', content: 'The bell icon shows follow-up reminders and new leads assigned to you. Check it every morning when you start work.', selector: '[data-tour="notif-bell"]' },
       { title: 'You\'re good to go!', content: 'Head to the Leads section to get started. Tap "?" on any page for a guide specific to that page.' },
     ],
     project_manager: [
       { title: 'Welcome to Galaxy CRM 👋', content: 'This is your Dashboard. As a Project Manager you\'ll mainly work in Projects, Inventory, and Quotations. Let\'s orient you.' },
-      { title: 'Project Stats', content: 'These cards show your active projects, pending milestones, and any overdue tasks. Check these every morning.', selector: '[class*="stat"], [class*="card"]:first-of-type' },
-      { title: 'Your Sections', content: 'In the sidebar — Projects is where you manage site work, Inventory is for tracking materials, Quotations is where you review and approve estimates.' },
-      { title: 'Notifications 🔔', content: 'You\'ll get alerts here when quotations need your approval, or when a milestone is overdue. Don\'t ignore the bell.', selector: 'a[href="/notifications"]' },
+      { title: 'Project Stats', content: 'These cards show your active projects, pending milestones, and any overdue tasks. Check these every morning.', selector: '[data-tour="dashboard-stats"]' },
+      { title: 'Your Sections', content: 'In the sidebar — Projects is where you manage site work, Inventory is for tracking materials, Quotations is where you review and approve estimates.', selector: '[data-tour="sidebar-nav"]' },
+      { title: 'Notifications 🔔', content: 'You\'ll get alerts here when quotations need your approval, or when a milestone is overdue. Don\'t ignore the bell.', selector: '[data-tour="notif-bell"]' },
       { title: 'Ready!', content: 'Go to Projects to see your current work. Tap "?" on any page for help.' },
     ],
     management: [
       { title: 'Welcome to Galaxy CRM 👋', content: 'This is your Management Dashboard — a full overview of the entire business. Revenue, leads, projects, team performance — all in one place.' },
-      { title: 'Business Overview', content: 'These top cards show the key numbers — total revenue, active projects, conversion rate, and team activity. These update in real time.', selector: '[class*="stat"], [class*="card"]:first-of-type' },
+      { title: 'Business Overview', content: 'These top cards show the key numbers — total revenue, active projects, conversion rate, and team activity. These update in real time.', selector: '[data-tour="dashboard-stats"]' },
       { title: 'Full Access', content: 'As management you can see and control everything — approve quotations, manage staff roles in Settings, view all reports, and more.' },
-      { title: 'Settings for Staff', content: 'Go to Settings to approve new staff who have signed up, change their roles, and manage the product catalog.', selector: 'a[href="/settings"]' },
+      { title: 'Settings for Staff', content: 'Go to Settings to approve new staff who have signed up, change their roles, and manage the product catalog.', selector: '[data-tour="settings-nav"]' },
       { title: 'You\'re all set!', content: 'Tap "?" on any page for a guide to that specific section.' },
     ],
   },
@@ -53,19 +53,18 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
   '/leads': {
     default: [
       { title: 'Leads — Your Sales Pipeline', content: 'A lead is anyone who has shown interest in Galaxy\'s products. This page shows all leads the team is working on. Every potential customer starts here.' },
-      { title: 'Lead Status Pipeline', content: 'At the top you\'ll see status tabs — New, Contacted, Qualified, Quote Sent, Won, Lost. A lead moves through these stages as you progress with the customer.', selector: '[class*="tab"], [class*="filter"]' },
-      { title: 'Search & Filter', content: 'Use the search bar to find a lead by name or phone. Use the dropdowns to filter by status, source, or who the lead is assigned to.', selector: 'input[type="search"], input[placeholder*="Search"]' },
-      { title: 'Each Lead Card', content: 'Each row shows the customer name, phone, status, AI score, and who it\'s assigned to. The AI score (0-100) shows how likely this lead is to convert — higher is better.' },
-      { title: 'Add a New Lead', content: 'See the gold "+ Add Lead" button at the top right? Tap that whenever a new customer contacts you. Fill in their details and assign it to yourself or a teammate.', selector: 'button[class*="primary"]' },
-      { title: 'Tap to Open', content: 'Tap any lead in the list to open their full profile — where you can log calls, update their status, upload a floor plan, and see the full history.' },
+      { title: 'Filters & Views', content: 'Use the dropdowns to filter leads by stage, platform, employee, or month. Toggle between List, Kanban, and Spreadsheet views using the icons on the right.', selector: '[data-tour="lead-filters"]' },
+      { title: 'Each Lead Row', content: 'Each row shows the customer name, phone, status, AI score, and who it\'s assigned to. The AI score (0-100) shows how likely this lead is to convert — higher is better.' },
+      { title: 'Add a New Lead', content: 'See the gold "+ New Lead" button at the top right? Tap that whenever a new customer contacts you. Fill in their details and assign it to yourself or a teammate.', selector: '[data-tour="new-lead-btn"]' },
+      { title: 'Tap to Open', content: 'Tap any lead row to open their full profile — where you can log calls, update their status, upload a floor plan, and see the full history.' },
       { title: 'B2C vs B2B', content: 'B2C means the customer came directly. B2B means they came through an architect, designer, or builder (a partner). Both work the same way, B2B just links to a partner.' },
     ],
     bd_exec: [
       { title: 'Your Leads', content: 'This is where you spend most of your time. Every potential customer is a lead. Your job is to move them from "New" to "Won" by calling, following up, and qualifying them.' },
-      { title: 'Status Tabs', content: 'These tabs filter leads by where they are in the process. Start with "New" every morning — those are the freshest leads that need a call.', selector: '[class*="tab"]' },
+      { title: 'Filters', content: 'Use the dropdowns to filter by stage or month. Start with "New" every morning — those are the freshest leads that need a call.', selector: '[data-tour="lead-filters"]' },
       { title: 'AI Score', content: 'The number next to each lead (0-100) is an AI score — it tells you how likely this lead is to convert based on source and budget. Prioritise higher scores first.' },
-      { title: 'Add New Lead', content: 'Got a new inquiry? Tap "+ Add Lead". Fill in the name, phone, source (where they heard about us), and assign it to yourself.', selector: 'button[class*="primary"]' },
-      { title: 'Follow Up reminder', content: 'After calling a lead, always set a follow-up date inside their profile. That\'s how you make sure nothing falls through the cracks.' },
+      { title: 'Add New Lead', content: 'Got a new inquiry? Tap "+ New Lead". Fill in the name, phone, source (where they heard about us), and assign it to yourself.', selector: '[data-tour="new-lead-btn"]' },
+      { title: 'Follow Up Reminder', content: 'After calling a lead, always set a follow-up date inside their profile. That\'s how you make sure nothing falls through the cracks.' },
     ],
   },
 
@@ -96,7 +95,7 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
     default: [
       { title: 'B2B Partners', content: 'Partners are architects, interior designers, and builders who refer clients to Galaxy. When a customer comes through a partner, the partner gets credit for that lead.' },
       { title: 'Partner Cards', content: 'Each card shows a partner\'s name, firm, type, and how many leads and how much revenue they\'ve brought in. This helps you know who your best partners are.' },
-      { title: 'Add a Partner', content: 'When you tie up with a new architect or designer, tap "+ Add Partner". You\'ll need their GST number — it\'s required.', selector: 'button[class*="primary"]' },
+      { title: 'Add a Partner', content: 'When you tie up with a new architect or designer, tap "+ Add Partner". You\'ll need their GST number — it\'s required.', selector: '[data-tour="new-partner-btn"]' },
       { title: 'Partner Stats', content: 'The top row shows total partners, active partners, and total B2B leads and conversions. Use this to track which channel is performing.' },
       { title: 'Tap to View', content: 'Tap any partner card to see their full profile — all leads they\'ve sent, revenue generated, and contact details.' },
     ],
@@ -107,8 +106,8 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
     default: [
       { title: 'Customers', content: 'Customers are leads that have been won — they\'ve agreed to work with Galaxy. A lead becomes a customer when management converts them after a deal is confirmed.' },
       { title: 'Customer List', content: 'Each customer here has an active or past project with Galaxy. You can see their total project value and how much has been paid.' },
-      { title: 'Search', content: 'Use the search bar to find a customer by name or phone quickly.', selector: 'input[type="search"], input[placeholder*="Search"]' },
-      { title: 'Tap to Open', content: 'Tap any customer to see their full details — contact info, linked projects, and payment history.' },
+      { title: 'Search', content: 'Use the search bar at the top to find a customer by name or phone quickly.' },
+      { title: 'Tap to Open', content: 'Tap any customer row to see their full details — contact info, linked projects, and payment history.' },
     ],
   },
 
@@ -117,12 +116,12 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
     default: [
       { title: 'Quotations', content: 'A quotation is a detailed price estimate sent to a customer before a project starts. It lists all the products, quantities, and total cost.' },
       { title: 'Quotation Status', content: 'Each quotation goes through stages — Draft → Pending Approval → Approved → Sent to Customer → Customer Approved. Management approves before it goes to the customer.' },
-      { title: 'Create Quotation', content: 'Tap "+ New Quotation" to start building one. You\'ll pick the customer, add rooms, add products from the catalog, and the system calculates totals automatically.', selector: 'button[class*="primary"]' },
+      { title: 'Create Quotation', content: 'Tap "+ New Quotation" to start building one. You\'ll pick the customer, add rooms, add products from the catalog, and the system calculates totals automatically.', selector: '[data-tour="new-quotation-btn"]' },
       { title: 'Approval Flow', content: 'Once you submit a quotation, management reviews it. You\'ll get a notification when it\'s approved or if changes are needed. Don\'t send it to the customer yourself — wait for approval.' },
     ],
     project_manager: [
       { title: 'Quotations', content: 'Quotations are price estimates for customers. As a PM you\'ll create and manage these — listing all products needed for a project.' },
-      { title: 'Create New', content: 'Tap "+ New Quotation" to start. Pick the customer, add each room, then add products from Galaxy\'s catalog. The system calculates GST and totals automatically.', selector: 'button[class*="primary"]' },
+      { title: 'Create New', content: 'Tap "+ New Quotation" to start. Pick the customer, add each room, then add products from Galaxy\'s catalog. The system calculates GST and totals automatically.', selector: '[data-tour="new-quotation-btn"]' },
       { title: 'Get Approval', content: 'After creating, submit it for approval. Management reviews it before it goes to the customer. You\'ll get a notification on the result.' },
       { title: 'Revisions', content: 'If management requests changes, you\'ll see it marked "Revision Required". Open it, make the changes, and resubmit.' },
     ],
@@ -140,7 +139,7 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
       { title: 'Your Projects', content: 'This is where you manage all your installation jobs. Each project here is an active job at a customer\'s site that you\'re responsible for.' },
       { title: 'Project Cards', content: 'Each card shows the project name, customer, completion percentage, and risk level. Red risk means something needs attention.' },
       { title: 'Open a Project', content: 'Tap any project to manage it — update milestones, log site reports, track materials, and see payment status.' },
-      { title: 'Create Project', content: 'New projects are created by management after a quotation is approved. You\'ll be assigned to it and get a notification.', selector: 'button[class*="primary"]' },
+      { title: 'Create Project', content: 'New projects are created by management after a quotation is approved. You\'ll be assigned to it and get a notification.' },
     ],
   },
 
@@ -160,16 +159,16 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
   '/inventory': {
     default: [
       { title: 'Inventory', content: 'This is where all stock is tracked — every switch, socket, and panel that Galaxy has in the warehouse. You can see what\'s in stock, what\'s low, and what\'s out.' },
-      { title: 'Product Lines', content: 'At the top you\'ll see tabs — Elysia and Vitrum. These are Galaxy\'s two product lines. Select the one you want to view.', selector: '[class*="tab"]' },
+      { title: 'Product Lines', content: 'At the top you\'ll see tabs — Elysia and Vitrum. These are Galaxy\'s two product lines. Select the one you want to view.', selector: '[data-tour="inventory-status"]' },
       { title: 'Stock Status', content: 'Each item shows a colour — Green means in stock, Yellow means low stock (reorder soon), Red means out of stock. Always reorder when you see yellow.' },
-      { title: 'Filters', content: 'Use the filters to find items by type, colour, module, or rack location. This helps when you\'re looking for a specific variant.', selector: '[class*="filter"]' },
+      { title: 'Filters', content: 'Use the filters to find items by type, colour, module, or rack location. This helps when you\'re looking for a specific variant.' },
       { title: 'Stock In / Stock Out', content: 'When new stock arrives tap "Stock In" on that item. When stock is sent to a project tap "Issue". Every movement is recorded automatically.' },
-      { title: 'Scan Switch', content: 'See the "Scan Switch" button at the top? Tap it to use your camera to identify an Elysia switch and do stock in/out without searching manually.', selector: 'button' },
-      { title: 'Export CSV', content: 'Need the full stock list in Excel? Tap "Export CSV" to download it instantly.', selector: 'button' },
+      { title: 'Scan Switch', content: 'See the "Scan Switch" button at the top? Tap it to use your camera to identify an Elysia switch and do stock in/out without searching manually.', selector: '[data-tour="scan-switch-btn"]' },
+      { title: 'Export CSV', content: 'Need the full stock list in Excel? Tap "Export CSV" to download it instantly.' },
     ],
     project_manager: [
       { title: 'Inventory', content: 'This is the stock room — everything Galaxy has in the warehouse. As a PM you can issue items to your project when materials are dispatched to site.' },
-      { title: 'Finding Items', content: 'Use the tabs to switch between Elysia and Vitrum. Use filters to narrow down by colour or module type.', selector: '[class*="tab"]' },
+      { title: 'Finding Items', content: 'Use the tabs to switch between Elysia and Vitrum. Use filters to narrow down by colour or module type.', selector: '[data-tour="inventory-status"]' },
       { title: 'Issuing Stock', content: 'When materials go to your site, find the item and tap "Issue". Enter the quantity and your project reference. This deducts from stock.' },
       { title: 'Low Stock Alert', content: 'If you see a yellow or red item you need for your project, flag it to management immediately so they can reorder.' },
     ],
@@ -179,7 +178,7 @@ const TOURS: Record<string, Record<string, TourStep[]>> = {
   '/daily-reports': {
     default: [
       { title: 'Daily Reports', content: 'Every team member submits a daily report at end of day. It summarises what you did, your top win, any challenges, and your plan for tomorrow.' },
-      { title: 'Submit Today\'s Report', content: 'Tap "Submit Report" or the gold button to fill in today\'s report. It takes 2-3 minutes. Do this before you leave for the day.', selector: 'button[class*="primary"]' },
+      { title: 'Submit Today\'s Report', content: 'Tap "Submit Report" or the gold button to fill in today\'s report. It takes 2-3 minutes. Do this before you leave for the day.', selector: '[data-tour="submit-report-btn"]' },
       { title: 'Pre-filled Summary', content: 'The system automatically fills in your activity stats — calls made, leads updated, etc. You just need to add your personal notes.' },
       { title: 'Top Win & Challenge', content: 'Fill in your biggest win of the day (even something small counts) and the main challenge you faced. Management reads these.' },
       { title: 'History', content: 'You can see all your past reports below. Management can also see them to track team performance.' },

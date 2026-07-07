@@ -217,7 +217,7 @@ export function QuotationsPage() {
           </p>
         </div>
         {canCreate && (
-          <Button onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>
+          <Button data-tour="new-quotation-btn" onClick={() => navigate('/quotations/new')} icon={<Plus className="w-4 h-4" />}>
             New Quotation
           </Button>
         )}

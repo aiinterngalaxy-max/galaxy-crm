@@ -84,6 +84,7 @@ export function NotificationPanel() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(o => !o)}
+        data-tour="notif-bell"
         className="relative text-gray-500 hover:text-gray-300 transition-colors p-1"
       >
         <Bell className="w-4 h-4" />

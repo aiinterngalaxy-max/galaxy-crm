@@ -643,7 +643,7 @@ export function DailyReportsPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={submitReport} loading={submitting}>Submit Report</Button>
+            <Button data-tour="submit-report-btn" onClick={submitReport} loading={submitting}>Submit Report</Button>
           </>
         }
       >
