@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Sparkles, Save, Check } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Sparkles, Save, Check, Download } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
@@ -10,6 +10,7 @@ import { Card } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, addDoc, serverTimestamp } from '../../lib/firebase'
 import { callClaude } from '../../lib/ai'
+import { downloadJDasPDF } from './downloadJD'
 import toast from 'react-hot-toast'
 
 interface Step1Data { title: string; department: string; employmentTypes: string[]; experienceLevel: string }
@@ -474,9 +475,26 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
               </Button>
             )}
             {step === 4 && generatedJD && (
-              <Button onClick={handleSave} loading={saving} icon={<Save className="w-4 h-4" />}>
-                Save Job Description
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => downloadJDasPDF({
+                    id: '', title: s1.title, department: s1.department,
+                    employmentType: s1.employmentTypes.join(',') as import('../../types').EmploymentType,
+                    experienceLevel: s1.experienceLevel as import('../../types').ExperienceLevel,
+                    prerequisites: [], responsibilities: [],
+                    compensation: { type: s4.compensationType, min: s4.minAmount ? parseFloat(s4.minAmount) : undefined, max: s4.maxAmount ? parseFloat(s4.maxAmount) : undefined },
+                    rawJD: generatedJD,
+                    createdBy: '', createdAt: null as never, updatedAt: null as never,
+                  })}
+                  icon={<Download className="w-4 h-4" />}
+                >
+                  Download PDF
+                </Button>
+                <Button onClick={handleSave} loading={saving} icon={<Save className="w-4 h-4" />}>
+                  Save Job Description
+                </Button>
+              </>
             )}
           </div>
         </div>

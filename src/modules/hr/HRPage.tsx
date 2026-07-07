@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Plus, Briefcase, Users, FileText, Eye, Target,
-  Calendar, ChevronRight, Star, AlertCircle, CheckCircle2, MinusCircle, XCircle,
+  Plus, Briefcase, Users, Eye, Target,
+  Star, AlertCircle, CheckCircle2, MinusCircle, XCircle, Download,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Card, StatCard } from '../../components/ui/Card'
@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { Modal } from '../../components/ui/Modal'
 import { ResumeScorer } from './ResumeScorer'
+import { downloadJDasPDF } from './downloadJD'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, limit } from '../../lib/firebase'
 import { formatDate } from '../../lib/utils'
@@ -242,6 +243,9 @@ export function HRPage() {
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setViewingJD(null)}>Close</Button>
+              <Button variant="secondary" onClick={() => downloadJDasPDF(viewingJD)} icon={<Download className="w-4 h-4" />}>
+                Download PDF
+              </Button>
               <Button onClick={() => { setViewingJD(null); setScoringJD(viewingJD) }} icon={<Target className="w-4 h-4" />}>
                 Score a Resume
               </Button>
