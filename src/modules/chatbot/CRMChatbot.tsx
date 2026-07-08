@@ -28,6 +28,10 @@ const tsDate = (ts: unknown): string => {
   return '-'
 }
 
+// Compact single-line formatters to minimize token usage
+const fmtI = (n?: number) => n ? `₹${(n / 100000).toFixed(1)}L` : '₹0'
+const fmtFull = (n?: number) => n ? `₹${n.toLocaleString('en-IN')}` : '₹0'
+
 async function fetchCRMContext(): Promise<string> {
   const [projects, leads, customers, quotations, invoices, payments, dailyReports] =
     await Promise.all([
@@ -40,73 +44,78 @@ async function fetchCRMContext(): Promise<string> {
       getDocs(collection(db, 'dailyReports')),
     ])
 
-  const lines: string[] = []
-  const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-  lines.push(`=== GALAXY HOME AUTOMATION — CRM DATA (${today}) ===\n`)
+  const L: string[] = []
+  const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  L.push(`GALAXY CRM DATA ${today}`)
 
-  // Projects
-  lines.push(`── PROJECTS (${projects.size}) ──`)
+  // Projects — compact single line
+  L.push(`\nPROJECTS(${projects.size}):`)
   projects.docs.forEach(d => {
     const p = d.data()
     const val = p.projectValue ?? p.totalValue ?? 0
     const paid = p.collectedAmount ?? p.totalPaid ?? 0
-    lines.push(
-      `[${p.projectCode ?? d.id}] ${p.title ?? 'Untitled'} | Customer: ${p.customerName ?? '-'}\n` +
-      `  Status: ${p.status} | ${p.completionPercent ?? 0}% complete | Risk: ${p.riskLevel ?? '-'}\n` +
-      `  PM: ${p.assignedPMName ?? p.assignedPM ?? '-'} | City: ${p.city ?? '-'}\n` +
-      `  Value: ${fmt(val)} | Collected: ${fmt(paid)} | Balance: ${fmt(val - paid)}\n` +
-      `  Start: ${tsDate(p.startDate)} | Expected End: ${tsDate(p.expectedEndDate)}`
-    )
+    const parts = [
+      `[${p.projectCode ?? d.id}]`,
+      p.title ?? 'Untitled',
+      p.customerName ? `client:${p.customerName}` : '',
+      `status:${p.status}`,
+      `${p.completionPercent ?? 0}%`,
+      p.assignedPMName ? `pm:${p.assignedPMName}` : '',
+      p.city ? `city:${p.city}` : '',
+      `val:${fmtI(val)}`,
+      `paid:${fmtI(paid)}`,
+      `bal:${fmtI(val - paid)}`,
+      p.riskLevel !== 'low' ? `risk:${p.riskLevel}` : '',
+    ].filter(Boolean)
+    L.push(parts.join(' | '))
   })
-  lines.push('')
 
-  // Leads
-  lines.push(`── LEADS (${leads.size}) ──`)
+  // Leads — compact single line
+  L.push(`\nLEADS(${leads.size}):`)
   leads.docs.forEach(d => {
     const l = d.data()
-    lines.push(
-      `[${l.leadCode ?? d.id}] ${l.name} | Phone: ${l.phone ?? '-'} | Status: ${l.status}\n` +
-      `  Source: ${l.source ?? '-'} | Budget: ${fmt(l.estimatedBudget)} | Assigned: ${l.assignedToName ?? l.assignedTo ?? '-'}\n` +
-      `  Next Follow-up: ${tsDate(l.nextFollowUp)} | Notes: ${l.notes ? l.notes.substring(0, 100) : '-'}`
-    )
+    const parts = [
+      `[${l.leadCode ?? d.id}]`,
+      l.name,
+      `status:${l.status}`,
+      l.source ? `src:${l.source}` : '',
+      l.estimatedBudget ? `budget:${fmtI(l.estimatedBudget)}` : '',
+      l.assignedToName ? `assigned:${l.assignedToName}` : '',
+      l.phone ? `ph:${l.phone}` : '',
+      l.nextFollowUp ? `followup:${tsDate(l.nextFollowUp)}` : '',
+    ].filter(Boolean)
+    L.push(parts.join(' | '))
   })
-  lines.push('')
 
   // Customers
-  lines.push(`── CUSTOMERS (${customers.size}) ──`)
+  L.push(`\nCUSTOMERS(${customers.size}):`)
   customers.docs.forEach(d => {
     const c = d.data()
     const bal = (c.totalProjectValue ?? 0) - (c.totalPaid ?? 0)
-    lines.push(
-      `${c.name} | Phone: ${c.phone ?? '-'} | Type: ${c.type ?? '-'}\n` +
-      `  Total Project Value: ${fmt(c.totalProjectValue)} | Paid: ${fmt(c.totalPaid)} | Balance: ${fmt(bal)}`
+    L.push(
+      `${c.name} | ph:${c.phone ?? '-'} | val:${fmtI(c.totalProjectValue)} | paid:${fmtI(c.totalPaid)} | bal:${fmtI(bal)}`
     )
   })
-  lines.push('')
 
   // Quotations
-  lines.push(`── QUOTATIONS (${quotations.size}) ──`)
+  L.push(`\nQUOTATIONS(${quotations.size}):`)
   quotations.docs.forEach(d => {
     const q = d.data()
-    lines.push(
-      `[${q.quotationCode ?? d.id}] ${q.customerName ?? '-'} | Status: ${q.status}\n` +
-      `  Total: ${fmt(q.total)} | PM: ${q.assignedPMName ?? '-'} | Valid Until: ${tsDate(q.validUntil)}`
+    L.push(
+      `[${q.quotationCode ?? d.id}] ${q.customerName ?? '-'} | status:${q.status} | total:${fmtFull(q.total)} | pm:${q.assignedPMName ?? '-'}`
     )
   })
-  lines.push('')
 
   // Invoices
-  lines.push(`── INVOICES (${invoices.size}) ──`)
+  L.push(`\nINVOICES(${invoices.size}):`)
   invoices.docs.forEach(d => {
     const inv = d.data()
-    lines.push(
-      `[${inv.invoiceCode ?? d.id}] ${inv.customerName ?? '-'} | Status: ${inv.status}\n` +
-      `  Amount: ${fmt(inv.amount)} | Paid: ${fmt(inv.paidAmount)} | Balance: ${fmt(inv.balance)} | Due: ${tsDate(inv.dueDate)}`
+    L.push(
+      `[${inv.invoiceCode ?? d.id}] ${inv.customerName ?? '-'} | status:${inv.status} | amt:${fmtFull(inv.amount)} | paid:${fmtFull(inv.paidAmount)} | bal:${fmtFull(inv.balance)} | due:${tsDate(inv.dueDate)}`
     )
   })
-  lines.push('')
 
-  // Payments — sorted newest first, all included
+  // Payments — newest 50
   const allPayments = payments.docs
     .map(d => d.data())
     .sort((a, b) => {
@@ -114,32 +123,35 @@ async function fetchCRMContext(): Promise<string> {
       const bt = (b.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0
       return bt - at
     })
+    .slice(0, 50)
 
-  lines.push(`── PAYMENTS (${allPayments.length}) ──`)
+  L.push(`\nPAYMENTS(last ${allPayments.length}):`)
   allPayments.forEach(p => {
-    const date = tsDate(p.date ?? p.createdAt)
-    lines.push(
-      `${fmt(p.amount)} via ${p.mode ?? '-'} on ${date} | By: ${p.recordedByName ?? '-'}${p.reference ? ` | Ref: ${p.reference}` : ''}`
-    )
+    const parts = [
+      fmtFull(p.amount),
+      `via:${p.mode ?? '-'}`,
+      `on:${tsDate(p.date ?? p.createdAt)}`,
+      p.recordedByName ? `by:${p.recordedByName}` : '',
+      p.reference ? `ref:${p.reference}` : '',
+    ].filter(Boolean)
+    L.push(parts.join(' | '))
   })
-  lines.push('')
 
-  // Daily Reports — last 30
+  // Daily Reports — last 14
   const recentReports = dailyReports.docs
     .map(d => d.data())
     .sort((a, b) => (b.date as string ?? '').localeCompare(a.date as string ?? ''))
-    .slice(0, 30)
+    .slice(0, 14)
 
-  lines.push(`── DAILY REPORTS (last ${recentReports.length}) ──`)
+  L.push(`\nDAILY_REPORTS(last ${recentReports.length}):`)
   recentReports.forEach(r => {
-    lines.push(
-      `${r.date} | ${r.employeeName ?? '-'} (${r.department ?? '-'})\n` +
-      `  Summary: ${r.preFilledSummary ? r.preFilledSummary.substring(0, 150) : '-'}\n` +
-      `  Top Win: ${r.topWin ?? '-'} | Challenge: ${r.mainChallenge ?? '-'}`
+    const summary = r.preFilledSummary ? r.preFilledSummary.substring(0, 80) : ''
+    L.push(
+      `${r.date} ${r.employeeName ?? '-'} | ${summary}${r.topWin ? ` | win:${r.topWin.substring(0, 60)}` : ''}`
     )
   })
 
-  return lines.join('\n')
+  return L.join('\n')
 }
 
 async function chatWithGroq(
