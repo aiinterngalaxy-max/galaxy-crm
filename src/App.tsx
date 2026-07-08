@@ -46,6 +46,9 @@ const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(
 const HRPage = lazy(() => import('./modules/hr/HRPage').then(m => ({ default: m.HRPage })))
 const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default: m.JDWizard })))
 const RecycleBin = lazy(() => import('./modules/recycle-bin/RecycleBin').then(m => ({ default: m.RecycleBin })))
+const TopzLayout = lazy(() => import('./modules/topz/TopzLayout').then(m => ({ default: m.TopzLayout })))
+const TopzDashboard = lazy(() => import('./modules/topz/TopzDashboard').then(m => ({ default: m.TopzDashboard })))
+const QuotationTool = lazy(() => import('./modules/topz/QuotationTool').then(m => ({ default: m.QuotationTool })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -162,6 +165,12 @@ function AppRoutes() {
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+
+        {/* Topz Cab — super_admin only */}
+        <Route path="/topz" element={<RequireAuth><Suspense fallback={<PageLoader />}><TopzLayout /></Suspense></RequireAuth>}>
+          <Route index element={<Suspense fallback={<PageLoader />}><TopzDashboard /></Suspense>} />
+          <Route path="quotation" element={<Suspense fallback={<PageLoader />}><QuotationTool /></Suspense>} />
         </Route>
 
         {/* Catch-all to login */}

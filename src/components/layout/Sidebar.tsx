@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   ClipboardList, Sparkles, Bell, Settings,
@@ -59,6 +59,7 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
   const { user, role } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState<string[]>(() => {
     // auto-expand if already on a child path
     return location.pathname.startsWith('/inventory') ? ['/inventory'] : []
@@ -106,6 +107,26 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
           </div>
         )}
       </div>
+
+      {/* Company switcher — super_admin only */}
+      {role === 'super_admin' && !collapsed && (
+        <div className="px-3 py-2 border-b border-gray-800">
+          <div className="flex rounded-lg overflow-hidden border border-gray-700/60" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <button
+              className="flex-1 py-1.5 text-xs font-semibold transition-colors"
+              style={{ background: 'linear-gradient(135deg,rgba(201,168,64,0.25),rgba(201,168,64,0.1))', color: '#C9A840', borderRight: '1px solid rgba(107,114,128,0.3)' }}
+            >
+              Galaxy
+            </button>
+            <button
+              onClick={() => { navigate('/topz'); onNavClick?.() }}
+              className="flex-1 py-1.5 text-xs font-semibold text-gray-400 hover:text-yellow-300 hover:bg-yellow-900/10 transition-colors"
+            >
+              Topz Cab
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Nav */}
       <nav data-tour="sidebar-nav" className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
