@@ -122,8 +122,8 @@ async function chatWithGroq(
   // Minimal system prompt — context travels in the first user message, not here
   const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Be concise. Use ₹ and Indian units (lakhs/crores). Today: ${today}. Never invent data.`
 
-  // Cap context at 8k chars ≈ 2k tokens — keeps each first-message cheap
-  const safeCtx = context.length > 8000 ? context.slice(0, 8000) + '\n[truncated]' : context
+  // Cap context at 20k chars ≈ 5k tokens — safe since context is injected only once
+  const safeCtx = context.length > 20000 ? context.slice(0, 20000) + '\n[truncated]' : context
 
   // Build API messages:
   // - First user message gets context prepended (once, not on every call)
