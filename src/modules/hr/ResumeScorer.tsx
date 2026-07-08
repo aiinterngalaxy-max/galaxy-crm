@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
+import { createWorker } from 'tesseract.js'
 import { X, Upload, Sparkles, User, CheckCircle2, AlertCircle, MinusCircle, XCircle } from 'lucide-react'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
@@ -103,6 +104,8 @@ export function ResumeScorer({ open, onClose, jd }: ResumeScorerProps) {
         toast.loading('Reading PDF…', { id: 'pdf-read' })
         const arrayBuffer = await file.arrayBuffer()
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+
+        // Try text extraction first (works for digital PDFs)
         let text = ''
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i)
@@ -110,14 +113,48 @@ export function ResumeScorer({ open, onClose, jd }: ResumeScorerProps) {
           text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
         }
         const extracted = text.trim()
-        if (!extracted) {
-          toast.error('PDF has no selectable text — it may be a scanned image. Please copy-paste the resume text manually.', { id: 'pdf-read', duration: 6000 })
-        } else {
+
+        if (extracted) {
           setResumeText(extracted)
           toast.success(`PDF loaded — ${extracted.length} characters extracted`, { id: 'pdf-read' })
+          return
+        }
+
+        // Scanned PDF — fall back to Tesseract OCR
+        toast.loading('Scanned PDF detected — running OCR (this takes ~30s)…', { id: 'pdf-read', duration: 60000 })
+        const worker = await createWorker('eng', 1, {
+          logger: (m) => {
+            if (m.status === 'recognizing text') {
+              toast.loading(`OCR: ${Math.round(m.progress * 100)}%`, { id: 'pdf-read' })
+            }
+          },
+        })
+
+        let ocrText = ''
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const viewport = page.getViewport({ scale: 2.5 }) // high scale = better OCR accuracy
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          const ctx = canvas.getContext('2d')!
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (page.render as any)({ canvasContext: ctx, viewport }).promise
+          const { data: { text: pageText } } = await worker.recognize(canvas)
+          ocrText += pageText + '\n'
+        }
+
+        await worker.terminate()
+
+        const ocrExtracted = ocrText.trim()
+        if (ocrExtracted) {
+          setResumeText(ocrExtracted)
+          toast.success(`OCR complete — ${ocrExtracted.length} characters extracted`, { id: 'pdf-read' })
+        } else {
+          toast.error('OCR could not extract text — please paste the resume manually', { id: 'pdf-read', duration: 6000 })
         }
       } catch (err) {
-        console.error('PDF parse error:', err)
+        console.error('PDF/OCR error:', err)
         toast.error('Could not read PDF — try copy-pasting the text instead', { id: 'pdf-read' })
       }
       return
