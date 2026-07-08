@@ -57,6 +57,12 @@ const THEMES: { id: AppTheme; label: string; desc: string; preview: { bg: string
     desc: 'Frosted white glass, iOS style',
     preview: { bg: '#dde1eb', card: 'rgba(255,255,255,0.55)', border: 'rgba(255,255,255,0.80)', orb1: 'rgba(210,210,235,0.80)', orb2: 'rgba(195,200,230,0.65)', text: '#0f172a', textMuted: '#475569' },
   },
+  {
+    id: 'funky-chaos',
+    label: '🎪 Funky Chaos',
+    desc: 'Maximum chaos. Zero chill.',
+    preview: { bg: '#0a0015', card: 'rgba(255,0,200,0.10)', border: 'rgba(0,255,200,0.50)', orb1: 'rgba(255,0,200,0.55)', orb2: 'rgba(0,255,180,0.45)', text: '#f0e0ff', textMuted: '#c084fc' },
+  },
 ]
 
 function ThemePicker() {
@@ -67,18 +73,20 @@ function ThemePicker() {
         <Palette className="w-5 h-5 text-gold-400" />
         <h3 className="text-sm font-semibold" style={{ color: 'var(--text-base)' }}>Appearance</h3>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {THEMES.map(t => {
           const active = theme === t.id
+          const isFunky = t.id === 'funky-chaos'
           return (
             <button
               key={t.id}
               onClick={() => setTheme(t.id)}
               className="text-left rounded-xl overflow-hidden transition-all"
               style={{
-                border: active ? '2px solid #C9A840' : '2px solid transparent',
-                outline: active ? '1px solid rgba(201,168,64,0.3)' : '1px solid rgba(255,255,255,0.08)',
-                boxShadow: active ? '0 0 16px rgba(201,168,64,0.20)' : 'none',
+                border: active ? (isFunky ? '2px solid #ff00cc' : '2px solid #C9A840') : '2px solid transparent',
+                outline: active ? (isFunky ? '1px solid rgba(255,0,200,0.4)' : '1px solid rgba(201,168,64,0.3)') : '1px solid rgba(255,255,255,0.08)',
+                boxShadow: active ? (isFunky ? '0 0 20px rgba(255,0,200,0.35), 0 0 40px rgba(0,255,200,0.15)' : '0 0 16px rgba(201,168,64,0.20)') : 'none',
+                animation: isFunky && active ? 'funky-border-spin 3s linear infinite' : undefined,
               }}
             >
               {/* Mini preview */}
@@ -89,18 +97,24 @@ function ThemePicker() {
                     <div style={{ position: 'absolute', bottom: '-20%', right: '-10%', width: 70, height: 70, borderRadius: '50%', background: `radial-gradient(circle, ${t.preview.orb2} 0%, transparent 70%)`, filter: 'blur(14px)' }} />
                   </>
                 )}
+                {isFunky && (
+                  <>
+                    <div style={{ position: 'absolute', top: '30%', left: '40%', width: 50, height: 50, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,220,0,0.50) 0%, transparent 70%)', filter: 'blur(12px)' }} />
+                    <div style={{ position: 'absolute', top: '5%', right: '5%', width: 30, height: 30, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,150,255,0.55) 0%, transparent 70%)', filter: 'blur(8px)' }} />
+                  </>
+                )}
                 <div style={{ position: 'absolute', top: 12, left: 10, right: 10, height: 28, borderRadius: 8, background: t.preview.card, border: `1px solid ${t.preview.border}`, backdropFilter: 'blur(8px)' }} />
-                <div style={{ position: 'absolute', top: 22, left: 18, width: 40, height: 6, borderRadius: 3, background: t.preview.textMuted, opacity: 0.5 }} />
+                <div style={{ position: 'absolute', top: 22, left: 18, width: 40, height: 6, borderRadius: 3, background: isFunky ? '#ff00cc' : t.preview.textMuted, opacity: 0.7 }} />
                 <div style={{ position: 'absolute', top: 48, left: 10, right: 10, height: 20, borderRadius: 6, background: t.preview.card, border: `1px solid ${t.preview.border}`, backdropFilter: 'blur(8px)' }} />
-                <div style={{ position: 'absolute', top: 55, left: 18, width: 60, height: 5, borderRadius: 3, background: t.preview.textMuted, opacity: 0.4 }} />
+                <div style={{ position: 'absolute', top: 55, left: 18, width: 60, height: 5, borderRadius: 3, background: isFunky ? '#00ffcc' : t.preview.textMuted, opacity: 0.5 }} />
               </div>
               {/* Label */}
               <div className="px-3 py-2.5" style={{ background: 'var(--glass-bg)' }}>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold" style={{ color: 'var(--text-base)' }}>{t.label}</p>
-                  {active && <CheckCircle2 className="w-3.5 h-3.5 text-gold-400" />}
+                  <p className="text-xs font-semibold" style={{ color: isFunky ? '#ff00cc' : 'var(--text-base)' }}>{t.label}</p>
+                  {active && <CheckCircle2 className="w-3.5 h-3.5" style={{ color: isFunky ? '#00ffcc' : '#C9A840' }} />}
                 </div>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{t.desc}</p>
+                <p className="text-xs mt-0.5" style={{ color: isFunky ? '#c084fc' : 'var(--text-muted)' }}>{t.desc}</p>
               </div>
             </button>
           )

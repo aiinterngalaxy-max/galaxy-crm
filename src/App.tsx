@@ -182,6 +182,12 @@ const ORBS: Record<string, { color1: string; color2: string; color3: string; col
     color3: 'rgba(220,220,238,0.65)',
     color4: 'rgba(200,205,230,0.50)',
   },
+  'funky-chaos': {
+    color1: 'rgba(255,0,200,0.40)',
+    color2: 'rgba(0,255,180,0.30)',
+    color3: 'rgba(255,200,0,0.28)',
+    color4: 'rgba(0,150,255,0.25)',
+  },
   'dark-classic': null,
 }
 
