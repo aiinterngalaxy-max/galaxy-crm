@@ -16,6 +16,7 @@ import toast from 'react-hot-toast'
 interface ScoreResult {
   score: number
   breakdown: ScoreBreakdown
+  breakdownReasoning?: { skills: string; experience: string; education: string }
   strengths: string[]
   gaps: string[]
   summary: string
@@ -184,16 +185,19 @@ RESUME:
 ${resumeText}
 
 Return this exact JSON:
-{"score":0,"breakdown":{"skills":0,"experience":0,"education":0},"strengths":[],"gaps":[],"summary":"","recommendation":"no"}
+{"score":0,"breakdown":{"skills":0,"experience":0,"education":0},"breakdownReasoning":{"skills":"","experience":"","education":""},"strengths":[],"gaps":[],"summary":"","recommendation":"no"}
 
 Where:
 - score: 0-100 overall fit score
-- breakdown.skills: 0-100 how well skills match
-- breakdown.experience: 0-100 how well experience matches
-- breakdown.education: 0-100 how well education matches
+- breakdown.skills: 0-100 how well skills match the JD requirements
+- breakdown.experience: 0-100 how well past work/projects match the role
+- breakdown.education: 0-100 how well education background fits
+- breakdownReasoning.skills: 1 sentence explaining exactly why skills got that score (mention specific matched/missing skills)
+- breakdownReasoning.experience: 1 sentence explaining exactly why experience got that score (mention specific relevant/irrelevant experience)
+- breakdownReasoning.education: 1 sentence explaining exactly why education got that score (mention degree, CGPA, field relevance)
 - strengths: array of 2-4 specific strengths from the resume
 - gaps: array of 1-3 specific gaps or missing requirements
-- summary: 1-2 sentence evaluation
+- summary: 1-2 sentence overall evaluation
 - recommendation: "strong_yes" | "yes" | "maybe" | "no"`
 
       const raw = await callClaude(prompt, 'You are an expert technical recruiter. Evaluate resumes objectively. Return ONLY a JSON object with no surrounding text or markdown.', 1024)
@@ -224,6 +228,7 @@ Where:
         resumeText,
         score: result.score,
         breakdown: result.breakdown,
+        breakdownReasoning: result.breakdownReasoning ?? null,
         summary: result.summary,
         strengths: result.strengths,
         gaps: result.gaps,

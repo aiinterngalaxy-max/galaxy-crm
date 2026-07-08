@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Briefcase, Users, Eye, Target,
-  Star, AlertCircle, CheckCircle2, MinusCircle, XCircle, Download,
+  Star, AlertCircle, CheckCircle2, MinusCircle, XCircle, Download, Sparkles,
 } from 'lucide-react'
+import { callClaude } from '../../lib/ai'
+import toast from 'react-hot-toast'
 import { Button } from '../../components/ui/Button'
 import { Card, StatCard } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
@@ -52,6 +54,33 @@ export function HRPage() {
   const [viewingJD, setViewingJD] = useState<JobDescription | null>(null)
   const [scoringJD, setScoringJD] = useState<JobDescription | null>(null)
   const [viewingCandidate, setViewingCandidate] = useState<Candidate | null>(null)
+  const [explaining, setExplaining] = useState(false)
+  const [liveReasoning, setLiveReasoning] = useState<{ skills: string; experience: string; education: string } | null>(null)
+
+  const generateReasoning = async (c: Candidate) => {
+    setExplaining(true)
+    setLiveReasoning(null)
+    try {
+      const prompt = `A candidate named ${c.name} was scored for the role "${c.jobTitle}".
+Scores: Skills ${c.breakdown.skills}/100, Experience ${c.breakdown.experience}/100, Education ${c.breakdown.education}/100.
+Summary: ${c.summary}
+Strengths: ${c.strengths.join(', ')}
+Gaps: ${c.gaps.join(', ')}
+
+Write exactly 3 one-sentence explanations (one per dimension) for why each score was given.
+Respond ONLY with valid JSON — no markdown, no code fences:
+{"skills":"...","experience":"...","education":"..."}`
+
+      const raw = await callClaude(prompt, 'You are an expert recruiter. Return ONLY a JSON object, no surrounding text.', 512)
+      const cleaned = raw.replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(cleaned)
+      setLiveReasoning(parsed)
+    } catch {
+      toast.error('Could not generate explanation')
+    } finally {
+      setExplaining(false)
+    }
+  }
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -260,7 +289,7 @@ export function HRPage() {
         const c = viewingCandidate
         const rec = REC_CONFIG[c.recommendation]
         return (
-          <Modal open={!!viewingCandidate} onClose={() => setViewingCandidate(null)} title={c.name} size="lg">
+          <Modal open={!!viewingCandidate} onClose={() => { setViewingCandidate(null); setLiveReasoning(null) }} title={c.name} size="lg">
             <div className="space-y-5">
               {/* Meta */}
               <div className="flex flex-wrap gap-2 text-xs text-gray-400">
@@ -297,26 +326,47 @@ export function HRPage() {
                     {rec.icon}{rec.label}
                   </div>
                   <p className="text-sm text-gray-300 leading-relaxed">{c.summary}</p>
-                  <div className="space-y-2">
-                    {[
-                      { label: 'Skills Match', value: c.breakdown.skills },
-                      { label: 'Experience Match', value: c.breakdown.experience },
-                      { label: 'Education Match', value: c.breakdown.education },
-                    ].map(({ label, value }) => {
-                      const barColor = value >= 75 ? 'bg-green-500' : value >= 50 ? 'bg-yellow-500' : value >= 30 ? 'bg-orange-500' : 'bg-red-500'
-                      return (
-                        <div key={label}>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-gray-400">{label}</span>
-                            <span className="text-gray-300 font-medium">{value}/100</span>
-                          </div>
-                          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${value}%` }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {/* Breakdown bars with reasoning */}
+                  {(() => {
+                    const reasoning = liveReasoning ?? c.breakdownReasoning ?? null
+                    const hasReasoning = !!reasoning
+                    const dims = [
+                      { label: 'Skills Match', value: c.breakdown.skills, key: 'skills' as const },
+                      { label: 'Experience Match', value: c.breakdown.experience, key: 'experience' as const },
+                      { label: 'Education Match', value: c.breakdown.education, key: 'education' as const },
+                    ]
+                    return (
+                      <div className="space-y-3">
+                        {dims.map(({ label, value, key }) => {
+                          const barColor = value >= 75 ? 'bg-green-500' : value >= 50 ? 'bg-yellow-500' : value >= 30 ? 'bg-orange-500' : 'bg-red-500'
+                          return (
+                            <div key={label}>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-gray-400">{label}</span>
+                                <span className="text-gray-300 font-medium">{value}/100</span>
+                              </div>
+                              <div className="h-2 bg-gray-800 rounded-full overflow-hidden mb-1">
+                                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${value}%` }} />
+                              </div>
+                              {hasReasoning && reasoning[key] && (
+                                <p className="text-xs text-gray-500 italic leading-relaxed">{reasoning[key]}</p>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {!hasReasoning && (
+                          <button
+                            onClick={() => generateReasoning(c)}
+                            disabled={explaining}
+                            className="flex items-center gap-1.5 text-xs text-gold-400 hover:text-gold-300 transition-colors disabled:opacity-50 mt-1"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            {explaining ? 'Generating explanation…' : 'Explain these scores'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 

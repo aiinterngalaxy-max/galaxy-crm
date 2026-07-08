@@ -588,6 +588,12 @@ export interface ScoreBreakdown {
   education: number
 }
 
+export interface BreakdownReasoning {
+  skills: string
+  experience: string
+  education: string
+}
+
 export interface Candidate {
   id: string
   name: string
@@ -598,6 +604,7 @@ export interface Candidate {
   resumeText: string
   score: number
   breakdown: ScoreBreakdown
+  breakdownReasoning?: BreakdownReasoning
   summary: string
   strengths: string[]
   gaps: string[]
