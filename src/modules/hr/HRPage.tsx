@@ -51,6 +51,7 @@ export function HRPage() {
   const [loadingCandidates, setLoadingCandidates] = useState(true)
   const [viewingJD, setViewingJD] = useState<JobDescription | null>(null)
   const [scoringJD, setScoringJD] = useState<JobDescription | null>(null)
+  const [viewingCandidate, setViewingCandidate] = useState<Candidate | null>(null)
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -202,7 +203,7 @@ export function HRPage() {
               {candidates.map(c => {
                 const rec = REC_CONFIG[c.recommendation]
                 return (
-                  <div key={c.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/30 transition-colors">
+                  <div key={c.id} onClick={() => setViewingCandidate(c)} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/30 transition-colors cursor-pointer">
                     <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center shrink-0 text-sm font-bold text-gray-300">
                       {c.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                     </div>
@@ -253,6 +254,122 @@ export function HRPage() {
           </div>
         )}
       </Modal>
+
+      {/* Candidate detail modal */}
+      {viewingCandidate && (() => {
+        const c = viewingCandidate
+        const rec = REC_CONFIG[c.recommendation]
+        return (
+          <Modal open={!!viewingCandidate} onClose={() => setViewingCandidate(null)} title={c.name} size="lg">
+            <div className="space-y-5">
+              {/* Meta */}
+              <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+                {c.email && <span>{c.email}</span>}
+                {c.phone && <span>· {c.phone}</span>}
+                <span className="text-gray-600">· Applied for: <span className="text-gray-400">{c.jobTitle}</span></span>
+                <span className="text-gray-600">· Scored on: <span className="text-gray-400">{formatDate(c.createdAt)}</span></span>
+              </div>
+
+              {/* Score + recommendation */}
+              <div className="flex flex-col sm:flex-row items-center gap-6 bg-gray-900/50 rounded-xl p-5">
+                {/* Circle */}
+                {(() => {
+                  const radius = 44
+                  const circumference = 2 * Math.PI * radius
+                  const offset = circumference - (c.score / 100) * circumference
+                  const color = c.score >= 75 ? '#4ade80' : c.score >= 50 ? '#facc15' : c.score >= 30 ? '#fb923c' : '#f87171'
+                  return (
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      <svg width="110" height="110" viewBox="0 0 110 110">
+                        <circle cx="55" cy="55" r={radius} fill="none" stroke="#1f2937" strokeWidth="8" />
+                        <circle cx="55" cy="55" r={radius} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
+                          strokeDasharray={circumference} strokeDashoffset={offset} transform="rotate(-90 55 55)"
+                          style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
+                        <text x="55" y="58" textAnchor="middle" fill={color} fontSize="22" fontWeight="bold">{c.score}</text>
+                        <text x="55" y="72" textAnchor="middle" fill="#6b7280" fontSize="10">/100</text>
+                      </svg>
+                      <p className="text-xs text-gray-500 font-medium">Overall Score</p>
+                    </div>
+                  )
+                })()}
+                <div className="flex-1 space-y-3 w-full">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold ${rec.color} ${rec.bg}`}>
+                    {rec.icon}{rec.label}
+                  </div>
+                  <p className="text-sm text-gray-300 leading-relaxed">{c.summary}</p>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Skills Match', value: c.breakdown.skills },
+                      { label: 'Experience Match', value: c.breakdown.experience },
+                      { label: 'Education Match', value: c.breakdown.education },
+                    ].map(({ label, value }) => {
+                      const barColor = value >= 75 ? 'bg-green-500' : value >= 50 ? 'bg-yellow-500' : value >= 30 ? 'bg-orange-500' : 'bg-red-500'
+                      return (
+                        <div key={label}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-gray-400">{label}</span>
+                            <span className="text-gray-300 font-medium">{value}/100</span>
+                          </div>
+                          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${value}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Strengths & gaps */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl bg-green-900/20 border border-green-800/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    <p className="text-xs font-semibold text-green-400">Strengths</p>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {c.strengths.map((s, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
+                        <span className="text-green-500 mt-0.5 shrink-0">•</span>{s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-xl bg-red-900/20 border border-red-800/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="w-4 h-4 text-red-400" />
+                    <p className="text-xs font-semibold text-red-400">Gaps</p>
+                  </div>
+                  {c.gaps.length === 0
+                    ? <p className="text-xs text-gray-500 italic">No significant gaps found</p>
+                    : <ul className="space-y-1.5">
+                        {c.gaps.map((g, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
+                            <span className="text-red-500 mt-0.5 shrink-0">•</span>{g}
+                          </li>
+                        ))}
+                      </ul>
+                  }
+                </div>
+              </div>
+
+              {/* Resume text */}
+              {c.resumeText && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 mb-2">Resume</p>
+                  <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4 max-h-64 overflow-y-auto">
+                    <pre className="text-xs text-gray-400 whitespace-pre-wrap font-sans leading-relaxed">{c.resumeText}</pre>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button onClick={() => setViewingCandidate(null)} className="text-sm text-gray-400 hover:text-gray-200 transition-colors">Close</button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* Resume scorer modal */}
       {scoringJD && (
