@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
 import { useFollowUpReminders } from '../../hooks/useFollowUpReminders'
 import { HelpTour } from '../ui/HelpTour'
+import { CRMChatbot } from '../../modules/chatbot/CRMChatbot'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -54,6 +55,7 @@ export function Layout() {
       </div>
 
       <HelpTour />
+      <CRMChatbot />
 
       <Toaster
         position="top-right"
