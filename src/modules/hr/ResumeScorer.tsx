@@ -1,5 +1,8 @@
 import { useState, useRef } from 'react'
-import { X, Upload, Sparkles, User, Mail, Phone, CheckCircle2, AlertCircle, MinusCircle, XCircle } from 'lucide-react'
+import * as pdfjsLib from 'pdfjs-dist'
+import { X, Upload, Sparkles, User, CheckCircle2, AlertCircle, MinusCircle, XCircle } from 'lucide-react'
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
@@ -86,13 +89,34 @@ export function ResumeScorer({ open, onClose, jd }: ResumeScorerProps) {
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<ScoreResult | null>(null)
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.type !== 'text/plain') { toast.error('Only .txt files are supported'); return }
-    const reader = new FileReader()
-    reader.onload = ev => setResumeText(ev.target?.result as string)
-    reader.readAsText(file)
+    if (file.type === 'text/plain') {
+      const reader = new FileReader()
+      reader.onload = ev => setResumeText(ev.target?.result as string)
+      reader.readAsText(file)
+      return
+    }
+    if (file.type === 'application/pdf') {
+      try {
+        toast.loading('Reading PDF…', { id: 'pdf-read' })
+        const arrayBuffer = await file.arrayBuffer()
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+        let text = ''
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
+        }
+        setResumeText(text.trim())
+        toast.success('PDF loaded', { id: 'pdf-read' })
+      } catch {
+        toast.error('Could not read PDF — try copy-pasting the text instead', { id: 'pdf-read' })
+      }
+      return
+    }
+    toast.error('Only PDF or .txt files are supported')
   }
 
   const scoreResume = async () => {
@@ -196,13 +220,13 @@ Where:
               className="flex items-center gap-1.5 text-xs text-gold-400 hover:text-gold-300 transition-colors"
             >
               <Upload className="w-3.5 h-3.5" />
-              Upload .txt
+              Upload PDF / .txt
             </button>
           </div>
-          <input ref={fileRef} type="file" accept=".txt" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileRef} type="file" accept=".txt,.pdf,application/pdf" className="hidden" onChange={handleFileUpload} />
           <textarea
             className="w-full h-48 bg-gray-900/80 border border-gray-700 rounded-xl p-3 text-sm text-gray-200 resize-y focus:outline-none focus:border-gold-400/50 focus:ring-1 focus:ring-gold-400/20 transition-colors placeholder:text-gray-600"
-            placeholder="Paste the candidate's resume text here, or upload a .txt file above…"
+            placeholder="Paste the candidate's resume text here, or upload a PDF / .txt file above…"
             value={resumeText}
             onChange={e => setResumeText(e.target.value)}
           />
