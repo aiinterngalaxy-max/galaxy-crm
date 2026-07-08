@@ -499,16 +499,11 @@ export function HelpTour() {
 
   const rect = useHighlight(open ? current?.selector : undefined)
 
-  // Auto-show once per page per role
+  // Reset tour state on page change (no longer auto-shows)
   useEffect(() => {
     setOpen(false)
     setStep(0)
-    if (steps.length === 0) return
-    if (!localStorage.getItem(key)) {
-      const t = setTimeout(() => setOpen(true), 800)
-      return () => clearTimeout(t)
-    }
-  }, [location.pathname, user?.role])
+  }, [location.pathname])
 
   const close = useCallback(() => {
     localStorage.setItem(key, '1')

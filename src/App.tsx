@@ -42,6 +42,8 @@ const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m
 const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const NonWorkingPage = lazy(() => import('./modules/inventory/NonWorkingPage').then(m => ({ default: m.NonWorkingPage })))
 const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
+const HRPage = lazy(() => import('./modules/hr/HRPage').then(m => ({ default: m.HRPage })))
+const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default: m.JDWizard })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -147,6 +149,10 @@ function AppRoutes() {
           <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
           <Route path="inventory/non-working" element={<RequireRole module="inventory"><NonWorkingPage /></RequireRole>} />
           <Route path="inventory/:line" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
+
+          {/* HR */}
+          <Route path="hr" element={<RequireRole module="hr"><HRPage /></RequireRole>} />
+          <Route path="hr/new" element={<RequireRole module="hr"><JDWizard /></RequireRole>} />
 
           {/* Settings */}
           <Route path="settings" element={<RequireRole module="settings"><SettingsPage /></RequireRole>} />
