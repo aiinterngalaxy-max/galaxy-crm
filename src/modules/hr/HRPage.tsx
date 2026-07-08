@@ -54,6 +54,7 @@ export function HRPage() {
   const [viewingJD, setViewingJD] = useState<JobDescription | null>(null)
   const [scoringJD, setScoringJD] = useState<JobDescription | null>(null)
   const [viewingCandidate, setViewingCandidate] = useState<Candidate | null>(null)
+  const [jdFilter, setJdFilter] = useState<string>('all')
   const [explaining, setExplaining] = useState(false)
   const [liveReasoning, setLiveReasoning] = useState<{ skills: string; experience: string; education: string } | null>(null)
 
@@ -228,6 +229,33 @@ Respond ONLY with valid JSON — no markdown, no code fences:
       {/* Candidates tab */}
       {tab === 'candidates' && (
         <Card padding="none">
+          {/* JD Filter */}
+          {!loadingCandidates && candidates.length > 0 && (
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-800">
+              <span className="text-xs text-gray-500 shrink-0">Filter by JD:</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setJdFilter('all')}
+                  className={`text-xs px-3 py-1 rounded-full transition-all ${jdFilter === 'all' ? 'bg-gold-400/20 text-gold-400 font-semibold' : 'text-gray-500 hover:text-gray-300 bg-gray-800/50'}`}
+                >
+                  All ({candidates.length})
+                </button>
+                {jds.filter(jd => candidates.some(c => c.jobDescriptionId === jd.id)).map(jd => {
+                  const count = candidates.filter(c => c.jobDescriptionId === jd.id).length
+                  return (
+                    <button
+                      key={jd.id}
+                      onClick={() => setJdFilter(jd.id)}
+                      className={`text-xs px-3 py-1 rounded-full transition-all ${jdFilter === jd.id ? 'bg-gold-400/20 text-gold-400 font-semibold' : 'text-gray-500 hover:text-gray-300 bg-gray-800/50'}`}
+                    >
+                      {jd.title} ({count})
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {loadingCandidates && <div className="text-center text-sm text-gray-600 py-10">Loading…</div>}
           {!loadingCandidates && candidates.length === 0 && (
             <EmptyState
@@ -236,9 +264,14 @@ Respond ONLY with valid JSON — no markdown, no code fences:
               description="Open a Job Description and click 'Score Resume' to evaluate candidates"
             />
           )}
-          {!loadingCandidates && candidates.length > 0 && (
+          {!loadingCandidates && candidates.length > 0 && (() => {
+            const filtered = jdFilter === 'all' ? candidates : candidates.filter(c => c.jobDescriptionId === jdFilter)
+            return (
             <div className="divide-y divide-gray-800">
-              {candidates.map(c => {
+              {filtered.length === 0 && (
+                <div className="text-center text-sm text-gray-600 py-10">No candidates for this JD yet</div>
+              )}
+              {filtered.map(c => {
                 const rec = REC_CONFIG[c.recommendation]
                 return (
                   <div key={c.id} onClick={() => setViewingCandidate(c)} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/30 transition-colors cursor-pointer">
@@ -262,7 +295,8 @@ Respond ONLY with valid JSON — no markdown, no code fences:
                 )
               })}
             </div>
-          )}
+            )
+          })()}
         </Card>
       )}
 
