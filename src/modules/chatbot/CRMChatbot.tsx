@@ -255,7 +255,12 @@ export function CRMChatbot() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('CRM chatbot error:', msg)
-      toast.error(msg.length < 80 ? msg : 'AI error — check console for details', { duration: 5000 })
+      // Show error inline so user can read the full message
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `⚠️ Error: ${msg}`,
+        ts: Date.now(),
+      }])
     } finally {
       setThinking(false)
     }
