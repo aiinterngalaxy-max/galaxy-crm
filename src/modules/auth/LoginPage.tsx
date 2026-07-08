@@ -20,21 +20,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      {/* Background grid */}
-      <div
-        className="absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-        }}
-      />
-
-      {/* Gold radial glow behind card */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div style={{ width: 480, height: 480, background: 'radial-gradient(circle, #C9A84012 0%, transparent 70%)' }} />
-      </div>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'transparent' }}>
 
       <div className="relative w-full max-w-md animate-fade-in space-y-4">
         {/* Setup Banner — shown when Firebase not yet configured */}
@@ -75,12 +61,13 @@ export function LoginPage() {
 
         {/* Login Card */}
         <div className="rounded-2xl p-8" style={{
-          background: 'rgba(255,255,255,0.03)',
-          backdropFilter: 'blur(28px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-          border: '1px solid rgba(255,255,255,0.09)',
-          borderTopColor: 'rgba(255,255,255,0.15)',
-          boxShadow: '0 24px 60px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(201,168,64,0.06), inset 0 1px 0 rgba(255,255,255,0.07)',
+          background: 'rgba(255,255,255,0.05)',
+          backdropFilter: 'blur(48px) saturate(200%)',
+          WebkitBackdropFilter: 'blur(48px) saturate(200%)',
+          border: '1px solid rgba(255,255,255,0.10)',
+          borderTopColor: 'rgba(255,255,255,0.20)',
+          borderLeftColor: 'rgba(255,255,255,0.13)',
+          boxShadow: '0 32px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.20)',
         }}>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">

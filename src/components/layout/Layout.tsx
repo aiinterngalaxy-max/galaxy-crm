@@ -18,39 +18,39 @@ export function Layout() {
   useFollowUpReminders()
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950">
-      {/* Sidebar — desktop only */}
-      <div className="hidden md:block shrink-0">
-        <Sidebar collapsed={collapsed} />
-      </div>
+    <div className="relative w-full h-screen overflow-hidden">
+      {/* App layout */}
+      <div className="flex h-screen overflow-hidden">
+        {/* Sidebar — desktop only */}
+        <div className="hidden md:block shrink-0">
+          <Sidebar collapsed={collapsed} />
+        </div>
 
-      {/* Mobile sidebar drawer */}
-      {mobileOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
-            onClick={() => setMobileOpen(false)}
+        {/* Mobile sidebar drawer */}
+        {mobileOpen && (
+          <>
+            <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setMobileOpen(false)} />
+            <div className="fixed inset-y-0 left-0 z-50 md:hidden">
+              <Sidebar onNavClick={() => setMobileOpen(false)} />
+            </div>
+          </>
+        )}
+
+        {/* Main content */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          <Header
+            collapsed={collapsed}
+            onToggle={() => {
+              if (window.innerWidth < 768) setMobileOpen(o => !o)
+              else setCollapsed(c => !c)
+            }}
           />
-          <div className="fixed inset-y-0 left-0 z-50 md:hidden">
-            <Sidebar onNavClick={() => setMobileOpen(false)} />
-          </div>
-        </>
-      )}
-
-      {/* Main content */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <Header
-          collapsed={collapsed}
-          onToggle={() => {
-            if (window.innerWidth < 768) setMobileOpen(o => !o)
-            else setCollapsed(c => !c)
-          }}
-        />
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-5 md:p-6 max-w-screen-2xl mx-auto animate-fade-in">
-            <Outlet />
-          </div>
-        </main>
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-5 md:p-6 max-w-screen-2xl mx-auto animate-fade-in">
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
 
       <HelpTour />

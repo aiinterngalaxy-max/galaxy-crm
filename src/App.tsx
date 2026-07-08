@@ -168,12 +168,27 @@ function AppRoutes() {
   )
 }
 
+const orb = (top?: string, left?: string, right?: string, bottom?: string, w: number = 500, h: number = 500, color: string = 'rgba(201,168,64,0.18)', blur: number = 70) => ({
+  position: 'fixed' as const, borderRadius: '50%', pointerEvents: 'none' as const,
+  width: w, height: h, top, left, right, bottom,
+  background: `radial-gradient(circle, ${color} 0%, transparent 70%)`,
+  filter: `blur(${blur}px)`,
+})
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', background: '#08080d' }}>
+        <div style={orb('-5%',  '5%',  undefined, undefined, 650, 650, 'rgba(201,168,64,0.20)', 80)} />
+        <div style={orb('35%', undefined, '-5%', undefined, 550, 550, 'rgba(110,80,220,0.16)', 80)} />
+        <div style={orb(undefined, '20%', undefined, '-15%', 750, 550, 'rgba(201,168,64,0.12)', 90)} />
+        <div style={orb('15%', '42%', undefined, undefined, 380, 380, 'rgba(50,110,230,0.12)', 65)} />
+      </div>
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </div>
     </ErrorBoundary>
   )
 }
