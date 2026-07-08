@@ -300,7 +300,7 @@ export function CRMChatbot() {
         onClick={() => setOpen(o => !o)}
         title="Galaxy CRM Assistant"
         style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          position: 'fixed', bottom: 88, right: 24, zIndex: 9999,
           width: 52, height: 52, borderRadius: '50%',
           background: 'linear-gradient(135deg, #C9A840, #a07820)',
           border: '1px solid rgba(201,168,64,0.5)',
@@ -321,7 +321,7 @@ export function CRMChatbot() {
       {open && (
         <div
           style={{
-            position: 'fixed', bottom: 88, right: 24, zIndex: 9998,
+            position: 'fixed', bottom: 152, right: 24, zIndex: 9998,
             width: 400, height: 580,
             borderRadius: 20, overflow: 'hidden',
             display: 'flex', flexDirection: 'column',
