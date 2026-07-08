@@ -153,7 +153,12 @@ async function chatWithGroq(
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
-  const systemPrompt =
+  // Trim context before building the prompt (~80k chars ≈ 20k tokens, safe under Groq's limit)
+  const safeContext = context.length > 80000
+    ? context.slice(0, 80000) + '\n[...data truncated to fit context window...]'
+    : context
+
+  const sysPrompt =
     `You are Galaxy CRM Assistant — the AI brain of Galaxy Home Automation Pvt Ltd, a smart home automation company in India.
 
 You have complete access to the company's live CRM data below. Use it to answer any question accurately and helpfully.
@@ -177,7 +182,7 @@ You can answer questions like:
 - Payment history by date, mode, or person
 
 --- LIVE CRM DATA ---
-${context}
+${safeContext}
 --- END OF DATA ---`
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -188,7 +193,7 @@ ${context}
     },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'system', content: systemPrompt }, ...history],
+      messages: [{ role: 'system', content: sysPrompt }, ...history],
       max_tokens: 1024,
       temperature: 0.2,
     }),
@@ -196,7 +201,10 @@ ${context}
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Groq error ${res.status}: ${text}`)
+    console.error('Groq API error:', res.status, text)
+    let msg = `Groq error ${res.status}`
+    try { msg = JSON.parse(text)?.error?.message ?? msg } catch { /* ignore */ }
+    throw new Error(msg)
   }
   const data = await res.json()
   return (data.choices?.[0]?.message?.content as string) ?? ''
@@ -244,8 +252,10 @@ export function CRMChatbot() {
       const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
       const reply = await chatWithGroq(history, context)
       setMessages(prev => [...prev, { role: 'assistant', content: reply, ts: Date.now() }])
-    } catch {
-      toast.error('AI error — please try again')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('CRM chatbot error:', msg)
+      toast.error(msg.length < 80 ? msg : 'AI error — check console for details', { duration: 5000 })
     } finally {
       setThinking(false)
     }
