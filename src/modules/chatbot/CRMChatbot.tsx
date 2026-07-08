@@ -105,6 +105,9 @@ async function fetchCRMContext(): Promise<string> {
   return L.join('\n')
 }
 
+// Marker so we know which history entry carries the context payload
+const CTX_PREFIX = '__CRM_CTX__:'
+
 async function chatWithGroq(
   history: { role: string; content: string }[],
   context: string
@@ -116,18 +119,27 @@ async function chatWithGroq(
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
-  // Hard cap at 28k chars ≈ 7k tokens, leaving room for prompt + reply under 12k TPM limit
-  const safeContext = context.length > 28000
-    ? context.slice(0, 28000) + '\n[truncated]'
-    : context
+  // Minimal system prompt — context travels in the first user message, not here
+  const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Be concise. Use ₹ and Indian units (lakhs/crores). Today: ${today}. Never invent data.`
 
-  const sysPrompt =
-    `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India).
-Answer questions using ONLY the CRM data below. Use ₹ and lakhs/crores. Today: ${today}.
-Be concise. If data is missing say so. Never invent data.
+  // Cap context at 8k chars ≈ 2k tokens — keeps each first-message cheap
+  const safeCtx = context.length > 8000 ? context.slice(0, 8000) + '\n[truncated]' : context
 
-CRM DATA:
-${safeContext}`
+  // Build API messages:
+  // - First user message gets context prepended (once, not on every call)
+  // - Keep first message + last 5 to cap growing history
+  let apiMessages = history.map((m, i) => {
+    if (i === 0 && m.role === 'user') {
+      // Embed context in the very first question
+      return { role: 'user', content: `CRM DATA:\n${safeCtx}\n---\n${m.content}` }
+    }
+    return m
+  })
+
+  // Trim: always keep message[0] (has context) + last 5 messages
+  if (apiMessages.length > 6) {
+    apiMessages = [apiMessages[0], ...apiMessages.slice(-5)]
+  }
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -136,9 +148,9 @@ ${safeContext}`
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages: [{ role: 'system', content: sysPrompt }, ...history],
-      max_tokens: 1024,
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'system', content: sysPrompt }, ...apiMessages],
+      max_tokens: 500,
       temperature: 0.2,
     }),
   })
