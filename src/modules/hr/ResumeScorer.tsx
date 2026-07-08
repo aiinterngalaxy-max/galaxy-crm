@@ -109,9 +109,15 @@ export function ResumeScorer({ open, onClose, jd }: ResumeScorerProps) {
           const content = await page.getTextContent()
           text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
         }
-        setResumeText(text.trim())
-        toast.success('PDF loaded', { id: 'pdf-read' })
-      } catch {
+        const extracted = text.trim()
+        if (!extracted) {
+          toast.error('PDF has no selectable text — it may be a scanned image. Please copy-paste the resume text manually.', { id: 'pdf-read', duration: 6000 })
+        } else {
+          setResumeText(extracted)
+          toast.success(`PDF loaded — ${extracted.length} characters extracted`, { id: 'pdf-read' })
+        }
+      } catch (err) {
+        console.error('PDF parse error:', err)
         toast.error('Could not read PDF — try copy-pasting the text instead', { id: 'pdf-read' })
       }
       return
