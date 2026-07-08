@@ -75,30 +75,30 @@ async function fetchCRMContext(): Promise<string> {
     L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}${stagesStr}`)
   })
 
-  // Leads — max 30, key fields only
+  // Leads — all, sorted by name so filtering by assignee works
   L.push(`\nLEADS(${leads.size}):`)
-  leads.docs.slice(0, 30).forEach(d => {
+  leads.docs.forEach(d => {
     const l = d.data()
     L.push(`${l.leadCode ?? d.id}|${l.name}|${l.status}|${l.assignedToName ?? '-'}|${l.estimatedBudget ? fmtI(l.estimatedBudget) : ''}|src:${l.source ?? '-'}`)
   })
 
-  // Customers — max 25
+  // Customers — all
   L.push(`\nCUSTOMERS(${customers.size}):`)
-  customers.docs.slice(0, 25).forEach(d => {
+  customers.docs.forEach(d => {
     const c = d.data()
     L.push(`${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}|bal:${fmtI((c.totalProjectValue ?? 0) - (c.totalPaid ?? 0))}`)
   })
 
-  // Quotations — max 15
+  // Quotations — all
   L.push(`\nQUOTATIONS(${quotations.size}):`)
-  quotations.docs.slice(0, 15).forEach(d => {
+  quotations.docs.forEach(d => {
     const q = d.data()
     L.push(`${q.quotationCode ?? d.id}|${q.customerName ?? '-'}|${q.status}|${fmtFull(q.total)}`)
   })
 
-  // Invoices — max 15
+  // Invoices — all
   L.push(`\nINVOICES(${invoices.size}):`)
-  invoices.docs.slice(0, 15).forEach(d => {
+  invoices.docs.forEach(d => {
     const inv = d.data()
     L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|amt:${fmtFull(inv.amount)}|paid:${fmtFull(inv.paidAmount)}|bal:${fmtFull(inv.balance)}|due:${tsDate(inv.dueDate)}`)
   })
@@ -130,10 +130,10 @@ async function chatWithGroq(
   })
 
   // Minimal system prompt — context travels in the first user message, not here
-  const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Be concise. Use ₹ and Indian units (lakhs/crores). Today: ${today}. Never invent data.`
+  const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Today: ${today}. Rules: Answer directly from the CRM data — never ask follow-up questions, never ask for clarification. Just show the matching records. Use ₹ and Indian units. If data is missing say so briefly.`
 
   // Cap context at 20k chars ≈ 5k tokens — safe since context is injected only once
-  const safeCtx = context.length > 20000 ? context.slice(0, 20000) + '\n[truncated]' : context
+  const safeCtx = context.length > 40000 ? context.slice(0, 40000) + '\n[truncated]' : context
 
   // Build API messages:
   // - First user message gets context prepended (once, not on every call)
