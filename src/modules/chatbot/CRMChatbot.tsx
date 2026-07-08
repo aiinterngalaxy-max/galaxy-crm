@@ -33,7 +33,7 @@ const fmtI = (n?: number) => n ? `₹${(n / 100000).toFixed(1)}L` : '₹0'
 const fmtFull = (n?: number) => n ? `₹${n.toLocaleString('en-IN')}` : '₹0'
 
 async function fetchCRMContext(): Promise<string> {
-  const [projects, leads, customers, quotations, invoices, payments, dailyReports, candidates] =
+  const [projects, leads, customers, quotations, invoices, payments, candidates] =
     await Promise.all([
       getDocs(collection(db, 'projects')),
       getDocs(collection(db, 'leads')),
@@ -41,127 +41,65 @@ async function fetchCRMContext(): Promise<string> {
       getDocs(collection(db, 'quotations')),
       getDocs(collection(db, 'invoices')),
       getDocs(collection(db, 'payments')),
-      getDocs(collection(db, 'dailyReports')),
       getDocs(collection(db, 'candidates')),
     ])
 
   const L: string[] = []
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-  L.push(`GALAXY CRM DATA ${today}`)
+  L.push(`GALAXY CRM ${today}`)
 
-  // Projects — compact single line
+  // Projects — all, ultra-compact
   L.push(`\nPROJECTS(${projects.size}):`)
   projects.docs.forEach(d => {
     const p = d.data()
     const val = p.projectValue ?? p.totalValue ?? 0
     const paid = p.collectedAmount ?? p.totalPaid ?? 0
-    const parts = [
-      `[${p.projectCode ?? d.id}]`,
-      p.title ?? 'Untitled',
-      p.customerName ? `client:${p.customerName}` : '',
-      `status:${p.status}`,
-      `${p.completionPercent ?? 0}%`,
-      p.assignedPMName ? `pm:${p.assignedPMName}` : '',
-      p.city ? `city:${p.city}` : '',
-      `val:${fmtI(val)}`,
-      `paid:${fmtI(paid)}`,
-      `bal:${fmtI(val - paid)}`,
-      p.riskLevel !== 'low' ? `risk:${p.riskLevel}` : '',
-    ].filter(Boolean)
-    L.push(parts.join(' | '))
+    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}`)
   })
 
-  // Leads — compact single line
+  // Leads — max 30, key fields only
   L.push(`\nLEADS(${leads.size}):`)
-  leads.docs.forEach(d => {
+  leads.docs.slice(0, 30).forEach(d => {
     const l = d.data()
-    const parts = [
-      `[${l.leadCode ?? d.id}]`,
-      l.name,
-      `status:${l.status}`,
-      l.source ? `src:${l.source}` : '',
-      l.estimatedBudget ? `budget:${fmtI(l.estimatedBudget)}` : '',
-      l.assignedToName ? `assigned:${l.assignedToName}` : '',
-      l.phone ? `ph:${l.phone}` : '',
-      l.nextFollowUp ? `followup:${tsDate(l.nextFollowUp)}` : '',
-    ].filter(Boolean)
-    L.push(parts.join(' | '))
+    L.push(`${l.leadCode ?? d.id}|${l.name}|${l.status}|${l.assignedToName ?? '-'}|${l.estimatedBudget ? fmtI(l.estimatedBudget) : ''}|src:${l.source ?? '-'}`)
   })
 
-  // Customers
+  // Customers — max 25
   L.push(`\nCUSTOMERS(${customers.size}):`)
-  customers.docs.forEach(d => {
+  customers.docs.slice(0, 25).forEach(d => {
     const c = d.data()
-    const bal = (c.totalProjectValue ?? 0) - (c.totalPaid ?? 0)
-    L.push(
-      `${c.name} | ph:${c.phone ?? '-'} | val:${fmtI(c.totalProjectValue)} | paid:${fmtI(c.totalPaid)} | bal:${fmtI(bal)}`
-    )
+    L.push(`${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}|bal:${fmtI((c.totalProjectValue ?? 0) - (c.totalPaid ?? 0))}`)
   })
 
-  // Quotations
+  // Quotations — max 15
   L.push(`\nQUOTATIONS(${quotations.size}):`)
-  quotations.docs.forEach(d => {
+  quotations.docs.slice(0, 15).forEach(d => {
     const q = d.data()
-    L.push(
-      `[${q.quotationCode ?? d.id}] ${q.customerName ?? '-'} | status:${q.status} | total:${fmtFull(q.total)} | pm:${q.assignedPMName ?? '-'}`
-    )
+    L.push(`${q.quotationCode ?? d.id}|${q.customerName ?? '-'}|${q.status}|${fmtFull(q.total)}`)
   })
 
-  // Invoices
+  // Invoices — max 15
   L.push(`\nINVOICES(${invoices.size}):`)
-  invoices.docs.forEach(d => {
+  invoices.docs.slice(0, 15).forEach(d => {
     const inv = d.data()
-    L.push(
-      `[${inv.invoiceCode ?? d.id}] ${inv.customerName ?? '-'} | status:${inv.status} | amt:${fmtFull(inv.amount)} | paid:${fmtFull(inv.paidAmount)} | bal:${fmtFull(inv.balance)} | due:${tsDate(inv.dueDate)}`
-    )
+    L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|amt:${fmtFull(inv.amount)}|paid:${fmtFull(inv.paidAmount)}|bal:${fmtFull(inv.balance)}|due:${tsDate(inv.dueDate)}`)
   })
 
-  // Payments — newest 50
-  const allPayments = payments.docs
+  // Payments — newest 20 only
+  const recentPayments = payments.docs
     .map(d => d.data())
-    .sort((a, b) => {
-      const at = (a.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0
-      const bt = (b.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0
-      return bt - at
-    })
-    .slice(0, 50)
-
-  L.push(`\nPAYMENTS(last ${allPayments.length}):`)
-  allPayments.forEach(p => {
-    const parts = [
-      fmtFull(p.amount),
-      `via:${p.mode ?? '-'}`,
-      `on:${tsDate(p.date ?? p.createdAt)}`,
-      p.recordedByName ? `by:${p.recordedByName}` : '',
-      p.reference ? `ref:${p.reference}` : '',
-    ].filter(Boolean)
-    L.push(parts.join(' | '))
+    .sort((a, b) => ((b.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0) - ((a.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0))
+    .slice(0, 20)
+  L.push(`\nPAYMENTS(last ${recentPayments.length}):`)
+  recentPayments.forEach(p => {
+    L.push(`${fmtFull(p.amount)}|${p.mode ?? '-'}|${tsDate(p.date ?? p.createdAt)}|by:${p.recordedByName ?? '-'}`)
   })
 
-  // Daily Reports — last 14
-  const recentReports = dailyReports.docs
-    .map(d => d.data())
-    .sort((a, b) => (b.date as string ?? '').localeCompare(a.date as string ?? ''))
-    .slice(0, 14)
-
-  L.push(`\nDAILY_REPORTS(last ${recentReports.length}):`)
-  recentReports.forEach(r => {
-    const summary = r.preFilledSummary ? r.preFilledSummary.substring(0, 80) : ''
-    L.push(
-      `${r.date} ${r.employeeName ?? '-'} | ${summary}${r.topWin ? ` | win:${r.topWin.substring(0, 60)}` : ''}`
-    )
-  })
-
-  // Candidates (HR Resume Scoring)
-  L.push(`\nHR_CANDIDATES(${candidates.size}):`)
+  // Candidates
+  L.push(`\nCANDIDATES(${candidates.size}):`)
   candidates.docs.forEach(d => {
     const c = d.data()
-    L.push(
-      `${c.name} | role:${c.jobTitle ?? '-'} | score:${c.score}/100 | recommendation:${c.recommendation}\n` +
-      `  skills:${c.breakdown?.skills ?? '-'} exp:${c.breakdown?.experience ?? '-'} edu:${c.breakdown?.education ?? '-'}\n` +
-      `  summary:${c.summary ? c.summary.substring(0, 120) : '-'}\n` +
-      `  strengths:${(c.strengths ?? []).join('; ')} | gaps:${(c.gaps ?? []).join('; ')}`
-    )
+    L.push(`${c.name}|${c.jobTitle}|score:${c.score}|${c.recommendation}|skills:${c.breakdown?.skills}|exp:${c.breakdown?.experience}|edu:${c.breakdown?.education}`)
   })
 
   return L.join('\n')
@@ -178,37 +116,18 @@ async function chatWithGroq(
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
-  // Trim context before building the prompt (~80k chars ≈ 20k tokens, safe under Groq's limit)
-  const safeContext = context.length > 80000
-    ? context.slice(0, 80000) + '\n[...data truncated to fit context window...]'
+  // Hard cap at 28k chars ≈ 7k tokens, leaving room for prompt + reply under 12k TPM limit
+  const safeContext = context.length > 28000
+    ? context.slice(0, 28000) + '\n[truncated]'
     : context
 
   const sysPrompt =
-    `You are Galaxy CRM Assistant — the AI brain of Galaxy Home Automation Pvt Ltd, a smart home automation company in India.
+    `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India).
+Answer questions using ONLY the CRM data below. Use ₹ and lakhs/crores. Today: ${today}.
+Be concise. If data is missing say so. Never invent data.
 
-You have complete access to the company's live CRM data below. Use it to answer any question accurately and helpfully.
-
-Rules:
-- Always use Indian currency format with ₹ symbol
-- Use "lakhs" / "crores" for large amounts where natural
-- Today's date is: ${today}
-- Be concise but thorough — include relevant numbers, names, dates
-- If data doesn't exist for a query, say "I don't see that in the data"
-- For lists use bullet points with a dash (-)
-- Never make up data that isn't in the context below
-
-You can answer questions like:
-- Project status, completion %, payments collected, balance outstanding
-- Lead pipeline, assigned reps, follow-up schedules
-- Customer details, total values, payment history
-- Invoice status, overdue amounts, due dates
-- Quotation status and values
-- Team activity from daily reports
-- Payment history by date, mode, or person
-
---- LIVE CRM DATA ---
-${safeContext}
---- END OF DATA ---`
+CRM DATA:
+${safeContext}`
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
