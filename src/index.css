@@ -269,6 +269,112 @@ select option:hover, select option:focus, select option:checked { background-col
 
 [data-theme="light-glass"] select option { background-color: #f1f5f9; color: #0f172a; }
 
+/* ── Light Glass: override all hardcoded dark Tailwind classes ── */
+[data-theme="light-glass"] {
+  color-scheme: light;
+
+  /* Text */
+  --tw-text-opacity: 1;
+}
+
+[data-theme="light-glass"] .text-gray-50,
+[data-theme="light-glass"] .text-gray-100,
+[data-theme="light-glass"] .text-gray-200 { color: #0f172a !important; }
+
+[data-theme="light-glass"] .text-gray-300,
+[data-theme="light-glass"] .text-gray-400 { color: #334155 !important; }
+
+[data-theme="light-glass"] .text-gray-500,
+[data-theme="light-glass"] .text-gray-600 { color: #475569 !important; }
+
+[data-theme="light-glass"] .text-gray-700 { color: #64748b !important; }
+
+/* Dark backgrounds → light glass */
+[data-theme="light-glass"] .bg-gray-950,
+[data-theme="light-glass"] .bg-gray-900 {
+  background: rgba(255,255,255,0.45) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+[data-theme="light-glass"] .bg-gray-800,
+[data-theme="light-glass"] .bg-gray-800\/30,
+[data-theme="light-glass"] .bg-gray-800\/50,
+[data-theme="light-glass"] .bg-gray-800\/60 {
+  background: rgba(255,255,255,0.35) !important;
+}
+
+[data-theme="light-glass"] .bg-gray-700 {
+  background: rgba(255,255,255,0.50) !important;
+}
+
+/* Borders */
+[data-theme="light-glass"] .border-gray-800,
+[data-theme="light-glass"] .border-gray-700,
+[data-theme="light-glass"] .border-gray-900 {
+  border-color: rgba(148,163,184,0.35) !important;
+}
+
+[data-theme="light-glass"] .divide-gray-800 > * + * {
+  border-color: rgba(148,163,184,0.25) !important;
+}
+
+/* Dark inline input/textarea backgrounds */
+[data-theme="light-glass"] textarea,
+[data-theme="light-glass"] input[type="text"],
+[data-theme="light-glass"] input[type="number"],
+[data-theme="light-glass"] input[type="email"],
+[data-theme="light-glass"] input[type="date"],
+[data-theme="light-glass"] select {
+  background: rgba(255,255,255,0.65) !important;
+  border-color: rgba(203,213,225,0.80) !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light-glass"] textarea::placeholder,
+[data-theme="light-glass"] input::placeholder { color: #94a3b8 !important; }
+
+/* Table rows */
+[data-theme="light-glass"] tr:hover { background: rgba(255,255,255,0.40) !important; }
+[data-theme="light-glass"] thead th { color: #475569 !important; }
+
+/* Ghost buttons / icon buttons */
+[data-theme="light-glass"] .btn-ghost {
+  color: #334155 !important;
+}
+[data-theme="light-glass"] .btn-ghost:hover {
+  background: rgba(255,255,255,0.55) !important;
+  color: #0f172a !important;
+}
+
+/* Inline dark bg cards (like stat cards, kanban, pipeline) */
+[data-theme="light-glass"] .glass-card {
+  background: rgba(255,255,255,0.52) !important;
+  border-color: rgba(255,255,255,0.80) !important;
+  border-top-color: rgba(255,255,255,0.95) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+
+/* Notification/badge dot */
+[data-theme="light-glass"] .bg-gray-900\/60 {
+  background: rgba(255,255,255,0.55) !important;
+}
+[data-theme="light-glass"] .bg-gray-900\/50,
+[data-theme="light-glass"] .bg-gray-900\/80 {
+  background: rgba(255,255,255,0.50) !important;
+}
+
+/* Sidebar items text */
+[data-theme="light-glass"] .sidebar-item-inactive { color: #334155; }
+[data-theme="light-glass"] .sidebar-item-inactive:hover { color: #0f172a; }
+
+/* Filter/tab pills */
+[data-theme="light-glass"] .bg-gray-900\/60 { background: rgba(255,255,255,0.55) !important; }
+
+/* Recharts */
+[data-theme="light-glass"] .recharts-text { fill: #334155 !important; }
+[data-theme="light-glass"] .recharts-cartesian-grid line { stroke: rgba(148,163,184,0.3) !important; }
+
 .recharts-tooltip-wrapper { outline: none !important; }
 
 @keyframes fadeIn {
