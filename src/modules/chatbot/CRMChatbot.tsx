@@ -75,32 +75,32 @@ async function fetchCRMContext(): Promise<string> {
     L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}${stagesStr}`)
   })
 
-  // Leads — all, sorted by name so filtering by assignee works
+  // Leads — all, ultra-compact (name|status|assignee only to stay within TPM)
   L.push(`\nLEADS(${leads.size}):`)
   leads.docs.forEach(d => {
     const l = d.data()
-    L.push(`${l.leadCode ?? d.id}|${l.name}|${l.status}|${l.assignedToName ?? '-'}|${l.estimatedBudget ? fmtI(l.estimatedBudget) : ''}|src:${l.source ?? '-'}`)
+    L.push(`${l.name}|${l.status}|${l.assignedToName ?? '-'}`)
   })
 
-  // Customers — all
+  // Customers — all, compact
   L.push(`\nCUSTOMERS(${customers.size}):`)
   customers.docs.forEach(d => {
     const c = d.data()
-    L.push(`${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}|bal:${fmtI((c.totalProjectValue ?? 0) - (c.totalPaid ?? 0))}`)
+    L.push(`${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}`)
   })
 
-  // Quotations — all
+  // Quotations — max 20
   L.push(`\nQUOTATIONS(${quotations.size}):`)
-  quotations.docs.forEach(d => {
+  quotations.docs.slice(0, 20).forEach(d => {
     const q = d.data()
     L.push(`${q.quotationCode ?? d.id}|${q.customerName ?? '-'}|${q.status}|${fmtFull(q.total)}`)
   })
 
-  // Invoices — all
+  // Invoices — max 20
   L.push(`\nINVOICES(${invoices.size}):`)
-  invoices.docs.forEach(d => {
+  invoices.docs.slice(0, 20).forEach(d => {
     const inv = d.data()
-    L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|amt:${fmtFull(inv.amount)}|paid:${fmtFull(inv.paidAmount)}|bal:${fmtFull(inv.balance)}|due:${tsDate(inv.dueDate)}`)
+    L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|${fmtFull(inv.amount)}|bal:${fmtFull(inv.balance)}`)
   })
 
   // Payment data is embedded per-project above from workflow stages
@@ -133,7 +133,7 @@ async function chatWithGroq(
   const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Today: ${today}. Rules: Answer directly from the CRM data — never ask follow-up questions, never ask for clarification. Just show the matching records. Use ₹ and Indian units. If data is missing say so briefly.`
 
   // Cap context at 20k chars ≈ 5k tokens — safe since context is injected only once
-  const safeCtx = context.length > 40000 ? context.slice(0, 40000) + '\n[truncated]' : context
+  const safeCtx = context.length > 20000 ? context.slice(0, 20000) + '\n[truncated]' : context
 
   // Build API messages:
   // - First user message gets context prepended (once, not on every call)
