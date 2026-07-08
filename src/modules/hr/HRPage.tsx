@@ -57,6 +57,15 @@ export function HRPage() {
   const [explaining, setExplaining] = useState(false)
   const [liveReasoning, setLiveReasoning] = useState<{ skills: string; experience: string; education: string } | null>(null)
 
+  // Auto-generate reasoning when opening a candidate that doesn't have it stored
+  useEffect(() => {
+    if (viewingCandidate && !viewingCandidate.breakdownReasoning) {
+      generateReasoning(viewingCandidate)
+    } else {
+      setLiveReasoning(null)
+    }
+  }, [viewingCandidate?.id])
+
   const generateReasoning = async (c: Candidate) => {
     setExplaining(true)
     setLiveReasoning(null)
@@ -354,15 +363,11 @@ Respond ONLY with valid JSON — no markdown, no code fences:
                             </div>
                           )
                         })}
-                        {!hasReasoning && (
-                          <button
-                            onClick={() => generateReasoning(c)}
-                            disabled={explaining}
-                            className="flex items-center gap-1.5 text-xs text-gold-400 hover:text-gold-300 transition-colors disabled:opacity-50 mt-1"
-                          >
-                            <Sparkles className="w-3 h-3" />
-                            {explaining ? 'Generating explanation…' : 'Explain these scores'}
-                          </button>
+                        {!hasReasoning && explaining && (
+                          <p className="flex items-center gap-1.5 text-xs text-gray-500 italic mt-1">
+                            <Sparkles className="w-3 h-3 text-gold-400 animate-pulse" />
+                            Generating score explanations…
+                          </p>
                         )}
                       </div>
                     )
