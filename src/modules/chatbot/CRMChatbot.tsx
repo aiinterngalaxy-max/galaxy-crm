@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageCircle, X, Send, RefreshCw, Sparkles, Bot, Trash2 } from 'lucide-react'
 import { db, collection, getDocs } from '../../lib/firebase'
+import { collectionGroup } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 
 interface Message {
@@ -33,28 +34,45 @@ const fmtI = (n?: number) => n ? `₹${(n / 100000).toFixed(1)}L` : '₹0'
 const fmtFull = (n?: number) => n ? `₹${n.toLocaleString('en-IN')}` : '₹0'
 
 async function fetchCRMContext(): Promise<string> {
-  const [projects, leads, customers, quotations, invoices, payments, candidates] =
+  const [projects, leads, customers, quotations, invoices, candidates, workflowStages] =
     await Promise.all([
       getDocs(collection(db, 'projects')),
       getDocs(collection(db, 'leads')),
       getDocs(collection(db, 'customers')),
       getDocs(collection(db, 'quotations')),
       getDocs(collection(db, 'invoices')),
-      getDocs(collection(db, 'payments')),
       getDocs(collection(db, 'candidates')),
+      getDocs(collectionGroup(db, 'workflow')),
     ])
+
+  // Build map: projectId → { paid, stages[] } from actual workflow stage data
+  const workflowByProject = new Map<string, { paid: number; stages: string[] }>()
+  workflowStages.docs.forEach(d => {
+    const stage = d.data()
+    const projectId = d.ref.parent.parent?.id
+    if (!projectId) return
+    const entry = workflowByProject.get(projectId) ?? { paid: 0, stages: [] }
+    const amt = stage.paymentAmount ?? 0
+    if (stage.status === 'completed' && amt > 0) {
+      entry.paid += amt
+      entry.stages.push(`${stage.title ?? 'Stage'}:${fmtFull(amt)}`)
+    }
+    workflowByProject.set(projectId, entry)
+  })
 
   const L: string[] = []
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   L.push(`GALAXY CRM ${today}`)
 
-  // Projects — all, ultra-compact
+  // Projects — with real paid amounts from workflow stages
   L.push(`\nPROJECTS(${projects.size}):`)
   projects.docs.forEach(d => {
     const p = d.data()
     const val = p.projectValue ?? p.totalValue ?? 0
-    const paid = p.collectedAmount ?? p.totalPaid ?? 0
-    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}`)
+    const wf = workflowByProject.get(d.id)
+    const paid = wf?.paid ?? p.collectedAmount ?? p.totalPaid ?? 0
+    const stagesStr = wf?.stages.length ? `|payments:${wf.stages.join(',')}` : ''
+    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}${stagesStr}`)
   })
 
   // Leads — max 30, key fields only
@@ -85,15 +103,7 @@ async function fetchCRMContext(): Promise<string> {
     L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|amt:${fmtFull(inv.amount)}|paid:${fmtFull(inv.paidAmount)}|bal:${fmtFull(inv.balance)}|due:${tsDate(inv.dueDate)}`)
   })
 
-  // Payments — newest 20 only
-  const recentPayments = payments.docs
-    .map(d => d.data())
-    .sort((a, b) => ((b.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0) - ((a.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0))
-    .slice(0, 20)
-  L.push(`\nPAYMENTS(last ${recentPayments.length}):`)
-  recentPayments.forEach(p => {
-    L.push(`${fmtFull(p.amount)}|${p.mode ?? '-'}|${tsDate(p.date ?? p.createdAt)}|by:${p.recordedByName ?? '-'}`)
-  })
+  // Payment data is embedded per-project above from workflow stages
 
   // Candidates
   L.push(`\nCANDIDATES(${candidates.size}):`)
