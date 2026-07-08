@@ -33,7 +33,7 @@ const fmtI = (n?: number) => n ? `₹${(n / 100000).toFixed(1)}L` : '₹0'
 const fmtFull = (n?: number) => n ? `₹${n.toLocaleString('en-IN')}` : '₹0'
 
 async function fetchCRMContext(): Promise<string> {
-  const [projects, leads, customers, quotations, invoices, payments, dailyReports] =
+  const [projects, leads, customers, quotations, invoices, payments, dailyReports, candidates] =
     await Promise.all([
       getDocs(collection(db, 'projects')),
       getDocs(collection(db, 'leads')),
@@ -42,6 +42,7 @@ async function fetchCRMContext(): Promise<string> {
       getDocs(collection(db, 'invoices')),
       getDocs(collection(db, 'payments')),
       getDocs(collection(db, 'dailyReports')),
+      getDocs(collection(db, 'candidates')),
     ])
 
   const L: string[] = []
@@ -148,6 +149,18 @@ async function fetchCRMContext(): Promise<string> {
     const summary = r.preFilledSummary ? r.preFilledSummary.substring(0, 80) : ''
     L.push(
       `${r.date} ${r.employeeName ?? '-'} | ${summary}${r.topWin ? ` | win:${r.topWin.substring(0, 60)}` : ''}`
+    )
+  })
+
+  // Candidates (HR Resume Scoring)
+  L.push(`\nHR_CANDIDATES(${candidates.size}):`)
+  candidates.docs.forEach(d => {
+    const c = d.data()
+    L.push(
+      `${c.name} | role:${c.jobTitle ?? '-'} | score:${c.score}/100 | recommendation:${c.recommendation}\n` +
+      `  skills:${c.breakdown?.skills ?? '-'} exp:${c.breakdown?.experience ?? '-'} edu:${c.breakdown?.education ?? '-'}\n` +
+      `  summary:${c.summary ? c.summary.substring(0, 120) : '-'}\n` +
+      `  strengths:${(c.strengths ?? []).join('; ')} | gaps:${(c.gaps ?? []).join('; ')}`
     )
   })
 
