@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users2, UserSquare2, FileText, FolderKanban,
   ClipboardList, Sparkles, Bell, Settings,
-  Building2, ChevronRight, LogOut, Package, ChevronDown, Target, UserCog,
+  Building2, ChevronRight, LogOut, Package, ChevronDown, Target, UserCog, Trash2,
 } from 'lucide-react'
 import { cn, canAccess, ROLE_LABELS, getInitials } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -47,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'HR',             icon: <UserCog className="w-4 h-4" />,         path: '/hr',              module: 'hr' },
   { label: 'Notifications',  icon: <Bell className="w-4 h-4" />,            path: '/notifications',   module: 'notifications' },
   { label: 'Settings',       icon: <Settings className="w-4 h-4" />,        path: '/settings',        module: 'settings' },
+  { label: 'Recycle Bin',   icon: <Trash2 className="w-4 h-4" />,          path: '/recycle-bin',     module: 'recycle-bin' },
 ]
 
 interface SidebarProps {

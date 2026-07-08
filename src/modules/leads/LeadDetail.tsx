@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { trashItem } from '../../lib/trash'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, MapPin, Edit2, Calendar, FileText,
@@ -16,7 +17,7 @@ import { ActivityLog } from './ActivityLog'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp, deleteDocument, uploadFile, deleteDoc, orderBy
+  serverTimestamp, Timestamp, uploadFile, deleteDoc, orderBy
 } from '../../lib/firebase'
 import {
   LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
@@ -333,7 +334,7 @@ export function LeadDetail() {
     if (!id) return
     setDeleting(true)
     try {
-      await deleteDocument('leads', id)
+      await trashItem('leads', id, user?.id ?? '', user?.name ?? 'Unknown')
       toast.success('Lead deleted')
       navigate('/leads')
     } catch (err) {

@@ -5,7 +5,8 @@ import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, limit } from '../../lib/firebase'
+import { trashItem } from '../../lib/trash'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Customer } from '../../types'
@@ -19,7 +20,7 @@ const TAG_STYLES = {
 
 export function CustomersPage() {
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { user, isAdmin } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -28,7 +29,7 @@ export function CustomersPage() {
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (confirmDelete === id) {
-      await deleteDocument('customers', id)
+      await trashItem('customers', id, user?.id ?? '', user?.name ?? 'Unknown')
       setConfirmDelete(null)
     } else {
       setConfirmDelete(id)

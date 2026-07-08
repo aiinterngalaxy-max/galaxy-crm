@@ -45,6 +45,7 @@ const NonWorkingPage = lazy(() => import('./modules/inventory/NonWorkingPage').t
 const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
 const HRPage = lazy(() => import('./modules/hr/HRPage').then(m => ({ default: m.HRPage })))
 const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default: m.JDWizard })))
+const RecycleBin = lazy(() => import('./modules/recycle-bin/RecycleBin').then(m => ({ default: m.RecycleBin })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -153,6 +154,7 @@ function AppRoutes() {
 
           {/* HR */}
           <Route path="hr" element={<RequireRole module="hr"><HRPage /></RequireRole>} />
+          <Route path="recycle-bin" element={<RequireRole module="recycle-bin"><RecycleBin /></RequireRole>} />
           <Route path="hr/new" element={<RequireRole module="hr"><JDWizard /></RequireRole>} />
 
           {/* Settings */}

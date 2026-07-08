@@ -8,9 +8,10 @@ import { Select } from '../../components/ui/Select'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  db, collection, query, orderBy, onSnapshot, deleteDocument,
+  db, collection, query, orderBy, onSnapshot,
   addDoc, getDocs, serverTimestamp, limit
 } from '../../lib/firebase'
+import { trashItem } from '../../lib/trash'
 import { nextProjectCode } from '../../lib/counters'
 import { formatDate, canManageProjects } from '../../lib/utils'
 import type { Project, ProjectStatus } from '../../types'
@@ -131,7 +132,7 @@ export function ProjectsPage() {
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (confirmDelete === id) {
-      await deleteDocument('projects', id)
+      await trashItem('projects', id, user?.id ?? '', user?.name ?? 'Unknown')
       setConfirmDelete(null)
     } else {
       setConfirmDelete(id)

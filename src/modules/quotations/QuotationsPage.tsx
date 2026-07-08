@@ -8,7 +8,8 @@ import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
-import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, deleteDocument, limit, arrayUnion } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, limit, arrayUnion } from '../../lib/firebase'
+import { trashItem } from '../../lib/trash'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { nextProjectCode } from '../../lib/counters'
 import { DEFAULT_WORKFLOW_STAGES } from '../projects/ProjectDetail'
@@ -29,7 +30,7 @@ export function QuotationsPage() {
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (confirmDelete === id) {
-      await deleteDocument('quotations', id)
+      await trashItem('quotations', id, user?.id ?? '', user?.name ?? 'Unknown')
       setConfirmDelete(null)
     } else {
       setConfirmDelete(id)

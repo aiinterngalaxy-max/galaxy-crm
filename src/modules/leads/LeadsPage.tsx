@@ -9,7 +9,8 @@ import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LeadForm } from './LeadForm'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, query, orderBy, onSnapshot, deleteDocument, limit } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, limit } from '../../lib/firebase'
+import { trashItem } from '../../lib/trash'
 import {
   cn, LEAD_STATUS_CONFIG, getScoreColor, formatRelative, formatDate,
   formatCurrency, canManageLeads,
@@ -115,7 +116,7 @@ export function LeadsPage() {
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (confirmDelete === id) {
-      await deleteDocument('leads', id)
+      await trashItem('leads', id, user?.id ?? '', user?.name ?? 'Unknown')
       setConfirmDelete(null)
     } else {
       setConfirmDelete(id)

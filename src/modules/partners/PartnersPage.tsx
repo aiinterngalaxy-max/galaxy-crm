@@ -12,7 +12,8 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { StatCard } from '../../components/ui/Card'
 import { useAuth } from '../../contexts/AuthContext'
-import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, deleteDocument, limit } from '../../lib/firebase'
+import { db, collection, onSnapshot, addDoc, serverTimestamp, orderBy, query, limit } from '../../lib/firebase'
+import { trashItem } from '../../lib/trash'
 import { Timestamp } from 'firebase/firestore'
 import { formatCurrency, formatCurrencyShort, canAccess } from '../../lib/utils'
 import type { Partner, PartnerType, Lead } from '../../types'
@@ -77,7 +78,7 @@ export function PartnersPage() {
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (confirmDelete === id) {
-      await deleteDocument('partners', id)
+      await trashItem('partners', id, user?.id ?? '', user?.name ?? 'Unknown')
       setConfirmDelete(null)
     } else {
       setConfirmDelete(id)
