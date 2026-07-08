@@ -168,7 +168,7 @@ async function chatWithGroq(
   if (!res.ok) {
     const text = await res.text()
     console.error('Groq API error:', res.status, text)
-    let msg = `Groq error ${res.status}`
+    let msg = `Gemini error ${res.status}`
     try { msg = JSON.parse(text)?.error?.message ?? msg } catch { /* ignore */ }
     throw new Error(msg)
   }
