@@ -122,8 +122,8 @@ async function chatWithGroq(
   history: { role: string; content: string }[],
   context: string
 ): Promise<string> {
-  const API_KEY = import.meta.env.VITE_GROQ_API_KEY as string
-  if (!API_KEY) throw new Error('VITE_GROQ_API_KEY is not set')
+  const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string
+  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set')
 
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -151,14 +151,14 @@ async function chatWithGroq(
     apiMessages = [apiMessages[0], ...apiMessages.slice(-5)]
   }
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'gemini-2.0-flash',
       messages: [{ role: 'system', content: sysPrompt }, ...apiMessages],
       max_tokens: 500,
       temperature: 0.2,
