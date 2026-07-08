@@ -158,7 +158,7 @@ async function chatWithGroq(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.0-flash-lite',
       messages: [{ role: 'system', content: sysPrompt }, ...apiMessages],
       max_tokens: 500,
       temperature: 0.2,
