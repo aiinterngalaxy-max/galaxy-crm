@@ -3,6 +3,7 @@ import { AlertTriangle, Plus, Trash2, X, Search } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
+import { trashItem } from '../../lib/trash'
 import {
   db, collection, doc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp,
 } from '../../lib/firebase'
@@ -115,10 +116,10 @@ export function NonWorkingPage() {
   }), [items, filterLine, search])
 
   const handleDelete = async (itemId: string) => {
-    if (!window.confirm('Remove this entry?')) return
+    if (!window.confirm('Remove this entry? It will go to the Recycle Bin.')) return
     try {
-      await deleteDoc(doc(db, 'nonWorkingInventory', itemId))
-      toast.success('Removed')
+      await trashItem('nonWorkingInventory', itemId, user?.id ?? '', user?.name ?? 'Unknown')
+      toast.success('Moved to Recycle Bin')
     } catch {
       toast.error('Failed to remove')
     }

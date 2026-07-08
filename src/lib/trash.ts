@@ -22,6 +22,8 @@ const LABEL_MAP: Record<string, string> = {
   partners: 'Partner',
   candidates: 'Candidate',
   jobDescriptions: 'Job Description',
+  inventory: 'Inventory Item',
+  nonWorkingInventory: 'Non-Working Item',
 }
 
 function displayName(collectionName: string, data: Record<string, unknown>): string {

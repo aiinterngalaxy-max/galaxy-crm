@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { trashItem } from '../../lib/trash'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus,
@@ -1244,10 +1245,10 @@ export function InventoryPage() {
   const canDelete = role === 'super_admin'
 
   const handleDeleteItem = async (item: InventoryItem) => {
-    if (!window.confirm(`Delete "${item.itemName}" (${item.itemCode})? This cannot be undone.`)) return
+    if (!window.confirm(`Delete "${item.itemName}" (${item.itemCode})? It will go to the Recycle Bin.`)) return
     try {
-      await deleteDoc(doc(db, 'inventory', item.id))
-      toast.success('Item deleted')
+      await trashItem('inventory', item.id, user?.id ?? '', user?.name ?? 'Unknown')
+      toast.success('Item moved to Recycle Bin')
     } catch {
       toast.error('Failed to delete item')
     }
