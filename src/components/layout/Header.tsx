@@ -45,7 +45,7 @@ export function Header({ collapsed, onToggle, notificationCount = 0 }: HeaderPro
   })
 
   return (
-    <header className="h-14 flex items-center justify-between px-4 bg-gray-950 border-b border-gray-800 shrink-0">
+    <header className="h-14 flex items-center justify-between px-4 shrink-0" style={{ background: 'var(--header-bg)', borderBottom: '1px solid var(--header-border)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
       <div className="flex items-center gap-3">
         <button
           onClick={onToggle}

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { Layout } from './components/layout/Layout'
 import { LoginPage } from './modules/auth/LoginPage'
 import { PendingApprovalPage } from './modules/auth/PendingApprovalPage'
@@ -168,27 +169,53 @@ function AppRoutes() {
   )
 }
 
-const orb = (top?: string, left?: string, right?: string, bottom?: string, w: number = 500, h: number = 500, color: string = 'rgba(201,168,64,0.18)', blur: number = 70) => ({
-  position: 'fixed' as const, borderRadius: '50%', pointerEvents: 'none' as const,
-  width: w, height: h, top, left, right, bottom,
-  background: `radial-gradient(circle, ${color} 0%, transparent 70%)`,
-  filter: `blur(${blur}px)`,
-})
+const ORBS: Record<string, { color1: string; color2: string; color3: string; color4: string } | null> = {
+  'dark-cosmos': {
+    color1: 'rgba(201,168,64,0.22)',
+    color2: 'rgba(110,80,220,0.16)',
+    color3: 'rgba(201,168,64,0.13)',
+    color4: 'rgba(50,110,230,0.12)',
+  },
+  'light-glass': {
+    color1: 'rgba(210,210,230,0.75)',
+    color2: 'rgba(195,200,225,0.60)',
+    color3: 'rgba(220,220,238,0.65)',
+    color4: 'rgba(200,205,230,0.50)',
+  },
+  'dark-classic': null,
+}
+
+function OrbBackground() {
+  const { theme } = useTheme()
+  const orbs = ORBS[theme]
+  if (!orbs) return null
+  const s = (top?: string, left?: string, right?: string, bottom?: string, w = 600, h = 600, color = '', blur = 75) => ({
+    position: 'fixed' as const, borderRadius: '50%', pointerEvents: 'none' as const,
+    width: w, height: h, top, left, right, bottom,
+    background: `radial-gradient(circle, ${color} 0%, transparent 70%)`,
+    filter: `blur(${blur}px)`,
+  })
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      <div style={s('-5%', '5%', undefined, undefined, 650, 650, orbs.color1, 80)} />
+      <div style={s('35%', undefined, '-5%', undefined, 550, 550, orbs.color2, 80)} />
+      <div style={s(undefined, '20%', undefined, '-15%', 750, 550, orbs.color3, 90)} />
+      <div style={s('15%', '42%', undefined, undefined, 380, 380, orbs.color4, 65)} />
+    </div>
+  )
+}
 
 export default function App() {
   return (
     <ErrorBoundary>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', background: '#08080d' }}>
-        <div style={orb('-5%',  '5%',  undefined, undefined, 650, 650, 'rgba(201,168,64,0.20)', 80)} />
-        <div style={orb('35%', undefined, '-5%', undefined, 550, 550, 'rgba(110,80,220,0.16)', 80)} />
-        <div style={orb(undefined, '20%', undefined, '-15%', 750, 550, 'rgba(201,168,64,0.12)', 90)} />
-        <div style={orb('15%', '42%', undefined, undefined, 380, 380, 'rgba(50,110,230,0.12)', 65)} />
-      </div>
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </div>
+      <ThemeProvider>
+        <OrbBackground />
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </div>
+      </ThemeProvider>
     </ErrorBoundary>
   )
 }

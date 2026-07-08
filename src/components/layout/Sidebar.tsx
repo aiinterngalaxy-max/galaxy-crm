@@ -85,10 +85,10 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
         collapsed ? 'w-16' : 'w-60'
       )}
       style={{
-        background: 'rgba(10,10,15,0.7)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        borderRight: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--sidebar-bg)',
+        backdropFilter: 'blur(32px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(32px) saturate(180%)',
+        borderRight: '1px solid var(--sidebar-border)',
       }}
     >
       {/* Logo */}

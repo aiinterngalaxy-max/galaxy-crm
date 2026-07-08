@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Palette } from 'lucide-react'
+import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -36,6 +37,78 @@ const DEPT_OPTIONS: { value: Department; label: string }[] = [
 ]
 
 type Tab = 'users' | 'products' | 'system'
+
+const THEMES: { id: AppTheme; label: string; desc: string; preview: { bg: string; card: string; border: string; orb1?: string; orb2?: string; text: string; textMuted: string } }[] = [
+  {
+    id: 'dark-classic',
+    label: 'Dark Classic',
+    desc: 'Minimal dark glass, no distractions',
+    preview: { bg: '#09090b', card: 'rgba(255,255,255,0.035)', border: 'rgba(255,255,255,0.08)', text: '#f1f5f9', textMuted: '#6b7280' },
+  },
+  {
+    id: 'dark-cosmos',
+    label: 'Dark Cosmos',
+    desc: 'Dark glass with gold & purple orbs',
+    preview: { bg: '#08080d', card: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', orb1: 'rgba(201,168,64,0.35)', orb2: 'rgba(110,80,220,0.28)', text: '#f1f5f9', textMuted: '#94a3b8' },
+  },
+  {
+    id: 'light-glass',
+    label: 'Light Glass',
+    desc: 'Frosted white glass, iOS style',
+    preview: { bg: '#dde1eb', card: 'rgba(255,255,255,0.55)', border: 'rgba(255,255,255,0.80)', orb1: 'rgba(210,210,235,0.80)', orb2: 'rgba(195,200,230,0.65)', text: '#0f172a', textMuted: '#475569' },
+  },
+]
+
+function ThemePicker() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <div className="glass-card p-5">
+      <div className="flex items-center gap-3 mb-5">
+        <Palette className="w-5 h-5 text-gold-400" />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-base)' }}>Appearance</h3>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {THEMES.map(t => {
+          const active = theme === t.id
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              className="text-left rounded-xl overflow-hidden transition-all"
+              style={{
+                border: active ? '2px solid #C9A840' : '2px solid transparent',
+                outline: active ? '1px solid rgba(201,168,64,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                boxShadow: active ? '0 0 16px rgba(201,168,64,0.20)' : 'none',
+              }}
+            >
+              {/* Mini preview */}
+              <div className="relative overflow-hidden" style={{ background: t.preview.bg, height: 90 }}>
+                {t.preview.orb1 && (
+                  <>
+                    <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: 80, height: 80, borderRadius: '50%', background: `radial-gradient(circle, ${t.preview.orb1} 0%, transparent 70%)`, filter: 'blur(16px)' }} />
+                    <div style={{ position: 'absolute', bottom: '-20%', right: '-10%', width: 70, height: 70, borderRadius: '50%', background: `radial-gradient(circle, ${t.preview.orb2} 0%, transparent 70%)`, filter: 'blur(14px)' }} />
+                  </>
+                )}
+                <div style={{ position: 'absolute', top: 12, left: 10, right: 10, height: 28, borderRadius: 8, background: t.preview.card, border: `1px solid ${t.preview.border}`, backdropFilter: 'blur(8px)' }} />
+                <div style={{ position: 'absolute', top: 22, left: 18, width: 40, height: 6, borderRadius: 3, background: t.preview.textMuted, opacity: 0.5 }} />
+                <div style={{ position: 'absolute', top: 48, left: 10, right: 10, height: 20, borderRadius: 6, background: t.preview.card, border: `1px solid ${t.preview.border}`, backdropFilter: 'blur(8px)' }} />
+                <div style={{ position: 'absolute', top: 55, left: 18, width: 60, height: 5, borderRadius: 3, background: t.preview.textMuted, opacity: 0.4 }} />
+              </div>
+              {/* Label */}
+              <div className="px-3 py-2.5" style={{ background: 'var(--glass-bg)' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold" style={{ color: 'var(--text-base)' }}>{t.label}</p>
+                  {active && <CheckCircle2 className="w-3.5 h-3.5 text-gold-400" />}
+                </div>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{t.desc}</p>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export function SettingsPage() {
   const { user: currentUser, isAdmin, isManagement, role } = useAuth()
@@ -362,6 +435,7 @@ export function SettingsPage() {
       {/* System Tab */}
       {tab === 'system' && (
         <div className="space-y-4">
+          <ThemePicker />
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />
