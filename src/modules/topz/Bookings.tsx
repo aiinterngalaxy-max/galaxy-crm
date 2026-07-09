@@ -13,6 +13,19 @@ const STATUS_CONFIG: Record<Booking['status'], { label: string; color: string; b
 const uid = () => Math.random().toString(36).slice(2, 10)
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const fmtDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+const monthKey = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+const monthLabel = (key: string) => { const [y, m] = key.split('-'); return new Date(+y, +m - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' }) }
+
+function groupByMonth<T extends { createdAt: string }>(items: T[]): { key: string; label: string; items: T[] }[] {
+  const sorted = [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const map = new Map<string, T[]>()
+  for (const item of sorted) {
+    const k = monthKey(item.createdAt)
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(item)
+  }
+  return Array.from(map.entries()).map(([key, items]) => ({ key, label: monthLabel(key), items }))
+}
 
 const EMPTY_FORM = {
   clientName: '', clientPhone: '', vehicleName: '', pickupDate: '',
@@ -59,10 +72,12 @@ export function Bookings() {
   }
 
   const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
+  const groups = groupByMonth(filtered)
   const counts = Object.keys(STATUS_CONFIG).reduce((a, k) => ({ ...a, [k]: bookings.filter(b => b.status === k).length }), {} as Record<string, number>)
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>Bookings</h1>
@@ -77,7 +92,7 @@ export function Bookings() {
         </button>
       </div>
 
-      {/* Status summary */}
+      {/* Status summary — clickable filters */}
       <div className="grid grid-cols-4 gap-3">
         {(Object.entries(STATUS_CONFIG) as [Booking['status'], typeof STATUS_CONFIG[Booking['status']]][]).map(([status, cfg]) => (
           <button
@@ -144,7 +159,7 @@ export function Bookings() {
         </div>
       )}
 
-      {/* Bookings list */}
+      {/* Grouped by month */}
       {filtered.length === 0 ? (
         <div className="glass-card rounded-2xl p-12 text-center">
           <CalendarCheck className="w-10 h-10 mx-auto mb-3 opacity-30" style={{ color: 'var(--text-muted)' }} />
@@ -153,64 +168,116 @@ export function Bookings() {
           </p>
         </div>
       ) : (
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                  {['Client', 'Vehicle', 'Trip Date', 'Route', 'Amount', 'Advance', 'Status', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((b, i) => {
-                  const sc = STATUS_CONFIG[b.status]
-                  const balance = b.totalAmount - b.advancePaid
-                  return (
-                    <tr key={b.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--glass-border)' }}>
-                      <td className="px-4 py-3">
-                        <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{b.clientName}</p>
-                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{b.clientPhone}</p>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{b.vehicleName}</td>
-                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
-                        {fmtDate(b.pickupDate)}{b.dropDate && b.dropDate !== b.pickupDate ? ` – ${fmtDate(b.dropDate)}` : ''}
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
-                          {b.pickupLocation}{b.dropLocation ? ` → ${b.dropLocation}` : ''}
-                        </p>
-                        <p className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>{b.tripType}</p>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <p className="font-semibold" style={{ color: '#f0c040' }}>{fmt(b.totalAmount)}</p>
-                        {balance > 0 && <p className="text-xs text-red-400">Due: {fmt(balance)}</p>}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{fmt(b.advancePaid)}</td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={b.status}
-                          onChange={e => handleStatus(b.id, e.target.value as Booking['status'])}
-                          className="text-xs rounded-lg px-2 py-1.5 border focus:outline-none font-semibold"
-                          style={{ background: sc.bg, borderColor: sc.color + '50', color: sc.color }}
-                        >
-                          {Object.entries(STATUS_CONFIG).map(([s, c]) => (
-                            <option key={s} value={s}>{c.label}</option>
+        <div className="space-y-6">
+          {groups.map(group => {
+            const monthRevenue = group.items.reduce((s, b) => s + b.totalAmount, 0)
+            const monthAdvance = group.items.reduce((s, b) => s + b.advancePaid, 0)
+            const monthDue = monthRevenue - monthAdvance
+            const completed = group.items.filter(b => b.status === 'completed').length
+
+            return (
+              <div key={group.key}>
+                {/* Month header */}
+                <div className="flex items-center justify-between mb-3 px-1 flex-wrap gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h2 className="font-bold text-sm" style={{ color: 'var(--text-base)' }}>{group.label}</h2>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                      {group.items.length} booking{group.items.length !== 1 ? 's' : ''}
+                    </span>
+                    {completed > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', color: '#34d399' }}>
+                        {completed} completed
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Revenue</p>
+                      <p className="text-sm font-bold" style={{ color: '#f0c040' }}>{fmt(monthRevenue)}</p>
+                    </div>
+                    {monthDue > 0 && (
+                      <div className="text-right">
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Due</p>
+                        <p className="text-sm font-bold text-red-400">{fmt(monthDue)}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="glass-card rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
+                          {['Client', 'Vehicle', 'Trip Date', 'Route', 'Amount', 'Advance', 'Status', ''].map(h => (
+                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                           ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((b, i) => {
+                          const sc = STATUS_CONFIG[b.status]
+                          const balance = b.totalAmount - b.advancePaid
+                          return (
+                            <tr key={b.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--glass-border)' }}>
+                              <td className="px-4 py-3">
+                                <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{b.clientName}</p>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{b.clientPhone}</p>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{b.vehicleName}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>
+                                {fmtDate(b.pickupDate)}{b.dropDate && b.dropDate !== b.pickupDate ? ` – ${fmtDate(b.dropDate)}` : ''}
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                                  {b.pickupLocation}{b.dropLocation ? ` → ${b.dropLocation}` : ''}
+                                </p>
+                                <p className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>{b.tripType}</p>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <p className="font-semibold text-sm" style={{ color: '#f0c040' }}>{fmt(b.totalAmount)}</p>
+                                {balance > 0 && <p className="text-xs text-red-400">Due: {fmt(balance)}</p>}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{fmt(b.advancePaid)}</td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={b.status}
+                                  onChange={e => handleStatus(b.id, e.target.value as Booking['status'])}
+                                  className="text-xs rounded-lg px-2 py-1.5 border focus:outline-none font-semibold"
+                                  style={{ background: sc.bg, borderColor: sc.color + '50', color: sc.color }}
+                                >
+                                  {Object.entries(STATUS_CONFIG).map(([s, c]) => (
+                                    <option key={s} value={s}>{c.label}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-4 py-3">
+                                <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      {/* Month subtotal */}
+                      <tfoot>
+                        <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
+                          <td colSpan={4} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                            {group.label} total
+                          </td>
+                          <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthRevenue)}</td>
+                          <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>{fmt(monthAdvance)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

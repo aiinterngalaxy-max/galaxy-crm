@@ -12,6 +12,19 @@ const STATUS_CONFIG = {
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+const monthKey = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+const monthLabel = (key: string) => { const [y, m] = key.split('-'); return new Date(+y, +m - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' }) }
+
+function groupByMonth<T extends { createdAt: string }>(items: T[]): { key: string; label: string; items: T[] }[] {
+  const sorted = [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const map = new Map<string, T[]>()
+  for (const item of sorted) {
+    const k = monthKey(item.createdAt)
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(item)
+  }
+  return Array.from(map.entries()).map(([key, items]) => ({ key, label: monthLabel(key), items }))
+}
 
 export function QuotationHistory() {
   const navigate = useNavigate()
@@ -49,19 +62,21 @@ export function QuotationHistory() {
       tripType: q.tripType,
     })
     handleStatus(q.id, 'converted')
-    toast.success('Booking created from quote!')
+    toast.success('Booking created!')
   }
 
   const filtered = filter === 'all' ? quotes : quotes.filter(q => q.status === filter)
+  const groups = groupByMonth(filtered)
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>Quotation History</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>Quotations</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>{quotes.length} quote{quotes.length !== 1 ? 's' : ''} saved</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => navigate('/topz/quotation')}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105"
@@ -69,7 +84,6 @@ export function QuotationHistory() {
           >
             <Plus className="w-4 h-4" /> New Quotation
           </button>
-        <div className="flex items-center gap-2">
           {(['all', 'draft', 'sent', 'converted'] as const).map(f => (
             <button
               key={f}
@@ -84,74 +98,110 @@ export function QuotationHistory() {
             </button>
           ))}
         </div>
-        </div>
       </div>
 
       {filtered.length === 0 ? (
         <div className="glass-card rounded-2xl p-12 text-center">
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" style={{ color: 'var(--text-muted)' }} />
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No quotes yet. Generate one from New Quotation.</p>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No quotes yet. Click New Quotation to get started.</p>
         </div>
       ) : (
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                  {['Quote #', 'Date', 'Client', 'Vehicle', 'Trip', 'Total', 'Status', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((q, i) => {
-                  const sc = STATUS_CONFIG[q.status]
-                  return (
-                    <tr key={q.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--glass-border)' }}>
-                      <td className="px-4 py-3 font-mono text-xs" style={{ color: '#f0c040' }}>{q.quoteNo}</td>
-                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{fmtDate(q.createdAt)}</td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{q.clientName}</p>
-                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.clientPhone}</p>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{q.vehicleName}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>{q.tripType}</span>
-                        {q.isRoundTrip && <span className="ml-1 text-xs" style={{ color: '#f0c040' }}>RT</span>}
-                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.pickupLocation}{q.dropLocation ? ` → ${q.dropLocation}` : ''}</p>
-                      </td>
-                      <td className="px-4 py-3 font-semibold whitespace-nowrap" style={{ color: '#f0c040' }}>{fmt(q.totalAmount)}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs px-2 py-1 rounded-full font-semibold" style={{ background: sc.bg, color: sc.color }}>{sc.label}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          {q.status === 'draft' && (
-                            <button onClick={() => handleStatus(q.id, 'sent')} title="Mark as sent" className="p-1.5 rounded-lg hover:bg-blue-900/20 text-blue-400 transition-colors">
-                              <Send className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {q.status !== 'converted' && (
-                            <button onClick={() => handleConvertToBooking(q)} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {q.status === 'converted' && (
-                            <button onClick={() => handleStatus(q.id, 'draft')} title="Revert to draft" className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-500 transition-colors">
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <button onClick={() => handleDelete(q.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-6">
+          {groups.map(group => {
+            const monthTotal = group.items.reduce((s, q) => s + q.totalAmount, 0)
+            const converted = group.items.filter(q => q.status === 'converted').length
+            return (
+              <div key={group.key}>
+                {/* Month header */}
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-3">
+                    <h2 className="font-bold text-sm" style={{ color: 'var(--text-base)' }}>{group.label}</h2>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                      {group.items.length} quote{group.items.length !== 1 ? 's' : ''}
+                    </span>
+                    {converted > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', color: '#34d399' }}>
+                        {converted} converted
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-bold" style={{ color: '#f0c040' }}>{fmt(monthTotal)}</div>
+                </div>
+
+                {/* Table */}
+                <div className="glass-card rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
+                          {['Quote #', 'Date', 'Client', 'Vehicle', 'Trip', 'Total', 'Status', ''].map(h => (
+                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((q, i) => {
+                          const sc = STATUS_CONFIG[q.status]
+                          return (
+                            <tr key={q.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--glass-border)' }}>
+                              <td className="px-4 py-3 font-mono text-xs" style={{ color: '#f0c040' }}>{q.quoteNo}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{fmtDate(q.createdAt)}</td>
+                              <td className="px-4 py-3">
+                                <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{q.clientName}</p>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.clientPhone}</p>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{q.vehicleName}</td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>{q.tripType}</span>
+                                {q.isRoundTrip && <span className="ml-1 text-xs font-semibold" style={{ color: '#f0c040' }}>RT</span>}
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.pickupLocation}{q.dropLocation ? ` → ${q.dropLocation}` : ''}</p>
+                              </td>
+                              <td className="px-4 py-3 font-semibold whitespace-nowrap" style={{ color: '#f0c040' }}>{fmt(q.totalAmount)}</td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs px-2 py-1 rounded-full font-semibold" style={{ background: sc.bg, color: sc.color }}>{sc.label}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1">
+                                  {q.status === 'draft' && (
+                                    <button onClick={() => handleStatus(q.id, 'sent')} title="Mark as sent" className="p-1.5 rounded-lg hover:bg-blue-900/20 text-blue-400 transition-colors">
+                                      <Send className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {q.status !== 'converted' && (
+                                    <button onClick={() => handleConvertToBooking(q)} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {q.status === 'converted' && (
+                                    <button onClick={() => handleStatus(q.id, 'draft')} title="Revert to draft" className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-500 transition-colors">
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button onClick={() => handleDelete(q.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      {/* Month subtotal row */}
+                      <tfoot>
+                        <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
+                          <td colSpan={5} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                            {group.label} total
+                          </td>
+                          <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthTotal)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
