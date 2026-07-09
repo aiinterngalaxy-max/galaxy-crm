@@ -48,6 +48,81 @@ const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const uid = () => Math.random().toString(36).slice(2, 10)
 const quoteNo = () => `TOPZ-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`
 
+// ── State detection for border tax ─────────────────────────────────────────────
+const CITY_STATE: Record<string, string> = {
+  // Maharashtra
+  mumbai:'MH', bombay:'MH', thane:'MH', 'navi mumbai':'MH', navimumbai:'MH',
+  pune:'MH', nashik:'MH', nagpur:'MH', aurangabad:'MH', solapur:'MH',
+  kolhapur:'MH', satara:'MH', sangli:'MH', raigad:'MH', ratnagiri:'MH',
+  sindhudurg:'MH', alibag:'MH', lonavala:'MH', mahabaleshwar:'MH',
+  shirdi:'MH', dadar:'MH', malad:'MH', borivali:'MH', andheri:'MH',
+  panvel:'MH', kalyan:'MH', dombivli:'MH', vasai:'MH', virar:'MH',
+  // Goa
+  goa:'GA', panaji:'GA', panjim:'GA', margao:'GA', vasco:'GA',
+  madgaon:'GA', mapusa:'GA', calangute:'GA', candolim:'GA',
+  // Gujarat
+  ahmedabad:'GJ', surat:'GJ', vadodara:'GJ', baroda:'GJ', rajkot:'GJ',
+  gandhinagar:'GJ', bhavnagar:'GJ', jamnagar:'GJ', anand:'GJ',
+  kutch:'GJ', bhuj:'GJ', mehsana:'GJ', morbi:'GJ',
+  // Rajasthan
+  jaipur:'RJ', jodhpur:'RJ', udaipur:'RJ', ajmer:'RJ', bikaner:'RJ',
+  kota:'RJ', pushkar:'RJ', mount:'RJ', abu:'RJ',
+  // Delhi / NCR
+  delhi:'DL', 'new delhi':'DL', noida:'UP', gurugram:'HR', gurgaon:'HR',
+  faridabad:'HR', ghaziabad:'UP',
+  // Uttar Pradesh
+  agra:'UP', mathura:'UP', vrindavan:'UP', lucknow:'UP', varanasi:'UP',
+  prayagraj:'UP', allahabad:'UP', kanpur:'UP',
+  // Madhya Pradesh
+  bhopal:'MP', indore:'MP', gwalior:'MP', jabalpur:'MP', ujjain:'MP',
+  // Karnataka
+  bangalore:'KA', bengaluru:'KA', mysore:'KA', mysuru:'KA',
+  hubli:'KA', dharwad:'KA', mangalore:'KA', belgaum:'KA',
+  // Tamil Nadu
+  chennai:'TN', madras:'TN', coimbatore:'TN', madurai:'TN',
+  trichy:'TN', salem:'TN', tiruppur:'TN',
+  // Kerala
+  kochi:'KL', cochin:'KL', thiruvananthapuram:'KL', trivandrum:'KL',
+  kozhikode:'KL', calicut:'KL', thrissur:'KL', kannur:'KL',
+  // Telangana / Andhra
+  hyderabad:'TG', warangal:'TG', visakhapatnam:'AP', vizag:'AP',
+  // West Bengal
+  kolkata:'WB', calcutta:'WB', howrah:'WB', siliguri:'WB',
+  // Himachal Pradesh
+  shimla:'HP', manali:'HP', dharamshala:'HP', kullu:'HP',
+  // Uttarakhand
+  dehradun:'UK', haridwar:'UK', rishikesh:'UK', mussoorie:'UK',
+  nainital:'UK', jim:'UK',
+  // Punjab / Haryana
+  chandigarh:'CH', amritsar:'PB', ludhiana:'PB', jalandhar:'PB',
+  // Other
+  mumbra:'MH', bhiwandi:'MH', mira:'MH', road:'MH',
+}
+
+function detectState(location: string): string | null {
+  const lower = location.toLowerCase().replace(/[,.()\-]/g, ' ')
+  for (const [city, state] of Object.entries(CITY_STATE)) {
+    if (lower.includes(city)) return state
+  }
+  return null
+}
+
+function isCrossState(from: string, to: string): { cross: boolean; dropState: string | null } {
+  if (!from || !to) return { cross: false, dropState: null }
+  const s1 = detectState(from)
+  const s2 = detectState(to)
+  if (!s1 || !s2) return { cross: false, dropState: s2 }
+  return { cross: s1 !== s2, dropState: s2 }
+}
+
+const STATE_NAMES: Record<string, string> = {
+  MH:'Maharashtra', GA:'Goa', GJ:'Gujarat', RJ:'Rajasthan', DL:'Delhi',
+  UP:'Uttar Pradesh', MP:'Madhya Pradesh', KA:'Karnataka', TN:'Tamil Nadu',
+  KL:'Kerala', TG:'Telangana', AP:'Andhra Pradesh', WB:'West Bengal',
+  HP:'Himachal Pradesh', UK:'Uttarakhand', PB:'Punjab', HR:'Haryana',
+  CH:'Chandigarh',
+}
+
 function vehicleIcon(category: string) {
   const c = category.toLowerCase()
   if (c.includes('bus') || c.includes('volvo')) return 'bus'
@@ -75,6 +150,7 @@ export function QuotationTool() {
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
   const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
+  const { cross: isCrossStateTrip, dropState: crossDropState } = isCrossState(form.pickupLocation, form.dropLocation)
 
   const set = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     let val = e.target.value
@@ -215,7 +291,7 @@ export function QuotationTool() {
       approxKm > 0 ? `Approx Upto ${approxKm} Kms` : '',
       `Extra ${selectedVehicle.ratePerKm} rs per km`,
       '',
-      form.dropLocation && !isLocal ? `${form.dropLocation} Border Tax Will Be Extra` : '',
+      !isLocal && isCrossStateTrip ? `${crossDropState ? (STATE_NAMES[crossDropState] ?? form.dropLocation) : form.dropLocation} Border Tax Will Be Extra` : '',
       '',
       'Charges Apply Garage to Garage',
       '[ Malad to Malad ]',
@@ -320,6 +396,17 @@ export function QuotationTool() {
             roundTrip={!isLocal && form.isRoundTrip}
             vehicleType={selectedVehicle ? vehicleIcon(selectedVehicle.category) : 'car'}
           />
+        )}
+
+        {/* ── Cross-state border tax badge ── */}
+        {!isLocal && isCrossStateTrip && (
+          <div className="mx-5 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold"
+            style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}>
+            <span>⚠️</span>
+            <span>
+              Cross-state trip detected — <strong>{crossDropState ? (STATE_NAMES[crossDropState] ?? '') : ''} Border Tax</strong> will be extra
+            </span>
+          </div>
         )}
 
         {/* ── Row 3: Date / Time / Passengers / KM ── */}
