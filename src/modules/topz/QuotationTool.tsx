@@ -32,6 +32,13 @@ const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const uid = () => Math.random().toString(36).slice(2, 10)
 const quoteNo = () => `TOPZ-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`
 
+function vehicleIcon(category: string) {
+  const c = category.toLowerCase()
+  if (c.includes('bus') || c.includes('volvo')) return 'bus'
+  if (c.includes('tempo') || c.includes('traveller') || c.includes('van')) return 'van'
+  return 'car'
+}
+
 export function QuotationTool() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
@@ -167,7 +174,8 @@ export function QuotationTool() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>New Quotation</h1>
-        <button onClick={reset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors" style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+        <button onClick={reset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors"
+          style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
           <RotateCcw className="w-3 h-3" /> Reset
         </button>
       </div>
@@ -175,117 +183,50 @@ export function QuotationTool() {
       {/* Main booking card */}
       <div className="glass-card rounded-2xl overflow-hidden">
 
-        {/* ── Row 1: Vehicle + Trip type + Round trip ── */}
+        {/* ── Row 1: Trip type + Round trip ── */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4 gap-4 flex-wrap">
-          {/* Vehicle selector */}
-          <div className="relative">
-            <button
-              onClick={() => setVehicleOpen(o => !o)}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all min-w-[200px]"
-              style={{
-                background: selectedVehicle ? 'rgba(201,168,64,0.08)' : 'var(--glass-bg)',
-                borderColor: selectedVehicle ? 'rgba(201,168,64,0.5)' : 'var(--glass-border)',
-              }}
-            >
-              <Car className="w-5 h-5 shrink-0" style={{ color: '#f0c040' }} />
-              <div className="text-left flex-1">
-                <p className="font-bold text-base leading-tight" style={{ color: 'var(--text-base)' }}>
-                  {selectedVehicle ? selectedVehicle.name : 'Select Vehicle'}
-                </p>
-                {selectedVehicle && (
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{selectedVehicle.seats} seats · {selectedVehicle.category}</p>
-                )}
-              </div>
-              <ChevronDown className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)', transform: vehicleOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-            </button>
-
-            {/* Vehicle dropdown */}
-            {vehicleOpen && (
-              <div className="absolute top-full left-0 mt-2 w-72 rounded-2xl border shadow-2xl z-50 overflow-hidden"
-                style={{ background: 'var(--surface)', borderColor: 'var(--glass-border)' }}>
-                <div className="p-2 border-b" style={{ borderColor: 'var(--glass-border)' }}>
-                  <p className="text-xs px-2 py-1 font-semibold" style={{ color: 'var(--text-muted)' }}>
-                    {passengers > 0 ? `Suggested for ${passengers} passengers` : 'All vehicles'}
-                  </p>
-                </div>
-                <div className="max-h-72 overflow-y-auto">
-                  {(passengers > 0 ? suggested : vehicles).map(v => {
-                    const rate = isLocal ? v.localRate : v.perDayRate
-                    return (
-                      <button
-                        key={v.name}
-                        onClick={() => handleVehicleSelect(v)}
-                        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-gold-500/10 transition-colors border-b last:border-b-0"
-                        style={{ borderColor: 'var(--glass-border)' }}
-                      >
-                        <div>
-                          <p className="font-medium text-sm" style={{ color: 'var(--text-base)' }}>{v.name}</p>
-                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{v.seats} seats · {v.category}</p>
-                        </div>
-                        <span className="text-sm font-bold" style={{ color: '#f0c040' }}>{fmt(rate)}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+          <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
+            {(['outstation', 'local'] as TripType[]).map(t => (
+              <button key={t} onClick={() => setTripType(t)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={form.tripType === t
+                  ? { background: 'rgba(240,192,64,0.15)', color: '#f0c040', border: '1px solid rgba(240,192,64,0.4)' }
+                  : { color: 'var(--text-muted)', border: '1px solid transparent' }
+                }>
+                {t === 'outstation' ? <ArrowLeftRight className="w-3 h-3" /> : <Package className="w-3 h-3" />}
+                {t === 'outstation' ? 'Outstation' : 'Local 8hr'}
+              </button>
+            ))}
           </div>
 
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Trip type pills */}
-            <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
-              {(['outstation', 'local'] as TripType[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTripType(t)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                  style={form.tripType === t
-                    ? { background: 'rgba(240,192,64,0.15)', color: '#f0c040', border: '1px solid rgba(240,192,64,0.4)' }
-                    : { color: 'var(--text-muted)', border: '1px solid transparent' }
-                  }
-                >
-                  {t === 'outstation' ? <ArrowLeftRight className="w-3 h-3" /> : <Package className="w-3 h-3" />}
-                  {t === 'outstation' ? 'Outstation' : 'Local 8hr'}
-                </button>
-              ))}
-            </div>
-
-            {/* Round trip toggle */}
-            {!isLocal && (
-              <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                <div
-                  onClick={() => setForm(f => ({ ...f, isRoundTrip: !f.isRoundTrip }))}
-                  className="relative transition-colors"
-                  style={{
-                    width: 44, height: 24, borderRadius: 12,
-                    background: form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.1)',
-                    border: `1px solid ${form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.15)'}`,
-                  }}
-                >
-                  <span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow transition-transform block"
-                    style={{ transform: `translateX(${form.isRoundTrip ? '22px' : '3px'})` }} />
-                </div>
-                <span className="text-sm font-medium" style={{ color: form.isRoundTrip ? '#f0c040' : 'var(--text-muted)' }}>
-                  Round trip
-                </span>
-              </label>
-            )}
-          </div>
+          {!isLocal && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <div onClick={() => setForm(f => ({ ...f, isRoundTrip: !f.isRoundTrip }))}
+                className="relative transition-colors"
+                style={{ width: 44, height: 24, borderRadius: 12,
+                  background: form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.1)',
+                  border: `1px solid ${form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.15)'}` }}>
+                <span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow transition-transform block"
+                  style={{ transform: `translateX(${form.isRoundTrip ? '22px' : '3px'})` }} />
+              </div>
+              <span className="text-sm font-medium" style={{ color: form.isRoundTrip ? '#f0c040' : 'var(--text-muted)' }}>
+                Round trip
+              </span>
+            </label>
+          )}
         </div>
 
         {/* ── Row 2: Pickup / Drop location bar ── */}
-        <div className="mx-5 mb-4 flex rounded-xl overflow-hidden border-2 transition-all"
+        <div className="mx-5 mb-4 flex rounded-xl overflow-hidden border-2"
           style={{ borderColor: 'rgba(201,168,64,0.25)' }}>
           <div className="flex-1 relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2">
               <MapPin className="w-4 h-4" style={{ color: '#f0c040' }} />
             </div>
-            <input
-              type="text" value={form.pickupLocation} onChange={set('pickupLocation')}
+            <input type="text" value={form.pickupLocation} onChange={set('pickupLocation')}
               placeholder="Pickup location"
               className="w-full py-3.5 pl-9 pr-4 text-sm bg-transparent focus:outline-none"
-              style={{ color: 'var(--text-base)' }}
-            />
+              style={{ color: 'var(--text-base)' }} />
             <label className="absolute bottom-1 left-9 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>From</label>
           </div>
           <div className="w-px self-stretch my-2" style={{ background: 'var(--glass-border)' }} />
@@ -293,23 +234,17 @@ export function QuotationTool() {
             <div className="absolute left-3 top-1/2 -translate-y-1/2">
               <MapPin className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
             </div>
-            <input
-              type="text" value={form.dropLocation} onChange={set('dropLocation')}
+            <input type="text" value={form.dropLocation} onChange={set('dropLocation')}
               placeholder={isLocal ? 'Drop location (optional)' : 'Drop location'}
               className="w-full py-3.5 pl-9 pr-4 text-sm bg-transparent focus:outline-none"
-              style={{ color: 'var(--text-base)' }}
-            />
+              style={{ color: 'var(--text-base)' }} />
             <label className="absolute bottom-1 left-9 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>To</label>
           </div>
         </div>
 
         {/* ── Road Visual ── */}
         {form.pickupLocation && (
-          <RoadVisual
-            from={form.pickupLocation}
-            to={form.dropLocation || '?'}
-            roundTrip={!isLocal && form.isRoundTrip}
-          />
+          <RoadVisual from={form.pickupLocation} to={form.dropLocation || '?'} roundTrip={!isLocal && form.isRoundTrip} />
         )}
 
         {/* ── Row 3: Date / Passengers / KM ── */}
@@ -318,19 +253,16 @@ export function QuotationTool() {
             <input type="date" value={form.pickupDate} onChange={set('pickupDate')}
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
-
           {!isLocal && (
             <InputBox label="Drop Date" icon={<Calendar className="w-3.5 h-3.5" />}>
               <input type="date" value={form.dropDate} onChange={set('dropDate')} min={form.pickupDate}
                 className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
             </InputBox>
           )}
-
           <InputBox label="Passengers" icon={<Users className="w-3.5 h-3.5" />}>
             <input type="number" min="1" value={form.passengers} onChange={set('passengers')} placeholder="0"
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
-
           <InputBox label={isLocal ? 'Est. KM (default 80)' : 'Est. Total KM'} icon={<Navigation className="w-3.5 h-3.5" />}>
             <div className="flex items-center gap-1">
               <input type="number" min="0" value={form.estimatedKm} onChange={handleKmChange}
@@ -338,7 +270,7 @@ export function QuotationTool() {
                 className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
               {form.pickupLocation && form.dropLocation && (
                 <button onClick={fetchDistance} disabled={distLoading}
-                  className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors disabled:opacity-40"
+                  className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md disabled:opacity-40"
                   style={{ background: 'rgba(240,192,64,0.15)', color: '#f0c040' }}>
                   {distLoading ? '...' : 'Auto'}
                 </button>
@@ -364,7 +296,7 @@ export function QuotationTool() {
         </div>
 
         {/* Info bar */}
-        {(!isLocal && days > 0 && form.pickupDate && form.dropDate) && (
+        {!isLocal && days > 0 && form.pickupDate && form.dropDate && (
           <div className="mx-5 mb-5 flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
             style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', color: '#60a5fa' }}>
             <Calendar className="w-3.5 h-3.5 shrink-0" />
@@ -382,20 +314,101 @@ export function QuotationTool() {
           </div>
         )}
 
-        {/* Get Quote button (when no vehicle selected) */}
-        {!selectedVehicle && (
-          <div className="mx-5 mb-5">
-            <button
-              onClick={() => setVehicleOpen(true)}
-              disabled={!form.pickupLocation || !form.passengers}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg,#f0c040,#c8960a)', color: '#1a1a2e' }}
-            >
-              <Car className="w-4 h-4" /> Choose Vehicle & Get Quote <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {/* ── Select Vehicle button ── */}
+        <div className="mx-5 mb-5">
+          <button
+            onClick={() => setVehicleOpen(o => !o)}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all"
+            style={{
+              background: selectedVehicle ? 'rgba(201,168,64,0.08)' : 'var(--glass-bg)',
+              borderColor: selectedVehicle ? 'rgba(201,168,64,0.5)' : 'rgba(201,168,64,0.25)',
+            }}
+          >
+            <div className="flex items-center gap-3">
+              {selectedVehicle
+                ? <VehicleSVG type={vehicleIcon(selectedVehicle.category)} size={32} />
+                : <Car className="w-5 h-5" style={{ color: '#f0c040' }} />
+              }
+              <div className="text-left">
+                <p className="font-bold text-sm" style={{ color: 'var(--text-base)' }}>
+                  {selectedVehicle ? selectedVehicle.name : 'Select Vehicle'}
+                </p>
+                {selectedVehicle && (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {selectedVehicle.seats} seats · {selectedVehicle.category} · {fmt(isLocal ? selectedVehicle.localRate : selectedVehicle.perDayRate)}
+                  </p>
+                )}
+              </div>
+            </div>
+            <ChevronDown className="w-4 h-4 shrink-0 transition-transform"
+              style={{ color: '#f0c040', transform: vehicleOpen ? 'rotate(180deg)' : 'none' }} />
+          </button>
+        </div>
       </div>
+
+      {/* ── Vehicle picker panel (inline, below the card) ── */}
+      {vehicleOpen && (
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--glass-border)' }}>
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-base)' }}>
+              {passengers > 0 ? `Vehicles for ${passengers} passenger${passengers > 1 ? 's' : ''}` : 'All Vehicles'}
+            </p>
+            <button onClick={() => setVehicleOpen(false)} className="text-xs" style={{ color: 'var(--text-muted)' }}>Close ×</button>
+          </div>
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(passengers > 0 ? suggested : vehicles).map(v => {
+              const rate = isLocal ? v.localRate : v.perDayRate
+              const iconType = vehicleIcon(v.category)
+              const isSelected = selectedVehicle?.name === v.name
+              return (
+                <button key={v.name} onClick={() => handleVehicleSelect(v)}
+                  className="flex items-center gap-4 p-3 rounded-xl border-2 text-left transition-all hover:scale-[1.01]"
+                  style={{
+                    background: isSelected ? 'rgba(201,168,64,0.1)' : 'var(--glass-bg)',
+                    borderColor: isSelected ? 'rgba(201,168,64,0.6)' : 'var(--glass-border)',
+                  }}>
+                  <div className="shrink-0 opacity-80">
+                    <VehicleSVG type={iconType} size={44} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-base)' }}>{v.name}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{v.seats} seats · {v.category}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km extra</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-base" style={{ color: '#f0c040' }}>{fmt(rate)}</p>
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{isLocal ? '8hr pkg' : 'per day'}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+          {passengers > 0 && suggested.length < vehicles.length && (
+            <details className="px-5 pb-4">
+              <summary className="text-xs cursor-pointer" style={{ color: '#f0c040' }}>
+                Show all {vehicles.length} vehicles
+              </summary>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                {vehicles.filter(v => !suggested.find(s => s.name === v.name)).map(v => {
+                  const rate = isLocal ? v.localRate : v.perDayRate
+                  return (
+                    <button key={v.name} onClick={() => handleVehicleSelect(v)}
+                      className="flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all"
+                      style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}>
+                      <VehicleSVG type={vehicleIcon(v.category)} size={32} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate" style={{ color: 'var(--text-muted)' }}>{v.name}</p>
+                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{v.seats}p</p>
+                      </div>
+                      <span className="text-xs font-bold" style={{ color: '#f0c040' }}>{fmt(rate)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
       {/* ── Quotation Summary ── */}
       {showSummary && (
@@ -426,7 +439,6 @@ export function QuotationTool() {
             </div>
           </div>
 
-          {/* Summary tiles */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: 'Vehicle', value: selectedVehicle.name },
@@ -434,14 +446,14 @@ export function QuotationTool() {
               { label: 'Total KM', value: `${result?.totalKm ?? localResult?.actualKm ?? 0} km` },
               { label: 'Passengers', value: form.passengers || '—' },
             ].map(item => (
-              <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
+              <div key={item.label} className="rounded-xl p-3 text-center"
+                style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)' }}>
                 <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{item.label}</p>
                 <p className="font-semibold text-sm" style={{ color: 'var(--text-base)' }}>{item.value}</p>
               </div>
             ))}
           </div>
 
-          {/* Breakdown */}
           <div className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--glass-border)' }}>
             <table className="w-full text-sm">
               <thead>
@@ -482,11 +494,51 @@ export function QuotationTool() {
   )
 }
 
+function VehicleSVG({ type, size = 40 }: { type: 'car' | 'van' | 'bus'; size?: number }) {
+  if (type === 'bus') return (
+    <svg width={size} height={size * 0.55} viewBox="0 0 80 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="4" width="76" height="30" rx="4" stroke="currentColor" strokeWidth="2" fill="none" />
+      <rect x="6" y="8" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="22" y="8" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="38" y="8" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="54" y="8" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <line x1="2" y1="22" x2="78" y2="22" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="2" y="34" width="76" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <circle cx="16" cy="40" r="4" stroke="currentColor" strokeWidth="2" fill="none" />
+      <circle cx="64" cy="40" r="4" stroke="currentColor" strokeWidth="2" fill="none" />
+      <rect x="0" y="14" width="3" height="10" rx="1" fill="currentColor" opacity="0.4" />
+    </svg>
+  )
+  if (type === 'van') return (
+    <svg width={size} height={size * 0.65} viewBox="0 0 80 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 30 L4 14 Q4 8 10 8 L52 8 Q58 8 62 14 L76 28 L76 38 L4 38 Z" stroke="currentColor" strokeWidth="2" fill="none" />
+      <rect x="10" y="12" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="32" y="12" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M54 14 L72 26" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="4" y1="30" x2="76" y2="30" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="18" cy="43" r="5" stroke="currentColor" strokeWidth="2" fill="none" />
+      <circle cx="62" cy="43" r="5" stroke="currentColor" strokeWidth="2" fill="none" />
+      <rect x="68" y="20" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    </svg>
+  )
+  // car
+  return (
+    <svg width={size} height={size * 0.55} viewBox="0 0 80 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 28 L6 20 Q6 16 10 16 L20 10 Q24 8 34 8 L52 8 Q60 8 64 12 L74 20 L74 28 Q74 32 70 32 L10 32 Q6 32 6 28 Z" stroke="currentColor" strokeWidth="2" fill="none" />
+      <rect x="18" y="10" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <rect x="40" y="10" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <circle cx="20" cy="37" r="5" stroke="currentColor" strokeWidth="2" fill="none" />
+      <circle cx="60" cy="37" r="5" stroke="currentColor" strokeWidth="2" fill="none" />
+      <line x1="6" y1="24" x2="74" y2="24" stroke="currentColor" strokeWidth="1" strokeOpacity="0.4" />
+    </svg>
+  )
+}
+
 function RoadVisual({ from, to, roundTrip }: { from: string; to: string; roundTrip: boolean }) {
   const label = (s: string) => s.length > 22 ? s.slice(0, 22) + '…' : s
   return (
     <div className="mx-5 mb-4 rounded-xl px-4 py-3"
-      style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid var(--glass-border)', overflow: 'hidden', position: 'relative' }}>
+      style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid var(--glass-border)', overflow: 'hidden' }}>
       <style>{`
         @keyframes car-forward {
           0%   { left: 0%;   opacity: 0; }
@@ -495,76 +547,30 @@ function RoadVisual({ from, to, roundTrip }: { from: string; to: string; roundTr
           100% { left: calc(100% - 22px); opacity: 0; }
         }
         @keyframes car-return {
-          0%   { right: 0%;   opacity: 0; transform: translateY(-50%) scaleX(-1); }
+          0%   { right: 0%;   opacity: 0; }
           4%   { opacity: 1; }
           96%  { opacity: 1; }
-          100% { right: calc(100% - 22px); opacity: 0; transform: translateY(-50%) scaleX(-1); }
+          100% { right: calc(100% - 22px); opacity: 0; }
         }
       `}</style>
-
-      {/* Location labels */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#f0c040' }}>📍 {label(from)}</span>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{label(to)} 🏁</span>
       </div>
-
-      {/* Forward road */}
       <div style={{ position: 'relative', height: 28 }}>
-        {/* Road surface */}
-        <div style={{
-          position: 'absolute', top: '50%', left: 0, right: 0, height: 10,
-          transform: 'translateY(-50%)',
-          background: 'rgba(255,255,255,0.04)',
-          borderRadius: 5,
-          border: '1px solid rgba(255,255,255,0.07)',
-        }} />
-        {/* Dashes */}
-        <div style={{
-          position: 'absolute', top: '50%', left: 8, right: 8, height: 2,
-          transform: 'translateY(-50%)',
-          background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.55) 0, rgba(240,192,64,0.55) 14px, transparent 14px, transparent 24px)',
-        }} />
-        {/* Car */}
-        <div style={{
-          position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-          fontSize: 18, lineHeight: 1,
-          animation: 'car-forward 2.8s ease-in-out infinite',
-        }}>🚗</div>
+        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 10, transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.04)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.07)' }} />
+        <div style={{ position: 'absolute', top: '50%', left: 8, right: 8, height: 2, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.55) 0, rgba(240,192,64,0.55) 14px, transparent 14px, transparent 24px)' }} />
+        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', fontSize: 18, lineHeight: 1, animation: 'car-forward 2.8s ease-in-out infinite' }}>🚗</div>
       </div>
-
       {roundTrip && (
         <>
-          {/* U-turn connector on the right */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', height: 18, paddingRight: 4 }}>
-            <div style={{
-              width: 22, height: 18,
-              borderRight: '2px dashed rgba(240,192,64,0.35)',
-              borderBottom: '2px dashed rgba(240,192,64,0.35)',
-              borderRadius: '0 0 10px 0',
-            }} />
+            <div style={{ width: 22, height: 18, borderRight: '2px dashed rgba(240,192,64,0.35)', borderBottom: '2px dashed rgba(240,192,64,0.35)', borderRadius: '0 0 10px 0' }} />
           </div>
-
-          {/* Return road */}
           <div style={{ position: 'relative', height: 28 }}>
-            <div style={{
-              position: 'absolute', top: '50%', left: 0, right: 0, height: 10,
-              transform: 'translateY(-50%)',
-              background: 'rgba(255,255,255,0.04)',
-              borderRadius: 5,
-              border: '1px solid rgba(255,255,255,0.07)',
-            }} />
-            <div style={{
-              position: 'absolute', top: '50%', left: 8, right: 8, height: 2,
-              transform: 'translateY(-50%)',
-              background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.35) 0, rgba(240,192,64,0.35) 14px, transparent 14px, transparent 24px)',
-            }} />
-            {/* Return car */}
-            <div style={{
-              position: 'absolute', top: '50%', transform: 'translateY(-50%) scaleX(-1)',
-              fontSize: 18, lineHeight: 1,
-              animation: 'car-return 2.8s ease-in-out infinite',
-              animationDelay: '1.4s',
-            }}>🚗</div>
+            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 10, transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.04)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.07)' }} />
+            <div style={{ position: 'absolute', top: '50%', left: 8, right: 8, height: 2, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.35) 0, rgba(240,192,64,0.35) 14px, transparent 14px, transparent 24px)' }} />
+            <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%) scaleX(-1)', fontSize: 18, lineHeight: 1, animation: 'car-return 2.8s ease-in-out infinite', animationDelay: '1.4s' }}>🚗</div>
           </div>
         </>
       )}
