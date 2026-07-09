@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
@@ -106,6 +106,14 @@ export function QuotationTool() {
     setForm(f => ({ ...f, estimatedKm: e.target.value }))
     if (selectedVehicle) recalc(selectedVehicle, parseInt(e.target.value) || 0)
   }
+
+  const autoFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!form.pickupLocation || !form.dropLocation) return
+    if (autoFetchRef.current) clearTimeout(autoFetchRef.current)
+    autoFetchRef.current = setTimeout(() => { fetchDistance() }, 800)
+    return () => { if (autoFetchRef.current) clearTimeout(autoFetchRef.current) }
+  }, [form.pickupLocation, form.dropLocation, form.isRoundTrip])
 
   async function fetchDistance() {
     if (!form.pickupLocation || !form.dropLocation) return
