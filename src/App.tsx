@@ -52,6 +52,7 @@ const QuotationTool = lazy(() => import('./modules/topz/QuotationTool').then(m =
 const TopzSettings = lazy(() => import('./modules/topz/TopzSettings').then(m => ({ default: m.TopzSettings })))
 const QuotationHistory = lazy(() => import('./modules/topz/QuotationHistory').then(m => ({ default: m.QuotationHistory })))
 const TopzBookings = lazy(() => import('./modules/topz/Bookings').then(m => ({ default: m.Bookings })))
+const TopzTerms = lazy(() => import('./modules/topz/Terms').then(m => ({ default: m.TopzTerms })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -187,6 +188,7 @@ function AppRoutes() {
           <Route path="quotations" element={<Suspense fallback={<PageLoader />}><QuotationHistory /></Suspense>} />
           <Route path="bookings" element={<Suspense fallback={<PageLoader />}><TopzBookings /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<PageLoader />}><TopzSettings /></Suspense>} />
+          <Route path="terms" element={<Suspense fallback={<PageLoader />}><TopzTerms /></Suspense>} />
         </Route>
 
         {/* Catch-all to login */}
