@@ -105,9 +105,9 @@ export function QuotationTool() {
 
   const total = result?.total ?? localResult?.total ?? 0
 
-  function doSave(qNo: string) {
+  async function doSave(qNo: string) {
     if (!selectedVehicle) return
-    saveQuotation({
+    await saveQuotation({
       id: uid(), quoteNo: qNo, createdAt: new Date().toISOString(), status: 'draft',
       tripType: form.tripType, isRoundTrip: form.isRoundTrip,
       clientName: form.clientName, clientPhone: form.clientPhone, clientEmail: form.clientEmail,
@@ -119,29 +119,29 @@ export function QuotationTool() {
     })
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
-    doSave(qNo)
+    await doSave(qNo)
     setSaved(true)
     toast.success('Quote saved to history')
     setTimeout(() => setSaved(false), 2000)
   }
 
-  function handlePrint() {
+  async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
-    doSave(qNo)
+    await doSave(qNo)
     printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo })
   }
 
-  function handleWhatsApp() {
+  async function handleWhatsApp() {
     if (!selectedVehicle || !form.clientPhone) { toast.error('Client phone number required'); return }
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
-    doSave(qNo)
+    await doSave(qNo)
 
     const phone = form.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
     const isOutstation = form.tripType === 'outstation'

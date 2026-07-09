@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus, Trash2, X, CalendarCheck } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, Trash2, X, CalendarCheck, Loader2 } from 'lucide-react'
 import { getBookings, saveBooking, deleteBooking, type Booking } from './data/storage'
 import toast from 'react-hot-toast'
 
@@ -34,41 +34,60 @@ const EMPTY_FORM = {
 }
 
 export function Bookings() {
-  const [bookings, setBookings] = useState<Booking[]>(getBookings)
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [filter, setFilter] = useState<'all' | Booking['status']>('all')
 
-  function refresh() { setBookings(getBookings()) }
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      setBookings(await getBookings())
+    } catch {
+      toast.error('Failed to load bookings')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
   const set = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
 
-  function handleAdd() {
+  async function handleAdd() {
     if (!form.clientName || !form.clientPhone || !form.vehicleName || !form.pickupDate) {
       toast.error('Client, vehicle, and pickup date are required'); return
     }
-    saveBooking({
-      id: uid(), createdAt: new Date().toISOString(), quoteNo: '',
-      clientName: form.clientName, clientPhone: form.clientPhone,
-      vehicleName: form.vehicleName, pickupDate: form.pickupDate,
-      dropDate: form.dropDate, pickupLocation: form.pickupLocation,
-      dropLocation: form.dropLocation, totalAmount: parseInt(form.totalAmount) || 0,
-      advancePaid: parseInt(form.advancePaid) || 0, status: 'confirmed',
-      notes: form.notes, tripType: form.tripType,
-    })
-    setForm(EMPTY_FORM); setShowForm(false); refresh()
-    toast.success('Booking confirmed!')
+    try {
+      await saveBooking({
+        id: uid(), createdAt: new Date().toISOString(), quoteNo: '',
+        clientName: form.clientName, clientPhone: form.clientPhone,
+        vehicleName: form.vehicleName, pickupDate: form.pickupDate,
+        dropDate: form.dropDate, pickupLocation: form.pickupLocation,
+        dropLocation: form.dropLocation, totalAmount: parseInt(form.totalAmount) || 0,
+        advancePaid: parseInt(form.advancePaid) || 0, status: 'confirmed',
+        notes: form.notes, tripType: form.tripType,
+      })
+      setForm(EMPTY_FORM); setShowForm(false); refresh()
+      toast.success('Booking confirmed!')
+    } catch { toast.error('Failed to save booking') }
   }
 
-  function handleStatus(id: string, status: Booking['status']) {
+  async function handleStatus(id: string, status: Booking['status']) {
     const b = bookings.find(x => x.id === id)
     if (!b) return
-    saveBooking({ ...b, status }); refresh()
+    try {
+      await saveBooking({ ...b, status }); refresh()
+    } catch { toast.error('Failed to update') }
   }
 
-  function handleDelete(id: string) {
-    deleteBooking(id); refresh()
-    toast.success('Booking deleted')
+  async function handleDelete(id: string) {
+    try {
+      await deleteBooking(id); refresh()
+      toast.success('Booking deleted')
+    } catch { toast.error('Failed to delete') }
   }
 
   const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
@@ -77,7 +96,6 @@ export function Bookings() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>Bookings</h1>
@@ -92,12 +110,10 @@ export function Bookings() {
         </button>
       </div>
 
-      {/* Status summary — clickable filters */}
+      {/* Status summary */}
       <div className="grid grid-cols-4 gap-3">
         {(Object.entries(STATUS_CONFIG) as [Booking['status'], typeof STATUS_CONFIG[Booking['status']]][]).map(([status, cfg]) => (
-          <button
-            key={status}
-            onClick={() => setFilter(filter === status ? 'all' : status)}
+          <button key={status} onClick={() => setFilter(filter === status ? 'all' : status)}
             className="rounded-xl p-3 text-center transition-all hover:scale-[1.02]"
             style={{ background: cfg.bg, border: `1.5px solid ${filter === status ? cfg.color : cfg.color + '30'}` }}
           >
@@ -134,8 +150,7 @@ export function Bookings() {
             <Field label="Advance Paid (₹)" type="number" value={form.advancePaid} onChange={set('advancePaid')} placeholder="0" />
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Trip Type</label>
-              <select
-                value={form.tripType} onChange={set('tripType')}
+              <select value={form.tripType} onChange={set('tripType')}
                 className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
                 style={{ background: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--text-base)' }}
               >
@@ -146,8 +161,7 @@ export function Bookings() {
           </div>
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Notes</label>
-            <textarea
-              value={form.notes} onChange={set('notes')} placeholder="Any special requirements..." rows={2}
+            <textarea value={form.notes} onChange={set('notes')} placeholder="Any special requirements..." rows={2}
               className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none resize-none"
               style={{ background: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--text-base)' }}
             />
@@ -159,8 +173,13 @@ export function Bookings() {
         </div>
       )}
 
-      {/* Grouped by month */}
-      {filtered.length === 0 ? (
+      {/* Content */}
+      {loading ? (
+        <div className="glass-card rounded-2xl p-12 flex items-center justify-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#f0c040' }} />
+          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading bookings...</span>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="glass-card rounded-2xl p-12 text-center">
           <CalendarCheck className="w-10 h-10 mx-auto mb-3 opacity-30" style={{ color: 'var(--text-muted)' }} />
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -174,10 +193,8 @@ export function Bookings() {
             const monthAdvance = group.items.reduce((s, b) => s + b.advancePaid, 0)
             const monthDue = monthRevenue - monthAdvance
             const completed = group.items.filter(b => b.status === 'completed').length
-
             return (
               <div key={group.key}>
-                {/* Month header */}
                 <div className="flex items-center justify-between mb-3 px-1 flex-wrap gap-2">
                   <div className="flex items-center gap-3 flex-wrap">
                     <h2 className="font-bold text-sm" style={{ color: 'var(--text-base)' }}>{group.label}</h2>
@@ -204,7 +221,6 @@ export function Bookings() {
                   </div>
                 </div>
 
-                {/* Table */}
                 <div className="glass-card rounded-2xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -241,9 +257,7 @@ export function Bookings() {
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{fmt(b.advancePaid)}</td>
                               <td className="px-4 py-3">
-                                <select
-                                  value={b.status}
-                                  onChange={e => handleStatus(b.id, e.target.value as Booking['status'])}
+                                <select value={b.status} onChange={e => handleStatus(b.id, e.target.value as Booking['status'])}
                                   className="text-xs rounded-lg px-2 py-1.5 border focus:outline-none font-semibold"
                                   style={{ background: sc.bg, borderColor: sc.color + '50', color: sc.color }}
                                 >
@@ -261,12 +275,9 @@ export function Bookings() {
                           )
                         })}
                       </tbody>
-                      {/* Month subtotal */}
                       <tfoot>
                         <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
-                          <td colSpan={4} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
-                            {group.label} total
-                          </td>
+                          <td colSpan={4} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
                           <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthRevenue)}</td>
                           <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>{fmt(monthAdvance)}</td>
                           <td colSpan={2} />
@@ -290,8 +301,7 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
   return (
     <div>
       <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>{label}</label>
-      <input
-        type={type} value={value} onChange={onChange} placeholder={placeholder}
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder}
         className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none transition-colors"
         style={{ background: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--text-base)' }}
         onFocus={e => { e.target.style.borderColor = 'rgba(201,168,64,0.5)' }}
