@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { MapPin, Calendar, Users, Car, Printer, RotateCcw, ChevronRight } from 'lucide-react'
-import { VEHICLES, calculateQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult } from './data/rateCard'
+﻿import { useState, useRef } from 'react'
+import { MapPin, Calendar, Users, Car, Printer, RotateCcw, ChevronRight, Navigation } from 'lucide-react'
+import { getVehicles, calculateQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
 
 interface FormState {
@@ -21,7 +21,7 @@ const EMPTY: FormState = {
   passengers: '', estimatedKm: '',
 }
 
-const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
+const fmt = (n: number) => `â‚¹${n.toLocaleString('en-IN')}`
 
 export function QuotationTool() {
   const [form, setForm] = useState<FormState>(EMPTY)
@@ -35,7 +35,8 @@ export function QuotationTool() {
   }
 
   const passengers = parseInt(form.passengers) || 0
-  const suggested = passengers > 0 ? getSuggestedVehicles(passengers) : []
+  const vehicles = getVehicles()
+  const suggested = passengers > 0 ? getSuggestedVehicles(passengers, vehicles) : []
   const days = form.pickupDate && form.dropDate ? daysBetween(form.pickupDate, form.dropDate) : 0
   const step1Done = form.clientName && form.pickupDate && form.pickupLocation && form.dropDate && form.dropLocation && form.passengers
 
@@ -59,6 +60,32 @@ export function QuotationTool() {
     printQuotation({ form, vehicle: selectedVehicle, result, days })
   }
 
+  const [distLoading, setDistLoading] = useState(false)
+
+  async function fetchDistance() {
+    if (!form.pickupLocation || !form.dropLocation) return
+    setDistLoading(true)
+    try {
+      const geocode = async (q: string) => {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`, { headers: { 'Accept-Language': 'en' } })
+        const d = await r.json()
+        if (!d[0]) throw new Error('Location not found: ' + q)
+        return { lat: parseFloat(d[0].lat), lon: parseFloat(d[0].lon) }
+      }
+      const [from, to] = await Promise.all([geocode(form.pickupLocation), geocode(form.dropLocation)])
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`)
+      const d = await r.json()
+      if (d.code !== 'Ok') throw new Error('Route not found')
+      const km = Math.round(d.routes[0].distance / 1000)
+      setForm(f => ({ ...f, estimatedKm: String(km) }))
+      if (selectedVehicle && days > 0) setResult(calculateQuotation(selectedVehicle, days, km))
+    } catch (e: any) {
+      alert('Could not fetch distance: ' + e.message)
+    } finally {
+      setDistLoading(false)
+    }
+  }
+
   function reset() {
     setForm(EMPTY); setSelectedVehicle(null); setResult(null); setStep(1)
   }
@@ -76,7 +103,7 @@ export function QuotationTool() {
         </button>
       </div>
 
-      {/* Step 1 — Trip Details */}
+      {/* Step 1 â€” Trip Details */}
       <div className="glass-card rounded-2xl p-5 space-y-5">
         <div className="flex items-center gap-2 mb-1">
           <span className="w-6 h-6 rounded-full bg-gold-500/20 border border-gold-500/40 text-gold-400 text-xs font-bold flex items-center justify-center">1</span>
@@ -105,14 +132,40 @@ export function QuotationTool() {
         {/* Passengers + KM */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="No. of Passengers *" type="number" min="1" value={form.passengers} onChange={set('passengers')} placeholder="e.g. 12" icon={<Users className="w-3.5 h-3.5" />} />
-          <Field label="Estimated Total KM (optional)" type="number" min="0" value={form.estimatedKm} onChange={handleKmChange} placeholder={days > 0 ? `Min ${days * 300} km for ${days} day${days > 1 ? 's' : ''}` : 'Enter after dates'} />
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Estimated Total KM (optional)</label>
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <input
+                  type="number" min="0" value={form.estimatedKm} onChange={handleKmChange}
+                  placeholder={days > 0 ? `Min ${days * 300} km for ${days} day${days > 1 ? 's' : ''}` : 'Enter after dates'}
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none transition-colors"
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--input-border)', color: 'var(--text-base)' }}
+                  onFocus={e => { e.target.style.borderColor = 'rgba(201,168,64,0.5)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--input-border)' }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={fetchDistance}
+                disabled={distLoading || !form.pickupLocation || !form.dropLocation}
+                title="Auto-detect road distance via OpenStreetMap (free)"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40"
+                style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+              >
+                <Navigation className="w-3.5 h-3.5" />
+                {distLoading ? 'Fetching...' : 'Auto KM'}
+              </button>
+            </div>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Or click Auto KM to calculate road distance using OpenStreetMap (free)</p>
+          </div>
         </div>
 
         {days > 0 && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-900/20 border border-blue-800/30">
             <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
             <span className="text-xs text-blue-300">
-              <strong>{days} day{days > 1 ? 's' : ''}</strong> — {form.pickupDate} to {form.dropDate} · Minimum {days * 300} km
+              <strong>{days} day{days > 1 ? 's' : ''}</strong> â€” {form.pickupDate} to {form.dropDate} Â· Minimum {days * 300} km
             </span>
           </div>
         )}
@@ -127,7 +180,7 @@ export function QuotationTool() {
         )}
       </div>
 
-      {/* Step 2 — Vehicle Selection */}
+      {/* Step 2 â€” Vehicle Selection */}
       {(step >= 2 || selectedVehicle) && passengers > 0 && (
         <div className="glass-card rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
@@ -161,7 +214,7 @@ export function QuotationTool() {
                   </div>
                   <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{v.category}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km</span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>â‚¹{v.ratePerKm}/km</span>
                     <span className="font-bold text-gold-400">{fmt(v.perDayRate)}<span className="text-xs font-normal text-gray-500">/day</span></span>
                   </div>
                 </button>
@@ -172,10 +225,10 @@ export function QuotationTool() {
           {/* Show all vehicles toggle */}
           <details className="mt-2">
             <summary className="text-xs text-gold-400 cursor-pointer hover:text-gold-300 flex items-center gap-1">
-              <Car className="w-3.5 h-3.5" /> Show all {VEHICLES.length} vehicles
+              <Car className="w-3.5 h-3.5" /> Show all {vehicles.length} vehicles
             </summary>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-              {VEHICLES.map(v => {
+              {vehicles.map(v => {
                 const isSelected = selectedVehicle?.name === v.name
                 return (
                   <button
@@ -198,7 +251,7 @@ export function QuotationTool() {
         </div>
       )}
 
-      {/* Step 3 — Quotation Result */}
+      {/* Step 3 â€” Quotation Result */}
       {step === 3 && selectedVehicle && result && (
         <div className="glass-card rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -239,9 +292,9 @@ export function QuotationTool() {
                 </tr>
               </thead>
               <tbody>
-                <Row label={`Base rate: ${fmt(selectedVehicle.perDayRate)}/day × ${result.days} day${result.days > 1 ? 's' : ''} (incl. ${result.minKm} km)`} value={fmt(result.baseCost)} />
+                <Row label={`Base rate: ${fmt(selectedVehicle.perDayRate)}/day Ã— ${result.days} day${result.days > 1 ? 's' : ''} (incl. ${result.minKm} km)`} value={fmt(result.baseCost)} />
                 {result.extraKm > 0 && (
-                  <Row label={`Extra km: ${result.extraKm} km × ₹${selectedVehicle.ratePerKm}/km`} value={fmt(result.extraKmCost)} />
+                  <Row label={`Extra km: ${result.extraKm} km Ã— â‚¹${selectedVehicle.ratePerKm}/km`} value={fmt(result.extraKmCost)} />
                 )}
                 <tr style={{ background: 'rgba(201,168,64,0.08)', borderTop: '1px solid var(--glass-border)' }}>
                   <td className="px-4 py-3 font-bold text-sm" style={{ color: 'var(--text-base)' }}>Total</td>
@@ -253,9 +306,9 @@ export function QuotationTool() {
 
           {/* Notes */}
           <div className="text-xs space-y-1 px-1" style={{ color: 'var(--text-muted)' }}>
-            <p>• Minimum {selectedVehicle.minKmPerDay} km/day applies. Toll, parking & state taxes extra.</p>
-            {selectedVehicle.permitPerDay > 0 && <p>• Permit: {fmt(selectedVehicle.permitPerDay)}/day · Driver allowance: {fmt(selectedVehicle.driverAllowancePerDay)}/day (included in base rate).</p>}
-            <p>• Rate valid for outstation trips only. GST applicable as per government norms.</p>
+            <p>â€¢ Minimum {selectedVehicle.minKmPerDay} km/day applies. Toll, parking & state taxes extra.</p>
+            {selectedVehicle.permitPerDay > 0 && <p>â€¢ Permit: {fmt(selectedVehicle.permitPerDay)}/day Â· Driver allowance: {fmt(selectedVehicle.driverAllowancePerDay)}/day (included in base rate).</p>}
+            <p>â€¢ Rate valid for outstation trips only. GST applicable as per government norms.</p>
           </div>
         </div>
       )}
@@ -295,3 +348,8 @@ function Row({ label, value }: { label: string; value: string }) {
     </tr>
   )
 }
+
+
+
+
+

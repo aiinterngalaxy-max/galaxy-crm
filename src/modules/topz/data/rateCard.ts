@@ -61,11 +61,28 @@ export function calculateQuotation(vehicle: Vehicle, days: number, inputKm: numb
   return { days, minKm, totalKm, extraKm, baseCost, extraKmCost, total: baseCost + extraKmCost }
 }
 
-export function getSuggestedVehicles(passengers: number): Vehicle[] {
-  return VEHICLES.filter(v => v.seats >= passengers).slice(0, 6)
+export function getSuggestedVehicles(passengers: number, all: Vehicle[] = VEHICLES): Vehicle[] {
+  return all.filter(v => v.seats >= passengers)
 }
 
 export function daysBetween(from: string, to: string): number {
   const a = new Date(from), b = new Date(to)
   return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1)
+}
+
+const PRICE_KEY = 'topz-price-overrides'
+
+export function getPriceOverrides(): Record<string, Partial<Pick<Vehicle, 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay'>>> {
+  try { return JSON.parse(localStorage.getItem(PRICE_KEY) ?? '{}') } catch { return {} }
+}
+
+export function setPriceOverride(name: string, field: keyof Pick<Vehicle, 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay'>, value: number) {
+  const overrides = getPriceOverrides()
+  overrides[name] = { ...overrides[name], [field]: value }
+  localStorage.setItem(PRICE_KEY, JSON.stringify(overrides))
+}
+
+export function getVehicles(): Vehicle[] {
+  const overrides = getPriceOverrides()
+  return VEHICLES.map(v => overrides[v.name] ? { ...v, ...overrides[v.name] } : v)
 }
