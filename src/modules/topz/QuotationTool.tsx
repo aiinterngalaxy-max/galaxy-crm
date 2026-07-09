@@ -14,6 +14,7 @@ interface FormState {
   clientPhone: string
   clientEmail: string
   pickupDate: string
+  pickupTime: string
   pickupLocation: string
   dropDate: string
   dropLocation: string
@@ -24,8 +25,23 @@ interface FormState {
 const EMPTY: FormState = {
   tripType: 'outstation', isRoundTrip: false,
   clientName: '', clientPhone: '', clientEmail: '',
-  pickupDate: '', pickupLocation: '', dropDate: '', dropLocation: '',
+  pickupDate: '', pickupTime: '', pickupLocation: '', dropDate: '', dropLocation: '',
   passengers: '', estimatedKm: '',
+}
+
+// Night trip = between midnight and 6 AM → DA applies twice
+function isNightTrip(time: string): boolean {
+  if (!time) return false
+  const [h] = time.split(':').map(Number)
+  return h >= 0 && h < 6
+}
+
+function fmtTime(time: string): string {
+  if (!time) return ''
+  const [h, m] = time.split(':').map(Number)
+  const ampm = h < 12 ? 'AM' : 'PM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
@@ -161,7 +177,7 @@ export function QuotationTool() {
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     await doSave(qNo)
-    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo })
+    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightDA: isNightTrip(form.pickupTime) })
   }
 
   async function handleWhatsApp() {
@@ -170,21 +186,48 @@ export function QuotationTool() {
     setSavedQuoteNo(qNo)
     await doSave(qNo)
     const phone = form.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
+
+    const night = isNightTrip(form.pickupTime)
+    const da = selectedVehicle.driverAllowancePerDay
+    const daLine = da > 0
+      ? `${night ? da * 2 : da} DA per day${night ? ' _(Night trip — DA doubled)_' : ''}`
+      : ''
+    const permit = selectedVehicle.permitPerDay
+    const approxKm = form.estimatedKm
+      ? parseInt(form.estimatedKm)
+      : result ? result.totalKm : localResult ? localResult.actualKm : 0
+    const tripLabel = isLocal
+      ? 'Local Package (8hr / 80km)'
+      : `${form.pickupLocation} to ${form.dropLocation}${form.isRoundTrip ? ' Return' : ''}`
+
     const lines = [
-      `*TOPZ CAB — Quotation ${qNo}*`, '',
-      `\u{1F4CB} *Client:* ${form.clientName}`,
-      form.clientPhone ? `\u{1F4DE} *Phone:* ${form.clientPhone}` : '',
+      `*CHARGES FOR ${selectedVehicle.seats} SEATER ${selectedVehicle.name.toUpperCase()} ON ${isLocal ? '1 DAY' : `${days} DAY${days > 1 ? 'S' : ''}`}*`,
       '',
-      `\u{1F697} *Vehicle:* ${selectedVehicle.name} (${selectedVehicle.seats} seats)`,
-      `\u{1F4C5} *Date:* ${form.pickupDate}`,
-      `\u{1F4CD} *Pickup:* ${form.pickupLocation}`,
-      form.dropLocation ? `\u{1F4CD} *Drop:* ${form.dropLocation}` : '',
-      isLocal ? `\u{1F4E6} *Package:* 8hr / 80km local` : `\u{23F1} *Duration:* ${days} day${days > 1 ? 's' : ''}`,
-      form.estimatedKm ? `\u{1F6E3} Distance: ${form.estimatedKm} km${form.isRoundTrip ? ' (round trip)' : ''}` : '',
-      '', `\u{1F4B0} *Total Amount: ${fmt(total)}*`, '',
-      '_Toll, parking & taxes extra. 50% advance to confirm._',
-      '_Valid for 7 days. — Topz Cab Services_',
+      `${tripLabel}`,
+      '',
+      result ? `${selectedVehicle.minKmPerDay} Avg KM per day` : '',
+      `${selectedVehicle.ratePerKm} Rate per km`,
+      permit > 0 ? `${permit} Permit per day` : '',
+      daLine,
+      '',
+      `*Total Amount For ${isLocal ? '1 Day' : `${days} Day${days > 1 ? 's' : ''}`} :- ${fmt(total)} + Toll Parking Extra + If Any Entry Tax Will Be Extra*`,
+      '',
+      approxKm > 0 ? `Approx Upto ${approxKm} Kms` : '',
+      `Extra ${selectedVehicle.ratePerKm} rs per km`,
+      '',
+      form.dropLocation && !isLocal ? `${form.dropLocation} Border Tax Will Be Extra` : '',
+      '',
+      'Charges Apply Garage to Garage',
+      '[ Malad to Malad ]',
+      '',
+      form.pickupTime ? `Time :- ${fmtTime(form.pickupTime)}` : '',
+      night ? '_Note: Night trip — Driver Allowance charged twice as per policy._' : '',
+      '',
+      'Thanks & Regards',
+      '',
+      '*Topz Cab*',
     ].filter(Boolean).join('\n')
+
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(lines)}`, '_blank')
     toast.success('Opening WhatsApp...')
   }
@@ -279,11 +322,20 @@ export function QuotationTool() {
           />
         )}
 
-        {/* ── Row 3: Date / Passengers / KM ── */}
+        {/* ── Row 3: Date / Time / Passengers / KM ── */}
         <div className="mx-5 mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <InputBox label={isLocal ? 'Trip Date' : 'Pickup Date'} icon={<Calendar className="w-3.5 h-3.5" />}>
             <input type="date" value={form.pickupDate} onChange={set('pickupDate')}
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+          </InputBox>
+          <InputBox label="Pickup Time" icon={null} error={isNightTrip(form.pickupTime)}>
+            <div className="flex items-center gap-1.5">
+              <input type="time" value={form.pickupTime} onChange={set('pickupTime')}
+                className="flex-1 bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+              {isNightTrip(form.pickupTime) && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2</span>
+              )}
+            </div>
           </InputBox>
           {!isLocal && (
             <InputBox label="Drop Date" icon={<Calendar className="w-3.5 h-3.5" />}>

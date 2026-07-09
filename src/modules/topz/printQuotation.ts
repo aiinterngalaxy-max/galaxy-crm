@@ -6,6 +6,7 @@ interface PrintArgs {
     clientPhone: string
     clientEmail: string
     pickupDate: string
+    pickupTime?: string
     pickupLocation: string
     dropDate: string
     dropLocation: string
@@ -19,12 +20,20 @@ interface PrintArgs {
   localResult: LocalQuotationResult | null
   days: number
   quoteNo: string
+  nightDA?: boolean
+}
+
+function fmtTime(t: string): string {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h < 12 ? 'AM' : 'PM'
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 const fmt = (n: number) => `&#x20B9;${n.toLocaleString('en-IN')}`
 const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo }: PrintArgs) {
+export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightDA }: PrintArgs) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const totalAmount = result?.total ?? localResult?.total ?? 0
@@ -51,6 +60,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       <div class="label">Passengers</div>
       <div class="value">${form.passengers}</div>
     </div>
+    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightDA ? ' &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">NIGHT — DA &times;2</span>' : ''}</div></div>` : ''}
   ` : `
     <div class="trip-cell">
       <div class="label">Pickup Date</div>
@@ -76,6 +86,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       <div class="label">Duration</div>
       <div class="value">${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '&bull; Round Trip' : '&bull; One Way'} &bull; ${result?.totalKm ?? 0} km</div>
     </div>
+    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightDA ? ' &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">NIGHT — DA &times;2</span>' : ''}</div></div>` : ''}
   `
 
   const pricingRows = result ? `
@@ -91,7 +102,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     </tr>
     ${result.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(result.extraKmCost)}</td></tr>` : ''}
     ${vehicle.permitPerDay > 0 ? `<tr><td>Permit Charges</td><td>${fmt(vehicle.permitPerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance</td><td>${fmt(vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
+    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightDA ? ' <span style="color:#c53030;font-size:10px;">(Night ×2)</span>' : ''}</td><td>${fmt(nightDA ? vehicle.driverAllowancePerDay * 2 : vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
   ` : localResult ? `
     <tr>
       <td>Local Package</td>
