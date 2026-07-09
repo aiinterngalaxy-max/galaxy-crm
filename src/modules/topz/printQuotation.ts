@@ -151,6 +151,12 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
   .footer { border-top: 2px solid #eee; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; }
   .footer p { font-size: 11px; color: #aaa; }
   .footer .thank { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+  .tnc { border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin-bottom: 24px; background: #fafafa; }
+  .tnc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+  .tnc-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 10.5px; color: #333; line-height: 1.55; }
+  .tnc-item:last-child { border-bottom: none; }
+  .tnc-n { min-width: 18px; height: 18px; background: #1a1a2e; color: #f0c040; border-radius: 4px; font-size: 9px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-top: 1px; flex-shrink: 0; }
+  .tnc-item strong { font-size: 10.5px; font-weight: 700; color: #1a1a2e; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 20px; } }
 </style>
 </head>
@@ -212,14 +218,36 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     </tbody>
   </table>
 
-  <p class="section-title">Terms &amp; Conditions</p>
+  <p class="section-title">Notes</p>
   <div class="terms">
     ${termsText}
-    <p>Toll, parking charges, state entry taxes &amp; road taxes are extra and charged at actuals.</p>
-    <p>GST will be charged as per applicable government norms.</p>
     <p>This quotation is valid for 7 days from the date of issue.</p>
     <p>50% advance required to confirm booking. Balance to be paid before departure.</p>
-    <p>Cancellation charges apply as per company policy.</p>
+  </div>
+
+  <p class="section-title" style="margin-top:20px;">Terms &amp; Conditions</p>
+  <div class="tnc">
+    <div class="tnc-cols">
+      <div class="tnc-col">
+        <div class="tnc-item"><span class="tnc-n">1</span><div><strong>Booking Confirmation</strong><br/>Booking confirmed only after advance payment. Provide complete trip details including pickup, date, time, destination &amp; passenger count.</div></div>
+        <div class="tnc-item"><span class="tnc-n">2</span><div><strong>Payment Policy</strong><br/>Advance required to confirm. Balance paid before or at journey start. Accepted: UPI, Bank Transfer, Cash.</div></div>
+        <div class="tnc-item"><span class="tnc-n">3</span><div><strong>Toll, Parking &amp; Taxes</strong><br/>Toll, parking, state taxes &amp; entry fees are extra unless marked "Included." Airport &amp; event parking borne by customer.</div></div>
+        <div class="tnc-item"><span class="tnc-n">4</span><div><strong>Extra KM &amp; Hour Charges</strong><br/>Extra km/hour charged per package. Duty starts and ends at agreed time. Garage-to-Garage (Malad to Malad) applicable unless stated.</div></div>
+        <div class="tnc-item"><span class="tnc-n">5</span><div><strong>Night Driver Allowance</strong><br/>DA applicable for late-night travel or multi-day trips as per company policy.</div></div>
+        <div class="tnc-item"><span class="tnc-n">6</span><div><strong>Waiting Charges</strong><br/>Waiting charges apply beyond the complimentary waiting period.</div></div>
+        <div class="tnc-item"><span class="tnc-n">7</span><div><strong>Cancellation Policy</strong><br/>Cancellation charges apply. Advance may be non-refundable during peak seasons, festivals, weekends or special events. Eligible refunds processed per standard policy.</div></div>
+        <div class="tnc-item"><span class="tnc-n">8</span><div><strong>Customer Responsibilities</strong><br/>Maintain cleanliness. Smoking, alcohol, illegal activities &amp; prohibited items are strictly prohibited. Damage caused by passengers will be charged.</div></div>
+      </div>
+      <div class="tnc-col">
+        <div class="tnc-item"><span class="tnc-n">9</span><div><strong>Driver &amp; Vehicle</strong><br/>All vehicles regularly serviced &amp; sanitized. Drivers are experienced, licensed &amp; verified. Customers must treat drivers respectfully.</div></div>
+        <div class="tnc-item"><span class="tnc-n">10</span><div><strong>Delays &amp; Force Majeure</strong><br/>TopzCab is not responsible for delays due to traffic, road closures, weather, strikes, natural disasters or circumstances beyond our control.</div></div>
+        <div class="tnc-item"><span class="tnc-n">11</span><div><strong>Passenger Belongings</strong><br/>Check belongings before leaving the vehicle. TopzCab is not liable for loss, theft or damage to personal belongings left inside.</div></div>
+        <div class="tnc-item"><span class="tnc-n">12</span><div><strong>Route &amp; Itinerary Changes</strong><br/>Changes in route, destination or itinerary after trip start may result in additional charges.</div></div>
+        <div class="tnc-item"><span class="tnc-n">13</span><div><strong>Safety</strong><br/>Seat belts must be worn. Follow all driver safety instructions. Drivers strictly follow all traffic rules &amp; regulations.</div></div>
+        <div class="tnc-item"><span class="tnc-n">14</span><div><strong>Liability</strong><br/>TopzCab's liability is limited to the booked transportation service. Not liable for missed flights, trains, meetings or consequential losses.</div></div>
+        <div class="tnc-item"><span class="tnc-n">15</span><div><strong>Acceptance</strong><br/>By confirming a booking, the customer acknowledges they have read, understood &amp; agreed to these Terms &amp; Conditions.</div></div>
+      </div>
+    </div>
   </div>
 
   <div class="footer">
