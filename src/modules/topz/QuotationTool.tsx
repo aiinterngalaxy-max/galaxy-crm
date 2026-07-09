@@ -285,9 +285,9 @@ export function QuotationTool() {
                 </tr>
               </thead>
               <tbody>
-                <Row label={`Base rate: ${fmt(selectedVehicle.perDayRate)}/day Ã— ${result.days} day${result.days > 1 ? 's' : ''} (incl. ${result.minKm} km)`} value={fmt(result.baseCost)} />
+                <Row label={`Base rate: ${fmt(selectedVehicle.perDayRate)}/day × ${result.days} day${result.days > 1 ? 's' : ''} (incl. ${result.minKm} km)`} value={fmt(result.baseCost)} />
                 {result.extraKm > 0 && (
-                  <Row label={`Extra km: ${result.extraKm} km Ã— ₹${selectedVehicle.ratePerKm}/km`} value={fmt(result.extraKmCost)} />
+                  <Row label={`Extra km: ${result.extraKm} km × ₹${selectedVehicle.ratePerKm}/km`} value={fmt(result.extraKmCost)} />
                 )}
                 <tr style={{ background: 'rgba(201,168,64,0.08)', borderTop: '1px solid var(--glass-border)' }}>
                   <td className="px-4 py-3 font-bold text-sm" style={{ color: 'var(--text-base)' }}>Total</td>
@@ -341,10 +341,6 @@ function Row({ label, value }: { label: string; value: string }) {
     </tr>
   )
 }
-
-
-
-
 
 
 
