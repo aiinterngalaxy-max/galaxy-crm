@@ -65,21 +65,11 @@ export function QuotationTool() {
   async function fetchDistance() {
     if (!form.pickupLocation || !form.dropLocation) return
     setDistLoading(true)
-    const key = import.meta.env.VITE_MAPPLS_KEY
     try {
-      const geocode = async (q: string) => {
-        const r = await fetch(`https://apis.mappls.com/advancedmaps/v1/${key}/geocode?address=${encodeURIComponent(q)}&region=IND`)
-        const d = await r.json()
-        const res = d.copResults?.[0]
-        if (!res) throw new Error('Location not found: ' + q)
-        return { lat: res.latitude, lon: res.longitude }
-      }
-      const [from, to] = await Promise.all([geocode(form.pickupLocation), geocode(form.dropLocation)])
-      const r = await fetch(`https://apis.mappls.com/advancedmaps/v1/${key}/distance_matrix/driving/${from.lon},${from.lat};${to.lon},${to.lat}?rtype=1&region=IND`)
+      const r = await fetch(`/api/distance?from=${encodeURIComponent(form.pickupLocation)}&to=${encodeURIComponent(form.dropLocation)}`)
       const d = await r.json()
-      const meters = d.results?.distances?.[0]?.[1]
-      if (!meters) throw new Error('Could not calculate route')
-      const km = Math.round(meters / 1000)
+      if (d.error) throw new Error(d.error)
+      const km: number = d.km
       setForm(f => ({ ...f, estimatedKm: String(km) }))
       if (selectedVehicle && days > 0) setResult(calculateQuotation(selectedVehicle, days, km))
     } catch (e: any) {
@@ -351,6 +341,7 @@ function Row({ label, value }: { label: string; value: string }) {
     </tr>
   )
 }
+
 
 
 
