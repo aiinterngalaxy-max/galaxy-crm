@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MapPin, Calendar, Users, Car, Printer, RotateCcw, ChevronRight, Navigation, MessageCircle, ArrowLeftRight, Package } from 'lucide-react'
+import { MapPin, Calendar, Users, Car, Printer, RotateCcw, ChevronRight, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
 import { saveQuotation } from './data/storage'
@@ -40,6 +40,7 @@ export function QuotationTool() {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [distLoading, setDistLoading] = useState(false)
   const [savedQuoteNo, setSavedQuoteNo] = useState('')
+  const [saved, setSaved] = useState(false)
 
   const set = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const val = e.target.value
@@ -118,13 +119,22 @@ export function QuotationTool() {
     })
   }
 
+  function handleSave() {
+    if (!selectedVehicle) return
+    const qNo = savedQuoteNo || quoteNo()
+    setSavedQuoteNo(qNo)
+    doSave(qNo)
+    setSaved(true)
+    toast.success('Quote saved to history')
+    setTimeout(() => setSaved(false), 2000)
+  }
+
   function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     doSave(qNo)
     printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo })
-    toast.success('Quote saved to history')
   }
 
   function handleWhatsApp() {
@@ -164,7 +174,7 @@ export function QuotationTool() {
 
   function reset() {
     setForm(EMPTY); setSelectedVehicle(null); setResult(null); setLocalResult(null)
-    setStep(1); setSavedQuoteNo('')
+    setStep(1); setSavedQuoteNo(''); setSaved(false)
   }
 
   const isLocal = form.tripType === 'local'
@@ -391,6 +401,17 @@ export function QuotationTool() {
               {savedQuoteNo && <span className="text-xs text-gray-500">{savedQuoteNo}</span>}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all hover:scale-105"
+                style={saved
+                  ? { background: 'rgba(52,211,153,0.15)', borderColor: 'rgba(52,211,153,0.4)', color: '#34d399' }
+                  : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }
+                }
+              >
+                {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                {saved ? 'Saved!' : 'Save'}
+              </button>
               <button
                 onClick={handleWhatsApp}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all hover:scale-105"
