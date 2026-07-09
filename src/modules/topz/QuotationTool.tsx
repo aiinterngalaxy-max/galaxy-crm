@@ -598,14 +598,17 @@ function RoadVisual({ from, to, roundTrip, vehicleType }: { from: string; to: st
       <style>{`
         @keyframes rv-fwd {
           0%   { left:-60px; opacity:0 }
-          6%   { opacity:1 }
-          94%  { opacity:1 }
-          100% { left:calc(100% + 4px); opacity:0 }
+          4%   { opacity:1 }
+          46%  { opacity:1 }
+          50%  { left:calc(100% + 4px); opacity:0 }
+          51%  { left:-60px; opacity:0 }
+          100% { left:-60px; opacity:0 }
         }
         @keyframes rv-ret {
           0%   { right:-60px; opacity:0 }
-          6%   { opacity:1 }
-          94%  { opacity:1 }
+          50%  { right:-60px; opacity:0 }
+          54%  { opacity:1 }
+          96%  { opacity:1 }
           100% { right:calc(100% + 4px); opacity:0 }
         }
       `}</style>
@@ -626,7 +629,7 @@ function RoadVisual({ from, to, roundTrip, vehicleType }: { from: string; to: st
           <div style={{ height:roadH, background:'#252525', borderRadius: roundTrip ? '8px 0 0 8px' : '8px', position:'relative', overflow:'hidden' }}>
             <div style={{ position:'absolute', top:'50%', left:8, right:8, height:3, transform:'translateY(-50%)',
               background:'repeating-linear-gradient(90deg,rgba(240,192,64,0.65) 0,rgba(240,192,64,0.65) 18px,transparent 18px,transparent 32px)' }} />
-            <div style={{ position:'absolute', top:'50%', transform:'translateY(-50%)', animation:'rv-fwd 3s linear infinite' }}>
+            <div style={{ position:'absolute', top:'50%', transform:'translateY(-50%)', animation:'rv-fwd 6s linear infinite' }}>
               <RoadVehicle type={vehicleType} size={vehicleType==='bus'?52:vehicleType==='van'?46:42} />
             </div>
           </div>
@@ -636,7 +639,7 @@ function RoadVisual({ from, to, roundTrip, vehicleType }: { from: string; to: st
             <div style={{ height:roadH, background:'#252525', borderRadius:'8px 0 0 8px', position:'relative', overflow:'hidden' }}>
               <div style={{ position:'absolute', top:'50%', left:8, right:8, height:3, transform:'translateY(-50%)',
                 background:'repeating-linear-gradient(90deg,rgba(240,192,64,0.45) 0,rgba(240,192,64,0.45) 18px,transparent 18px,transparent 32px)' }} />
-              <div style={{ position:'absolute', top:'50%', transform:'translateY(-50%)', animation:'rv-ret 3s linear infinite', animationDelay:'1.5s' }}>
+              <div style={{ position:'absolute', top:'50%', transform:'translateY(-50%)', animation:'rv-ret 6s linear infinite' }}>
                 <RoadVehicle type={vehicleType} size={vehicleType==='bus'?52:vehicleType==='van'?46:42} flip />
               </div>
             </div>
