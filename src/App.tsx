@@ -50,6 +50,9 @@ const TopzLayout = lazy(() => import('./modules/topz/TopzLayout').then(m => ({ d
 const TopzDashboard = lazy(() => import('./modules/topz/TopzDashboard').then(m => ({ default: m.TopzDashboard })))
 const QuotationTool = lazy(() => import('./modules/topz/QuotationTool').then(m => ({ default: m.QuotationTool })))
 const TopzSettings = lazy(() => import('./modules/topz/TopzSettings').then(m => ({ default: m.TopzSettings })))
+const QuotationHistory = lazy(() => import('./modules/topz/QuotationHistory').then(m => ({ default: m.QuotationHistory })))
+const TopzLeads = lazy(() => import('./modules/topz/Leads').then(m => ({ default: m.Leads })))
+const TopzBookings = lazy(() => import('./modules/topz/Bookings').then(m => ({ default: m.Bookings })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -182,6 +185,9 @@ function AppRoutes() {
         <Route path="/topz" element={<RequireTopz><Suspense fallback={<PageLoader />}><TopzLayout /></Suspense></RequireTopz>}>
           <Route index element={<Suspense fallback={<PageLoader />}><TopzDashboard /></Suspense>} />
           <Route path="quotation" element={<Suspense fallback={<PageLoader />}><QuotationTool /></Suspense>} />
+          <Route path="history" element={<Suspense fallback={<PageLoader />}><QuotationHistory /></Suspense>} />
+          <Route path="leads" element={<Suspense fallback={<PageLoader />}><TopzLeads /></Suspense>} />
+          <Route path="bookings" element={<Suspense fallback={<PageLoader />}><TopzBookings /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<PageLoader />}><TopzSettings /></Suspense>} />
         </Route>
 

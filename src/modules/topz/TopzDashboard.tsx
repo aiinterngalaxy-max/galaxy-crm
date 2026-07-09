@@ -10,7 +10,7 @@ const CATEGORIES = [
   { type: 'bus' as VehicleType,       label: 'Bus',        icon: <Bus className="w-7 h-7" />,   color: '#f0c040', bg: 'rgba(240,192,64,0.10)',  border: 'rgba(240,192,64,0.30)' },
 ]
 
-type EditField = 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay'
+type EditField = 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
 
 export function TopzDashboard() {
   const navigate = useNavigate()
@@ -173,7 +173,7 @@ export function TopzDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                  {['Vehicle', 'Type', 'Seats', 'Rate/km', 'Permit/day', 'Driver Allow.', 'Per Day (300km)'].map(h => (
+                  {['Vehicle', 'Type', 'Seats', 'Rate/km', 'Permit/day', 'Driver Allow.', 'Per Day (300km)', 'Local (8h/80km)'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                   ))}
                 </tr>
@@ -190,6 +190,7 @@ export function TopzDashboard() {
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="permitPerDay" /></td>
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="driverAllowancePerDay" /></td>
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="perDayRate" /></td>
+                    <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="localRate" /></td>
                   </tr>
                 ))}
               </tbody>
