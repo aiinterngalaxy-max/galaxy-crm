@@ -244,7 +244,12 @@ export function QuotationTool() {
 
         {/* ── Road Visual ── */}
         {form.pickupLocation && (
-          <RoadVisual from={form.pickupLocation} to={form.dropLocation || '?'} roundTrip={!isLocal && form.isRoundTrip} />
+          <RoadVisual
+            from={form.pickupLocation}
+            to={form.dropLocation || '?'}
+            roundTrip={!isLocal && form.isRoundTrip}
+            vehicleType={selectedVehicle ? vehicleIcon(selectedVehicle.category) : 'car'}
+          />
         )}
 
         {/* ── Row 3: Date / Passengers / KM ── */}
@@ -534,43 +539,105 @@ function VehicleSVG({ type, size = 40 }: { type: 'car' | 'van' | 'bus'; size?: n
   )
 }
 
-function RoadVisual({ from, to, roundTrip }: { from: string; to: string; roundTrip: boolean }) {
+function RoadVehicle({ type, flip = false }: { type: 'car' | 'van' | 'bus'; flip?: boolean }) {
+  const style: React.CSSProperties = { display: 'block', transform: flip ? 'scaleX(-1)' : 'none' }
+  if (type === 'bus') return (
+    <svg width="56" height="28" viewBox="0 0 80 44" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+      <rect x="2" y="4" width="76" height="28" rx="4" fill="#4a5568" stroke="#718096" strokeWidth="1.5" />
+      <rect x="6" y="8" width="11" height="8" rx="1.5" fill="#90cdf4" opacity="0.85" />
+      <rect x="21" y="8" width="11" height="8" rx="1.5" fill="#90cdf4" opacity="0.85" />
+      <rect x="36" y="8" width="11" height="8" rx="1.5" fill="#90cdf4" opacity="0.85" />
+      <rect x="51" y="8" width="11" height="8" rx="1.5" fill="#90cdf4" opacity="0.85" />
+      <line x1="2" y1="20" x2="78" y2="20" stroke="#718096" strokeWidth="1.2" />
+      <rect x="2" y="32" width="76" height="4" rx="1" fill="#2d3748" />
+      <circle cx="16" cy="39" r="4" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="16" cy="39" r="1.5" fill="#4a5568" />
+      <circle cx="64" cy="39" r="4" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="64" cy="39" r="1.5" fill="#4a5568" />
+      <rect x="66" y="14" width="8" height="6" rx="1" fill="#fbbf24" opacity="0.9" />
+      <rect x="2" y="14" width="5" height="6" rx="1" fill="#f87171" opacity="0.8" />
+    </svg>
+  )
+  if (type === 'van') return (
+    <svg width="48" height="28" viewBox="0 0 80 52" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+      <path d="M4 32 L4 16 Q4 10 10 10 L50 10 Q56 10 60 16 L76 30 L76 40 L4 40 Z" fill="#4a5568" stroke="#718096" strokeWidth="1.5" />
+      <rect x="10" y="13" width="16" height="12" rx="2" fill="#90cdf4" opacity="0.85" />
+      <rect x="30" y="13" width="16" height="12" rx="2" fill="#90cdf4" opacity="0.85" />
+      <path d="M50 15 L72 28" stroke="#718096" strokeWidth="1.2" />
+      <rect x="68" y="22" width="7" height="7" rx="1" fill="#fbbf24" opacity="0.9" />
+      <rect x="4" y="22" width="4" height="7" rx="1" fill="#f87171" opacity="0.8" />
+      <circle cx="18" cy="46" r="5" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="18" cy="46" r="2" fill="#4a5568" />
+      <circle cx="62" cy="46" r="5" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="62" cy="46" r="2" fill="#4a5568" />
+    </svg>
+  )
+  // car
+  return (
+    <svg width="44" height="24" viewBox="0 0 80 44" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
+      <path d="M6 28 L6 20 Q6 16 10 16 L20 10 Q24 8 34 8 L52 8 Q60 8 64 12 L74 20 L74 28 Q74 32 70 32 L10 32 Q6 32 6 28 Z" fill="#e53e3e" stroke="#c53030" strokeWidth="1.5" />
+      <path d="M20 10 L18 22" stroke="#c53030" strokeWidth="1" />
+      <path d="M62 12 L64 22" stroke="#c53030" strokeWidth="1" />
+      <rect x="20" y="11" width="17" height="13" rx="2" fill="#90cdf4" opacity="0.9" />
+      <rect x="41" y="11" width="19" height="13" rx="2" fill="#90cdf4" opacity="0.9" />
+      <rect x="65" y="20" width="9" height="6" rx="1" fill="#fbbf24" opacity="0.9" />
+      <rect x="4" y="22" width="6" height="5" rx="1" fill="#f87171" opacity="0.8" />
+      <circle cx="20" cy="37" r="5" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="20" cy="37" r="2" fill="#4a5568" />
+      <circle cx="60" cy="37" r="5" fill="#1a202c" stroke="#718096" strokeWidth="1.5" />
+      <circle cx="60" cy="37" r="2" fill="#4a5568" />
+    </svg>
+  )
+}
+
+function RoadVisual({ from, to, roundTrip, vehicleType }: { from: string; to: string; roundTrip: boolean; vehicleType: 'car' | 'van' | 'bus' }) {
   const label = (s: string) => s.length > 22 ? s.slice(0, 22) + '…' : s
+  const roadH = vehicleType === 'bus' ? 36 : vehicleType === 'van' ? 34 : 30
   return (
     <div className="mx-5 mb-4 rounded-xl px-4 py-3"
-      style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid var(--glass-border)', overflow: 'hidden' }}>
+      style={{ background: 'rgba(0,0,0,0.22)', border: '1px solid var(--glass-border)', overflow: 'hidden' }}>
       <style>{`
-        @keyframes car-forward {
-          0%   { left: 0%;   opacity: 0; }
-          4%   { opacity: 1; }
-          96%  { opacity: 1; }
-          100% { left: calc(100% - 22px); opacity: 0; }
+        @keyframes road-forward {
+          0%   { left: -60px; opacity: 0; }
+          6%   { opacity: 1; }
+          94%  { opacity: 1; }
+          100% { left: calc(100% + 4px); opacity: 0; }
         }
-        @keyframes car-return {
-          0%   { right: 0%;   opacity: 0; }
-          4%   { opacity: 1; }
-          96%  { opacity: 1; }
-          100% { right: calc(100% - 22px); opacity: 0; }
+        @keyframes road-return {
+          0%   { right: -60px; opacity: 0; }
+          6%   { opacity: 1; }
+          94%  { opacity: 1; }
+          100% { right: calc(100% + 4px); opacity: 0; }
         }
       `}</style>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#f0c040' }}>📍 {label(from)}</span>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{label(to)} 🏁</span>
       </div>
-      <div style={{ position: 'relative', height: 28 }}>
-        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 10, transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.04)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.07)' }} />
-        <div style={{ position: 'absolute', top: '50%', left: 8, right: 8, height: 2, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.55) 0, rgba(240,192,64,0.55) 14px, transparent 14px, transparent 24px)' }} />
-        <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', fontSize: 18, lineHeight: 1, animation: 'car-forward 2.8s ease-in-out infinite' }}>🚗</div>
+
+      {/* Forward lane */}
+      <div style={{ position: 'relative', height: roadH, borderRadius: 6, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', marginBottom: roundTrip ? 0 : 0 }}>
+        {/* Road dashes */}
+        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 3, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.6) 0, rgba(240,192,64,0.6) 18px, transparent 18px, transparent 32px)' }} />
+        {/* Moving vehicle */}
+        <div style={{ position: 'absolute', bottom: 2, animation: `road-forward 3s linear infinite` }}>
+          <RoadVehicle type={vehicleType} />
+        </div>
       </div>
+
       {roundTrip && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', height: 18, paddingRight: 4 }}>
-            <div style={{ width: 22, height: 18, borderRight: '2px dashed rgba(240,192,64,0.35)', borderBottom: '2px dashed rgba(240,192,64,0.35)', borderRadius: '0 0 10px 0' }} />
+          {/* U-turn connector */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', height: 16, paddingRight: 2 }}>
+            <div style={{ width: 20, height: 16, borderRight: '2px dashed rgba(240,192,64,0.3)', borderBottom: '2px dashed rgba(240,192,64,0.3)', borderRadius: '0 0 8px 0' }} />
           </div>
-          <div style={{ position: 'relative', height: 28 }}>
-            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 10, transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.04)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.07)' }} />
-            <div style={{ position: 'absolute', top: '50%', left: 8, right: 8, height: 2, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.35) 0, rgba(240,192,64,0.35) 14px, transparent 14px, transparent 24px)' }} />
-            <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%) scaleX(-1)', fontSize: 18, lineHeight: 1, animation: 'car-return 2.8s ease-in-out infinite', animationDelay: '1.4s' }}>🚗</div>
+          {/* Return lane */}
+          <div style={{ position: 'relative', height: roadH, borderRadius: 6, background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 3, transform: 'translateY(-50%)', background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.4) 0, rgba(240,192,64,0.4) 18px, transparent 18px, transparent 32px)' }} />
+            <div style={{ position: 'absolute', bottom: 2, right: 0, animation: `road-return 3s linear infinite`, animationDelay: '1.5s' }}>
+              <RoadVehicle type={vehicleType} flip />
+            </div>
           </div>
         </>
       )}
