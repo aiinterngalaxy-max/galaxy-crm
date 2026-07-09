@@ -535,20 +535,17 @@ export function QuotationTool() {
             <button onClick={() => setVehicleOpen(false)} className="text-xs" style={{ color: 'var(--text-muted)' }}>Close ×</button>
           </div>
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {vehicles.map(v => {
+            {vehicles.filter(v => passengers === 0 || v.seats >= passengers).map(v => {
               const rate = isLocal ? v.localRate : v.perDayRate
               const iconType = vehicleIcon(v.category)
               const isSelected = selectedVehicle?.name === v.name
-              const tooSmall = passengers > 0 && v.seats < passengers
               return (
                 <button key={v.name} onClick={() => handleVehicleSelect(v)}
-                  disabled={tooSmall}
                   className="flex items-center gap-4 p-3 rounded-xl border-2 text-left transition-all"
                   style={{
-                    background: tooSmall ? 'rgba(255,255,255,0.02)' : isSelected ? 'rgba(201,168,64,0.1)' : 'var(--glass-bg)',
-                    borderColor: tooSmall ? 'rgba(255,255,255,0.06)' : isSelected ? 'rgba(201,168,64,0.6)' : 'var(--glass-border)',
-                    opacity: tooSmall ? 0.4 : 1,
-                    cursor: tooSmall ? 'not-allowed' : 'pointer',
+                    background: isSelected ? 'rgba(201,168,64,0.1)' : 'var(--glass-bg)',
+                    borderColor: isSelected ? 'rgba(201,168,64,0.6)' : 'var(--glass-border)',
+                    cursor: 'pointer',
                   }}>
                   <div className="shrink-0 opacity-80">
                     <VehicleSVG type={iconType} size={44} />
@@ -556,43 +553,16 @@ export function QuotationTool() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-base)' }}>{v.name}</p>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{v.seats} seats · {v.category}</p>
-                    {tooSmall
-                      ? <p className="text-xs mt-0.5 font-semibold" style={{ color: '#f87171' }}>Needs {passengers - v.seats} more seat{passengers - v.seats > 1 ? 's' : ''}</p>
-                      : <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km extra</p>
-                    }
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km extra</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-bold text-base" style={{ color: tooSmall ? 'var(--text-muted)' : '#f0c040' }}>{fmt(rate)}</p>
+                    <p className="font-bold text-base" style={{ color: '#f0c040' }}>{fmt(rate)}</p>
                     <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{isLocal ? '8hr pkg' : 'per day'}</p>
                   </div>
                 </button>
               )
             })}
           </div>
-          {passengers > 0 && suggested.length < vehicles.length && (
-            <details className="px-5 pb-4">
-              <summary className="text-xs cursor-pointer" style={{ color: '#f0c040' }}>
-                Show all {vehicles.length} vehicles
-              </summary>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-                {vehicles.filter(v => !suggested.find(s => s.name === v.name)).map(v => {
-                  const rate = isLocal ? v.localRate : v.perDayRate
-                  return (
-                    <button key={v.name} onClick={() => handleVehicleSelect(v)}
-                      className="flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all"
-                      style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}>
-                      <VehicleSVG type={vehicleIcon(v.category)} size={32} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate" style={{ color: 'var(--text-muted)' }}>{v.name}</p>
-                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{v.seats}p</p>
-                      </div>
-                      <span className="text-xs font-bold" style={{ color: '#f0c040' }}>{fmt(rate)}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </details>
-          )}
         </div>
       )}
 
