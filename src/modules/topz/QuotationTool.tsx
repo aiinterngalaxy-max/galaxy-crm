@@ -57,10 +57,17 @@ export function QuotationTool() {
     ? daysBetween(form.pickupDate, form.dropDate) : 1
   const total = result?.total ?? localResult?.total ?? 0
 
+  const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
+  const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
+
   const set = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const val = e.target.value
+    let val = e.target.value
+    if (k === 'passengers') {
+      const n = parseInt(val)
+      if (val !== '' && (isNaN(n) || n < 1)) val = '1'
+      setSelectedVehicle(null); setResult(null); setLocalResult(null)
+    }
     setForm(f => ({ ...f, [k]: val }))
-    if (k === 'passengers') { setSelectedVehicle(null); setResult(null); setLocalResult(null) }
   }
 
   function setTripType(t: TripType) {
@@ -77,10 +84,22 @@ export function QuotationTool() {
   }
 
   function handleVehicleSelect(v: Vehicle) {
+    if (passengers > 0 && v.seats < passengers) {
+      toast.error(`${v.name} only fits ${v.seats} passengers`)
+      return
+    }
     setSelectedVehicle(v)
     setVehicleOpen(false)
     const km = parseInt(form.estimatedKm) || (isLocal ? 80 : days * v.minKmPerDay)
     recalc(v, km)
+  }
+
+  function handleOpenVehiclePicker() {
+    if (!form.passengers || parseInt(form.passengers) < 1) {
+      toast.error('Enter number of passengers first')
+      return
+    }
+    setVehicleOpen(o => !o)
   }
 
   function handleKmChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -264,8 +283,9 @@ export function QuotationTool() {
                 className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
             </InputBox>
           )}
-          <InputBox label="Passengers" icon={<Users className="w-3.5 h-3.5" />}>
-            <input type="number" min="1" value={form.passengers} onChange={set('passengers')} placeholder="0"
+          <InputBox label="Passengers" icon={<Users className="w-3.5 h-3.5" />} error={!passengersValid}>
+            <input type="number" min="1" value={form.passengers} onChange={set('passengers')} placeholder="1"
+              onBlur={e => { if (parseInt(e.target.value) < 1 || e.target.value === '0') setForm(f => ({ ...f, passengers: '1' })) }}
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
           <InputBox label={isLocal ? 'Est. KM (default 80)' : 'Est. Total KM'} icon={<Navigation className="w-3.5 h-3.5" />}>
@@ -290,9 +310,16 @@ export function QuotationTool() {
             <input type="text" value={form.clientName} onChange={set('clientName')} placeholder="Full name"
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
-          <InputBox label="Phone" icon={null}>
-            <input type="text" value={form.clientPhone} onChange={set('clientPhone')} placeholder="+91 00000 00000"
-              className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+          <InputBox label="Phone" icon={null} error={!phoneValid}>
+            <div className="flex items-center gap-1">
+              <input type="tel" value={form.clientPhone} onChange={set('clientPhone')} placeholder="10-digit mobile"
+                className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} maxLength={10} />
+              {form.clientPhone && (
+                <span style={{ fontSize: 10, fontWeight: 700, color: phoneValid ? '#34d399' : '#f87171' }}>
+                  {phoneValid ? '✓' : `${form.clientPhone.replace(/\s/g,'').length}/10`}
+                </span>
+              )}
+            </div>
           </InputBox>
           <InputBox label="Email (optional)" icon={null}>
             <input type="email" value={form.clientEmail} onChange={set('clientEmail')} placeholder="—"
@@ -322,7 +349,7 @@ export function QuotationTool() {
         {/* ── Select Vehicle button ── */}
         <div className="mx-5 mb-5">
           <button
-            onClick={() => setVehicleOpen(o => !o)}
+            onClick={handleOpenVehiclePicker}
             className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all"
             style={{
               background: selectedVehicle ? 'rgba(201,168,64,0.08)' : 'var(--glass-bg)',
@@ -361,16 +388,20 @@ export function QuotationTool() {
             <button onClick={() => setVehicleOpen(false)} className="text-xs" style={{ color: 'var(--text-muted)' }}>Close ×</button>
           </div>
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(passengers > 0 ? suggested : vehicles).map(v => {
+            {vehicles.map(v => {
               const rate = isLocal ? v.localRate : v.perDayRate
               const iconType = vehicleIcon(v.category)
               const isSelected = selectedVehicle?.name === v.name
+              const tooSmall = passengers > 0 && v.seats < passengers
               return (
                 <button key={v.name} onClick={() => handleVehicleSelect(v)}
-                  className="flex items-center gap-4 p-3 rounded-xl border-2 text-left transition-all hover:scale-[1.01]"
+                  disabled={tooSmall}
+                  className="flex items-center gap-4 p-3 rounded-xl border-2 text-left transition-all"
                   style={{
-                    background: isSelected ? 'rgba(201,168,64,0.1)' : 'var(--glass-bg)',
-                    borderColor: isSelected ? 'rgba(201,168,64,0.6)' : 'var(--glass-border)',
+                    background: tooSmall ? 'rgba(255,255,255,0.02)' : isSelected ? 'rgba(201,168,64,0.1)' : 'var(--glass-bg)',
+                    borderColor: tooSmall ? 'rgba(255,255,255,0.06)' : isSelected ? 'rgba(201,168,64,0.6)' : 'var(--glass-border)',
+                    opacity: tooSmall ? 0.4 : 1,
+                    cursor: tooSmall ? 'not-allowed' : 'pointer',
                   }}>
                   <div className="shrink-0 opacity-80">
                     <VehicleSVG type={iconType} size={44} />
@@ -378,10 +409,13 @@ export function QuotationTool() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-base)' }}>{v.name}</p>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{v.seats} seats · {v.category}</p>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km extra</p>
+                    {tooSmall
+                      ? <p className="text-xs mt-0.5 font-semibold" style={{ color: '#f87171' }}>Needs {passengers - v.seats} more seat{passengers - v.seats > 1 ? 's' : ''}</p>
+                      : <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>₹{v.ratePerKm}/km extra</p>
+                    }
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-bold text-base" style={{ color: '#f0c040' }}>{fmt(rate)}</p>
+                    <p className="font-bold text-base" style={{ color: tooSmall ? 'var(--text-muted)' : '#f0c040' }}>{fmt(rate)}</p>
                     <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{isLocal ? '8hr pkg' : 'per day'}</p>
                   </div>
                 </button>
@@ -661,11 +695,12 @@ function RoadVisual({ from, to, roundTrip, vehicleType }: { from: string; to: st
   )
 }
 
-function InputBox({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+function InputBox({ label, icon, children, error }: { label: string; icon: React.ReactNode; children: React.ReactNode; error?: boolean }) {
   return (
     <div className="rounded-xl border px-3 pt-2 pb-2.5 transition-colors"
-      style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}>
-      <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
+      style={{ background: 'var(--glass-bg)', borderColor: error ? 'rgba(248,113,113,0.6)' : 'var(--glass-border)' }}>
+      <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1"
+        style={{ color: error ? '#f87171' : 'var(--text-muted)' }}>
         {icon}<span>{label}</span>
       </label>
       {children}
