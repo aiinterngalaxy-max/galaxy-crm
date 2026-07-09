@@ -135,6 +135,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   marketing:       'Marketing',
   ai_team:         'AI Team',
   hr:              'HR',
+  topz:            'Topz Cab',
   pending:         'Pending Approval',
 }
 

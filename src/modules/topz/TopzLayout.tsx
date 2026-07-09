@@ -1,19 +1,31 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { FileText, LayoutDashboard, ArrowLeft } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { FileText, LayoutDashboard, ArrowLeft, Settings } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { getTopzTheme } from './TopzSettings'
 
 export function TopzLayout() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [theme, setTheme] = useState(getTopzTheme())
+  useEffect(() => {
+    const handler = () => setTheme(getTopzTheme())
+    window.addEventListener('topz-theme-change', handler)
+    return () => window.removeEventListener('topz-theme-change', handler)
+  }, [])
+  const isLight = theme === 'light'
+  const sidebarBg = isLight ? 'rgba(255,255,255,0.95)' : 'var(--sidebar-bg)'
+  const sidebarBorder = isLight ? 'rgba(0,0,0,0.08)' : 'var(--sidebar-border)'
+  const appBg = isLight ? '#f0f0f5' : 'var(--app-bg)'
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--app-bg)' }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: appBg }}>
       {/* Sidebar */}
       <aside className="w-56 shrink-0 flex flex-col h-screen" style={{
-        background: 'var(--sidebar-bg)',
+        background: sidebarBg,
         backdropFilter: 'blur(32px)',
         WebkitBackdropFilter: 'blur(32px)',
-        borderRight: '1px solid var(--sidebar-border)',
+        borderRight: `1px solid ${sidebarBorder}`,
       }}>
         {/* Brand */}
         <div className="px-4 py-5 border-b border-gray-800">
@@ -32,6 +44,7 @@ export function TopzLayout() {
         <nav className="flex-1 py-3 px-2 space-y-0.5">
           <NavItem to="/topz" icon={<LayoutDashboard className="w-4 h-4" />} label="Dashboard" end />
           <NavItem to="/topz/quotation" icon={<FileText className="w-4 h-4" />} label="New Quotation" />
+          <NavItem to="/topz/settings" icon={<Settings className="w-4 h-4" />} label="Settings" />
         </nav>
 
         {/* Switch back */}

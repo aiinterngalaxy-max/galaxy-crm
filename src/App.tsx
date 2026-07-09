@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+﻿import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -49,6 +49,7 @@ const RecycleBin = lazy(() => import('./modules/recycle-bin/RecycleBin').then(m 
 const TopzLayout = lazy(() => import('./modules/topz/TopzLayout').then(m => ({ default: m.TopzLayout })))
 const TopzDashboard = lazy(() => import('./modules/topz/TopzDashboard').then(m => ({ default: m.TopzDashboard })))
 const QuotationTool = lazy(() => import('./modules/topz/QuotationTool').then(m => ({ default: m.QuotationTool })))
+const TopzSettings = lazy(() => import('./modules/topz/TopzSettings').then(m => ({ default: m.TopzSettings })))
 
 // Route guard
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -56,6 +57,16 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (loading) return <PageLoader />
   if (!firebaseUser) return <Navigate to="/login" replace />
   if (role === 'pending') return <PendingApprovalPage />
+  if (role === 'topz') return <Navigate to="/topz" replace />
+  return <>{children}</>
+}
+
+function RequireTopz({ children }: { children: React.ReactNode }) {
+  const { firebaseUser, role, loading } = useAuth()
+  if (loading) return <PageLoader />
+  if (!firebaseUser) return <Navigate to="/login" replace />
+  if (role === 'pending') return <PendingApprovalPage />
+  if (role !== 'topz' && role !== 'super_admin') return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -96,7 +107,7 @@ function AppRoutes() {
             </RequireAuth>
           }
         >
-          {/* Dashboard — everyone */}
+          {/* Dashboard â€” everyone */}
           <Route index element={<DashboardRouter />} />
 
           {/* Leads */}
@@ -144,7 +155,7 @@ function AppRoutes() {
             <Route path="activity" element={<ActivityPage />} />
           </Route>
 
-          {/* Notifications — everyone */}
+          {/* Notifications â€” everyone */}
           <Route path="notifications" element={<NotificationsPage />} />
 
           {/* B2B Campaign */}
@@ -167,10 +178,11 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
 
-        {/* Topz Cab — super_admin only */}
-        <Route path="/topz" element={<RequireAuth><Suspense fallback={<PageLoader />}><TopzLayout /></Suspense></RequireAuth>}>
+        {/* Topz Cab — super_admin + topz role */}
+        <Route path="/topz" element={<RequireTopz><Suspense fallback={<PageLoader />}><TopzLayout /></Suspense></RequireTopz>}>
           <Route index element={<Suspense fallback={<PageLoader />}><TopzDashboard /></Suspense>} />
           <Route path="quotation" element={<Suspense fallback={<PageLoader />}><QuotationTool /></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<PageLoader />}><TopzSettings /></Suspense>} />
         </Route>
 
         {/* Catch-all to login */}
@@ -236,3 +248,5 @@ export default function App() {
     </ErrorBoundary>
   )
 }
+
+
