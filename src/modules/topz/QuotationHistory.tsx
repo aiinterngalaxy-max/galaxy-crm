@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { FileText, Trash2, CheckCircle, Send, RotateCcw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus } from 'lucide-react'
 import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, type SavedQuotation } from './data/storage'
 import toast from 'react-hot-toast'
 
@@ -13,6 +14,7 @@ const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 
 export function QuotationHistory() {
+  const navigate = useNavigate()
   const [quotes, setQuotes] = useState<SavedQuotation[]>(getQuotations)
   const [filter, setFilter] = useState<'all' | SavedQuotation['status']>('all')
 
@@ -59,6 +61,14 @@ export function QuotationHistory() {
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-base)' }}>Quotation History</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>{quotes.length} quote{quotes.length !== 1 ? 's' : ''} saved</p>
         </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/topz/quotation')}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105"
+            style={{ background: 'linear-gradient(135deg,#f0c040,#c8960a)', color: '#1a1a2e' }}
+          >
+            <Plus className="w-4 h-4" /> New Quotation
+          </button>
         <div className="flex items-center gap-2">
           {(['all', 'draft', 'sent', 'converted'] as const).map(f => (
             <button
@@ -73,6 +83,7 @@ export function QuotationHistory() {
               {f === 'all' ? `All (${quotes.length})` : f}
             </button>
           ))}
+        </div>
         </div>
       </div>
 
