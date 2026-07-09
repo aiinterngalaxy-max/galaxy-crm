@@ -303,6 +303,15 @@ export function QuotationTool() {
           </div>
         </div>
 
+        {/* ── Road Visual ── */}
+        {form.pickupLocation && (
+          <RoadVisual
+            from={form.pickupLocation}
+            to={form.dropLocation || '?'}
+            roundTrip={!isLocal && form.isRoundTrip}
+          />
+        )}
+
         {/* ── Row 3: Date / Passengers / KM ── */}
         <div className="mx-5 mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <InputBox label={isLocal ? 'Trip Date' : 'Pickup Date'} icon={<Calendar className="w-3.5 h-3.5" />}>
@@ -468,6 +477,96 @@ export function QuotationTool() {
             <p>&bull; GST applicable as per government norms. Rate valid for {form.isRoundTrip ? 'round trip' : 'one-way'} trip only.</p>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function RoadVisual({ from, to, roundTrip }: { from: string; to: string; roundTrip: boolean }) {
+  const label = (s: string) => s.length > 22 ? s.slice(0, 22) + '…' : s
+  return (
+    <div className="mx-5 mb-4 rounded-xl px-4 py-3"
+      style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid var(--glass-border)', overflow: 'hidden', position: 'relative' }}>
+      <style>{`
+        @keyframes car-forward {
+          0%   { left: 0%;   opacity: 0; }
+          4%   { opacity: 1; }
+          96%  { opacity: 1; }
+          100% { left: calc(100% - 22px); opacity: 0; }
+        }
+        @keyframes car-return {
+          0%   { right: 0%;   opacity: 0; transform: translateY(-50%) scaleX(-1); }
+          4%   { opacity: 1; }
+          96%  { opacity: 1; }
+          100% { right: calc(100% - 22px); opacity: 0; transform: translateY(-50%) scaleX(-1); }
+        }
+      `}</style>
+
+      {/* Location labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#f0c040' }}>📍 {label(from)}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{label(to)} 🏁</span>
+      </div>
+
+      {/* Forward road */}
+      <div style={{ position: 'relative', height: 28 }}>
+        {/* Road surface */}
+        <div style={{
+          position: 'absolute', top: '50%', left: 0, right: 0, height: 10,
+          transform: 'translateY(-50%)',
+          background: 'rgba(255,255,255,0.04)',
+          borderRadius: 5,
+          border: '1px solid rgba(255,255,255,0.07)',
+        }} />
+        {/* Dashes */}
+        <div style={{
+          position: 'absolute', top: '50%', left: 8, right: 8, height: 2,
+          transform: 'translateY(-50%)',
+          background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.55) 0, rgba(240,192,64,0.55) 14px, transparent 14px, transparent 24px)',
+        }} />
+        {/* Car */}
+        <div style={{
+          position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+          fontSize: 18, lineHeight: 1,
+          animation: 'car-forward 2.8s ease-in-out infinite',
+        }}>🚗</div>
+      </div>
+
+      {roundTrip && (
+        <>
+          {/* U-turn connector on the right */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', height: 18, paddingRight: 4 }}>
+            <div style={{
+              width: 22, height: 18,
+              borderRight: '2px dashed rgba(240,192,64,0.35)',
+              borderBottom: '2px dashed rgba(240,192,64,0.35)',
+              borderRadius: '0 0 10px 0',
+            }} />
+          </div>
+
+          {/* Return road */}
+          <div style={{ position: 'relative', height: 28 }}>
+            <div style={{
+              position: 'absolute', top: '50%', left: 0, right: 0, height: 10,
+              transform: 'translateY(-50%)',
+              background: 'rgba(255,255,255,0.04)',
+              borderRadius: 5,
+              border: '1px solid rgba(255,255,255,0.07)',
+            }} />
+            <div style={{
+              position: 'absolute', top: '50%', left: 8, right: 8, height: 2,
+              transform: 'translateY(-50%)',
+              background: 'repeating-linear-gradient(90deg, rgba(240,192,64,0.35) 0, rgba(240,192,64,0.35) 14px, transparent 14px, transparent 24px)',
+            }} />
+            {/* Return car */}
+            <div style={{
+              position: 'absolute', top: '50%', transform: 'translateY(-50%) scaleX(-1)',
+              fontSize: 18, lineHeight: 1,
+              animation: 'car-return 2.8s ease-in-out infinite',
+              animationDelay: '1.4s',
+            }}>🚗</div>
+          </div>
+        </>
       )}
     </div>
   )
