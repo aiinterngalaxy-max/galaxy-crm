@@ -48,6 +48,7 @@ const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default
 const RecycleBin = lazy(() => import('./modules/recycle-bin/RecycleBin').then(m => ({ default: m.RecycleBin })))
 const TopzLayout = lazy(() => import('./modules/topz/TopzLayout').then(m => ({ default: m.TopzLayout })))
 const TopzDashboard = lazy(() => import('./modules/topz/TopzDashboard').then(m => ({ default: m.TopzDashboard })))
+const TopzRateChart = lazy(() => import('./modules/topz/TopzDashboard').then(m => ({ default: m.TopzRateChart })))
 const QuotationTool = lazy(() => import('./modules/topz/QuotationTool').then(m => ({ default: m.QuotationTool })))
 const TopzSettings = lazy(() => import('./modules/topz/TopzSettings').then(m => ({ default: m.TopzSettings })))
 const QuotationHistory = lazy(() => import('./modules/topz/QuotationHistory').then(m => ({ default: m.QuotationHistory })))
@@ -191,6 +192,7 @@ function AppRoutes() {
           <Route path="settings" element={<Suspense fallback={<PageLoader />}><TopzSettings /></Suspense>} />
           <Route path="terms" element={<Suspense fallback={<PageLoader />}><TopzTerms /></Suspense>} />
           <Route path="suppliers" element={<Suspense fallback={<PageLoader />}><TopzSuppliers /></Suspense>} />
+          <Route path="rate-chart" element={<Suspense fallback={<PageLoader />}><TopzRateChart /></Suspense>} />
         </Route>
 
         {/* Catch-all to login */}
