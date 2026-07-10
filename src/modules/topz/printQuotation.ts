@@ -165,7 +165,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Quotation ${quoteNo} &mdash; Topz Cab</title>
+<title>${form.clientName} - Topz Cab Quotation</title>
 <style>
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
