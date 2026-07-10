@@ -21,6 +21,7 @@ interface PrintArgs {
   days: number
   quoteNo: string
   nightDA?: boolean
+  overrideTotalAmount?: number
 }
 
 function fmtTime(t: string): string {
@@ -33,10 +34,10 @@ function fmtTime(t: string): string {
 const fmt = (n: number) => `&#x20B9;${n.toLocaleString('en-IN')}`
 const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightDA }: PrintArgs) {
+export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightDA, overrideTotalAmount }: PrintArgs) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
-  const totalAmount = result?.total ?? localResult?.total ?? 0
+  const totalAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
 
   const tripRows = isLocal ? `
     <div class="trip-cell">

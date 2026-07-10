@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2 } from 'lucide-react'
+import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download } from 'lucide-react'
 import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, type SavedQuotation } from './data/storage'
+import { getVehicles } from './data/rateCard'
+import { printQuotation } from './printQuotation'
 import toast from 'react-hot-toast'
 
 const STATUS_CONFIG = {
@@ -44,6 +46,33 @@ export function QuotationHistory() {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+
+  function handlePrint(q: SavedQuotation) {
+    const vehicle = getVehicles().find(v => v.name === q.vehicleName)
+    if (!vehicle) { toast.error('Vehicle data not found'); return }
+    printQuotation({
+      form: {
+        clientName: q.clientName,
+        clientPhone: q.clientPhone,
+        clientEmail: q.clientEmail,
+        pickupDate: q.pickupDate,
+        pickupTime: '',
+        pickupLocation: q.pickupLocation,
+        dropDate: q.dropDate,
+        dropLocation: q.dropLocation,
+        passengers: q.passengers,
+        estimatedKm: q.estimatedKm,
+        tripType: q.tripType,
+        isRoundTrip: q.isRoundTrip,
+      },
+      vehicle,
+      result: null,
+      localResult: null,
+      days: q.days,
+      quoteNo: q.quoteNo,
+      overrideTotalAmount: q.totalAmount,
+    })
+  }
 
   async function handleDelete(id: string) {
     try {
@@ -196,6 +225,9 @@ export function QuotationHistory() {
                                       <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  <button onClick={() => handlePrint(q)} title="Download PDF" className="p-1.5 rounded-lg hover:bg-yellow-900/20 transition-colors" style={{ color: '#f0c040' }}>
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
                                   <button onClick={() => handleDelete(q.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
