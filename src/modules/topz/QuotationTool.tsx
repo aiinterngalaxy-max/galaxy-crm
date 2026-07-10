@@ -213,14 +213,31 @@ export function QuotationTool() {
     return () => { if (autoFetchRef.current) clearTimeout(autoFetchRef.current) }
   }, [form.pickupLocation, form.dropLocation, form.isRoundTrip])
 
+  async function geocode(place: string): Promise<[number, number]> {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=1&countrycodes=in`
+    const r = await fetch(url, { headers: { 'Accept-Language': 'en' } })
+    const data = await r.json()
+    if (!data.length) throw new Error(`Location not found: "${place}"`)
+    return [parseFloat(data[0].lon), parseFloat(data[0].lat)]
+  }
+
   async function fetchDistance() {
     if (!form.pickupLocation || !form.dropLocation) return
     setDistLoading(true)
     try {
-      const r = await fetch(`/api/distance?from=${encodeURIComponent(form.pickupLocation)}&to=${encodeURIComponent(form.dropLocation)}`)
+      const [fromCoords, toCoords] = await Promise.all([
+        geocode(form.pickupLocation),
+        geocode(form.dropLocation),
+      ])
+      const [flon, flat] = fromCoords
+      const [tlon, tlat] = toCoords
+      const r = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${flon},${flat};${tlon},${tlat}?overview=false`
+      )
       const d = await r.json()
-      if (d.error) throw new Error(d.error)
-      const km = form.isRoundTrip ? d.km * 2 : d.km
+      if (d.code !== 'Ok') throw new Error('Route not found')
+      const oneWayKm = Math.round(d.routes[0].distance / 1000)
+      const km = form.isRoundTrip ? oneWayKm * 2 : oneWayKm
       setForm(f => ({ ...f, estimatedKm: String(km) }))
       if (selectedVehicle) recalc(selectedVehicle, km)
     } catch (e: any) {
