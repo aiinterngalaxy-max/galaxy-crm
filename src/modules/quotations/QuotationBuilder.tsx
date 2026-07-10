@@ -246,9 +246,14 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
         {quote.floorPlan.mimeType === 'application/pdf' ? (
-          <iframe src={quote.floorPlan.data} className="w-full h-full border-0" title="Floor Plan PDF" />
+          <>
+            <div className="px-4 py-2.5 bg-yellow-900/20 border-b border-yellow-800/30 text-xs text-yellow-400 shrink-0">
+              PDF uploaded — zone drawing is only available for image uploads (JPG/PNG). Add rooms manually in the next step.
+            </div>
+            <iframe src={quote.floorPlan.data} className="w-full flex-1 border-0" title="Floor Plan PDF" />
+          </>
         ) : (
           <FloorPlanEditor
             floorPlanData={quote.floorPlan.data}
