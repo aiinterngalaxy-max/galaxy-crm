@@ -32,22 +32,22 @@ const EMPTY: FormState = {
   passengers: '', estimatedKm: '',
 }
 
-// Night trip = between midnight and 6 AM → DA applies twice
-// Night tier based on pickup time:
-// 'normal'         → 06:30 – 23:00  (normal per-day rate)
+// Tiers apply to both pickup and return times independently.
+// Permit is only added when RETURN is after 1AM (not pickup).
+// 'normal'         → 06:30 – 23:00
 // 'night_da'       → 23:01 – 00:59  (DA ×2)
-// 'night_da_permit'→ 01:00 – 01:59  (DA ×2 + permit)
-// 'full_day'       → 02:00 – 06:29  (charge full extra day)
+// 'night_da_permit'→ 01:00 – 01:59  (DA ×2 + permit — return only)
+// 'full_day'       → 02:00 – 06:29  (full extra day)
 type NightTier = 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
 
 function getNightTier(time: string): NightTier {
   if (!time) return 'normal'
   const [h, m] = time.split(':').map(Number)
   const mins = h * 60 + m
-  if (mins >= 390 && mins <= 1380) return 'normal'      // 6:30 – 23:00
-  if (mins > 1380 || mins < 60)    return 'night_da'    // 23:01 – 00:59
-  if (mins >= 60 && mins < 120)    return 'night_da_permit' // 01:00 – 01:59
-  return 'full_day'                                      // 02:00 – 06:29
+  if (mins >= 390 && mins <= 1380) return 'normal'
+  if (mins > 1380 || mins < 60)   return 'night_da'
+  if (mins >= 60 && mins < 120)   return 'night_da_permit'
+  return 'full_day'
 }
 
 const TIER_LABEL: Record<NightTier, string> = {
@@ -57,10 +57,20 @@ const TIER_LABEL: Record<NightTier, string> = {
   full_day: 'Night — Full Extra Day',
 }
 
-function nightSurcharge(tier: NightTier, vehicle: { driverAllowancePerDay: number; permitPerDay: number; perDayRate: number }): number {
-  if (tier === 'night_da')        return vehicle.driverAllowancePerDay
-  if (tier === 'night_da_permit') return vehicle.driverAllowancePerDay + vehicle.permitPerDay
-  if (tier === 'full_day')        return vehicle.perDayRate
+type VehicleRates = { driverAllowancePerDay: number; permitPerDay: number; perDayRate: number }
+
+// Pickup surcharge: no permit even if tier is night_da_permit
+function pickupSurcharge(tier: NightTier, v: VehicleRates): number {
+  if (tier === 'night_da' || tier === 'night_da_permit') return v.driverAllowancePerDay
+  if (tier === 'full_day') return v.perDayRate
+  return 0
+}
+
+// Return surcharge: full tier including permit when applicable
+function returnSurcharge(tier: NightTier, v: VehicleRates): number {
+  if (tier === 'night_da')        return v.driverAllowancePerDay
+  if (tier === 'night_da_permit') return v.driverAllowancePerDay + v.permitPerDay
+  if (tier === 'full_day')        return v.perDayRate
   return 0
 }
 
@@ -209,7 +219,10 @@ export function QuotationTool() {
     ? daysBetween(form.pickupDate, form.dropDate) : 1
   const baseTotal = result?.total ?? localResult?.total ?? 0
   const nightTier = getNightTier(form.pickupTime)
-  const nightExtra = selectedVehicle ? nightSurcharge(nightTier, selectedVehicle) : 0
+  const retTier   = getNightTier(form.returnTime)
+  const nightExtra = selectedVehicle
+    ? pickupSurcharge(nightTier, selectedVehicle) + returnSurcharge(retTier, selectedVehicle)
+    : 0
   const total = baseTotal + nightExtra
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
@@ -339,7 +352,7 @@ export function QuotationTool() {
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     await doSave(qNo)
-    printQuotation({ form: { ...form, returnTime: form.returnTime }, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, nightExtra })
+    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra })
   }
 
   async function handleWhatsApp() {
@@ -350,10 +363,13 @@ export function QuotationTool() {
     const phone = form.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
 
     const tier = getNightTier(form.pickupTime)
+    const rTier = getNightTier(form.returnTime)
     const da = selectedVehicle.driverAllowancePerDay
     const permit = selectedVehicle.permitPerDay
+    const hasPickupNight = tier !== 'normal'
+    const hasReturnNight = rTier !== 'normal'
     const daLine = da > 0
-      ? `${tier !== 'normal' ? da * 2 : da} DA per day${tier !== 'normal' ? ` _(${TIER_LABEL[tier]})_` : ''}`
+      ? `${hasPickupNight || hasReturnNight ? da * 2 : da} DA per day${hasPickupNight ? ` _(Pickup: ${TIER_LABEL[tier]})_` : ''}${hasReturnNight ? ` _(Return: ${TIER_LABEL[rTier]})_` : ''}`
       : ''
     const approxKm = form.estimatedKm
       ? parseInt(form.estimatedKm)
@@ -371,8 +387,9 @@ export function QuotationTool() {
       `${selectedVehicle.ratePerKm} Rate per km`,
       permit > 0 ? `${permit} Permit per day` : '',
       daLine,
-      tier === 'night_da_permit' && permit > 0 ? `${permit} Extra Night Permit` : '',
-      tier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Late Night)` : '',
+      rTier === 'night_da_permit' && permit > 0 ? `${permit} Extra Night Permit (Return after 1AM)` : '',
+      tier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Pickup Late Night)` : '',
+      rTier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Return Late Night)` : '',
       '',
       `*Total Amount For ${isLocal ? '1 Day' : `${days} Day${days > 1 ? 's' : ''}`} :- ${fmt(total)} + Toll Parking Extra + If Any Entry Tax Will Be Extra*`,
       '',
@@ -386,7 +403,8 @@ export function QuotationTool() {
       '',
       form.pickupTime ? `Pickup Time :- ${fmtTime(form.pickupTime)}` : '',
       form.returnTime && !isLocal ? `Return Time :- ${fmtTime(form.returnTime)}` : '',
-      tier !== 'normal' ? `_Note: ${TIER_LABEL[tier]} applied as per policy._` : '',
+      tier !== 'normal' ? `_Pickup: ${TIER_LABEL[tier]}_` : '',
+      rTier !== 'normal' ? `_Return: ${TIER_LABEL[rTier]}_` : '',
       '',
       'Thanks & Regards',
       '',
@@ -538,9 +556,20 @@ export function QuotationTool() {
             </InputBox>
           )}
           {!isLocal && (
-            <InputBox label="Return Time" icon={null}>
-              <input type="time" value={form.returnTime} onChange={set('returnTime')}
-                className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+            <InputBox label="Return Time" icon={null} error={retTier !== 'normal'}>
+              <div className="flex items-center gap-1.5">
+                <input type="time" value={form.returnTime} onChange={set('returnTime')}
+                  className="flex-1 bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+                {retTier === 'night_da' && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2</span>
+                )}
+                {retTier === 'night_da_permit' && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2+Permit</span>
+                )}
+                {retTier === 'full_day' && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>+Full Day</span>
+                )}
+              </div>
             </InputBox>
           )}
           <InputBox label="Passengers" icon={<Users className="w-3.5 h-3.5" />} error={!passengersValid}>

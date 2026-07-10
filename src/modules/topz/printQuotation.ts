@@ -22,6 +22,7 @@ interface PrintArgs {
   days: number
   quoteNo: string
   nightTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
+  retTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
   nightExtra?: number
   overrideTotalAmount?: number
 }
@@ -43,7 +44,7 @@ const TIER_LABEL: Record<string, string> = {
   full_day: 'NIGHT — Full Extra Day',
 }
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', nightExtra = 0, overrideTotalAmount }: PrintArgs) {
+export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount }: PrintArgs) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
@@ -114,9 +115,12 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     </tr>
     ${result.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(result.extraKmCost)}</td></tr>` : ''}
     ${vehicle.permitPerDay > 0 ? `<tr><td>Permit Charges</td><td>${fmt(vehicle.permitPerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightTier !== 'normal' ? ` <span style="color:#c53030;font-size:10px;">(${TIER_LABEL[nightTier]})</span>` : ''}</td><td>${fmt(nightTier !== 'normal' ? vehicle.driverAllowancePerDay * 2 : vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${nightTier === 'night_da_permit' && vehicle.permitPerDay > 0 ? `<tr><td>Extra Night Permit</td><td>${fmt(vehicle.permitPerDay)}</td><td>${fmt(vehicle.permitPerDay)}</td></tr>` : ''}
-    ${nightTier === 'full_day' ? `<tr><td>Extra Day Charge <span style="color:#c53030;font-size:10px;">(Late Night)</span></td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
+    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightTier !== 'normal' || retTier !== 'normal' ? ` <span style="color:#c53030;font-size:10px;">(Night surcharge applied)</span>` : ''}</td><td>${fmt(vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
+    ${(nightTier !== 'normal' && nightTier !== 'full_day') ? `<tr><td>Pickup Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
+    ${(retTier !== 'normal' && retTier !== 'full_day') ? `<tr><td>Return Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
+    ${retTier === 'night_da_permit' && vehicle.permitPerDay > 0 ? `<tr><td>Return Night Permit <span style="color:#c53030;font-size:10px;">(after 1AM)</span></td><td>${fmt(vehicle.permitPerDay)}</td><td>${fmt(vehicle.permitPerDay)}</td></tr>` : ''}
+    ${nightTier === 'full_day' ? `<tr><td>Extra Day — Pickup Late Night</td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
+    ${retTier === 'full_day' ? `<tr><td>Extra Day — Return Late Night</td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
   ` : localResult ? `
     <tr>
       <td>Local Package</td>
