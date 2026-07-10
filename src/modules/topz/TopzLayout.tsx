@@ -1,22 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
 import { FileText, LayoutDashboard, ArrowLeft, CalendarCheck, ScrollText, Users, BarChart2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { getTopzTheme } from './TopzSettings'
 
 export function TopzLayout() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [theme, setTheme] = useState(getTopzTheme())
-  useEffect(() => {
-    const handler = () => setTheme(getTopzTheme())
-    window.addEventListener('topz-theme-change', handler)
-    return () => window.removeEventListener('topz-theme-change', handler)
-  }, [])
-  const isLight = false
-  const sidebarBg = isLight ? 'rgba(255,255,255,0.95)' : 'var(--sidebar-bg)'
-  const sidebarBorder = isLight ? 'rgba(0,0,0,0.08)' : 'var(--sidebar-border)'
-  const appBg = isLight ? '#f0f0f5' : 'var(--app-bg)'
+  const sidebarBg = '#13131f'
+  const sidebarBorder = 'rgba(255,255,255,0.07)'
+  const appBg = '#0d0d1a'
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: appBg }}>
