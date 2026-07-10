@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth'
+import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore'
 import { auth, db, isFirebaseConfigured } from '../lib/firebase'
 import type { User, UserRole } from '../types'
@@ -48,6 +48,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (userSnap.exists()) {
           const data = userSnap.data() as Omit<User, 'id'>
+          if (data.isActive === false) {
+            await signOut(auth)
+            setUser(null)
+            setLoading(false)
+            return
+          }
           setUser({ id: fbUser.uid, ...data })
           await setDoc(userDocRef, { lastLoginAt: serverTimestamp() }, { merge: true })
         } else {
