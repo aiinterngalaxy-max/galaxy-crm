@@ -199,6 +199,7 @@ export function QuotationTool() {
   const [mapData, setMapData] = useState<{ from: [number,number]; to: [number,number]; route: [number,number][] } | null>(null)
   const [savedQuoteNo, setSavedQuoteNo] = useState(editQuote?.quoteNo ?? '')
   const [saved, setSaved] = useState(false)
+  const [includeTnc, setIncludeTnc] = useState(false)
 
   const vehicles = getVehicles()
 
@@ -351,7 +352,7 @@ export function QuotationTool() {
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     await doSave(qNo)
-    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra })
+    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc })
   }
 
   async function handleWhatsApp() {
@@ -377,36 +378,42 @@ export function QuotationTool() {
       ? 'Local Package (8hr / 80km)'
       : `${form.pickupLocation} to ${form.dropLocation}${form.isRoundTrip ? ' Return' : ''}`
 
+    const sep = '─────────────────────'
     const lines = [
-      `*CHARGES FOR ${selectedVehicle.seats} SEATER ${selectedVehicle.name.toUpperCase()} ON ${isLocal ? '1 DAY' : `${days} DAY${days > 1 ? 'S' : ''}`}*`,
+      `🚗 *TOPZ CAB — QUOTATION*`,
+      sep,
+      `*${selectedVehicle.seats} Seater ${selectedVehicle.name}*`,
+      `📍 ${tripLabel}`,
+      isLocal ? '' : `🗓 ${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '· Round Trip' : '· One Way'}`,
       '',
-      `${tripLabel}`,
+      sep,
+      `*RATE DETAILS*`,
+      sep,
+      result ? `📏 Min KM/Day     :  ${selectedVehicle.minKmPerDay} km` : '',
+      `💰 Rate per KM    :  ₹${selectedVehicle.ratePerKm}`,
+      permit > 0 ? `📋 Permit/Day     :  ₹${permit}` : '',
+      daLine ? `👨‍✈️ Driver Allow.  :  ${daLine}` : '',
+      rTier === 'night_da_permit' && permit > 0 ? `🌙 Night Permit    :  ₹${permit} _(Return after 1AM)_` : '',
+      rTier === 'full_day' ? `🌙 Late Night      :  ₹${fmt(selectedVehicle.perDayRate)} _(Extra Day — Return)_` : '',
       '',
-      result ? `${selectedVehicle.minKmPerDay} Avg KM per day` : '',
-      `${selectedVehicle.ratePerKm} Rate per km`,
-      permit > 0 ? `${permit} Permit per day` : '',
-      daLine,
-      rTier === 'night_da_permit' && permit > 0 ? `${permit} Extra Night Permit (Return after 1AM)` : '',
-      rTier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Return Late Night)` : '',
+      sep,
+      `*TOTAL  :  ${fmt(total)}*`,
+      `_(+ Toll · Parking · Entry Tax extra)_`,
       '',
-      `*Total Amount For ${isLocal ? '1 Day' : `${days} Day${days > 1 ? 's' : ''}`} :- ${fmt(total)} + Toll Parking Extra + If Any Entry Tax Will Be Extra*`,
+      approxKm > 0 ? `📐 Approx KMs     :  ~${approxKm} km` : '',
+      `📐 Extra KM rate  :  ₹${selectedVehicle.ratePerKm}/km`,
+      !isLocal && isCrossStateTrip
+        ? `🛂 ${crossDropState ? (STATE_NAMES[crossDropState] ?? form.dropLocation) : form.dropLocation} Border Tax extra`
+        : '',
       '',
-      approxKm > 0 ? `Approx Upto ${approxKm} Kms` : '',
-      `Extra ${selectedVehicle.ratePerKm} rs per km`,
+      sep,
+      form.pickupTime ? `🕐 Pickup Time    :  ${fmtTime(form.pickupTime)}${tier !== 'normal' ? ` _(${TIER_LABEL[tier]})_` : ''}` : '',
+      form.returnTime && !isLocal ? `🕐 Return Time    :  ${fmtTime(form.returnTime)}${rTier !== 'normal' ? ` _(${TIER_LABEL[rTier]})_` : ''}` : '',
+      `🏁 Garage to Garage  [ Malad to Malad ]`,
       '',
-      !isLocal && isCrossStateTrip ? `${crossDropState ? (STATE_NAMES[crossDropState] ?? form.dropLocation) : form.dropLocation} Border Tax Will Be Extra` : '',
-      '',
-      'Charges Apply Garage to Garage',
-      '[ Malad to Malad ]',
-      '',
-      form.pickupTime ? `Pickup Time :- ${fmtTime(form.pickupTime)}` : '',
-      form.returnTime && !isLocal ? `Return Time :- ${fmtTime(form.returnTime)}` : '',
-      tier !== 'normal' ? `_Pickup: ${TIER_LABEL[tier]}_` : '',
-      rTier !== 'normal' ? `_Return: ${TIER_LABEL[rTier]}_` : '',
-      '',
-      'Thanks & Regards',
-      '',
-      '*Topz Cab*',
+      sep,
+      `🙏 Thanks & Regards`,
+      `*Topz Cab*`,
     ].filter(Boolean).join('\n')
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(lines)}`, '_blank')
@@ -729,9 +736,16 @@ export function QuotationTool() {
                 style={{ background: 'rgba(37,211,102,0.12)', borderColor: 'rgba(37,211,102,0.4)', color: '#25d366' }}>
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </button>
-              <button onClick={handlePrint} className="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
-                <Printer className="w-4 h-4" /> Print PDF
-              </button>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <input type="checkbox" checked={includeTnc} onChange={e => setIncludeTnc(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer" />
+                  T&amp;C
+                </label>
+                <button onClick={handlePrint} className="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
+                  <Printer className="w-4 h-4" /> Print PDF
+                </button>
+              </div>
             </div>
           </div>
 

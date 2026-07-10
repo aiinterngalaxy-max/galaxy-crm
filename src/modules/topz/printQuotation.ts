@@ -25,6 +25,7 @@ interface PrintArgs {
   retTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
   nightExtra?: number
   overrideTotalAmount?: number
+  includeTnc?: boolean
 }
 
 function fmtTime(t: string): string {
@@ -44,7 +45,7 @@ const TIER_LABEL: Record<string, string> = {
   full_day: 'NIGHT — Full Extra Day',
 }
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount }: PrintArgs) {
+export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false }: PrintArgs) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
@@ -254,8 +255,8 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     <p>50% advance required to confirm booking. Balance to be paid before departure.</p>
   </div>
 
-  <p class="section-title" style="margin-top:20px;">Terms &amp; Conditions</p>
-  <div class="tnc">
+  ${includeTnc ? `<p class="section-title" style="margin-top:20px;">Terms &amp; Conditions</p>
+  <div class="tnc">` : '<!--'}
     <div class="tnc-cols">
       <div class="tnc-col">
         <div class="tnc-item"><span class="tnc-n">1</span><div><strong>Booking Confirmation</strong><br/>Booking confirmed only after advance payment. Provide complete trip details including pickup, date, time, destination &amp; passenger count.</div></div>
@@ -278,6 +279,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       </div>
     </div>
   </div>
+  ${includeTnc ? '' : '-->'}
 
   <div class="footer">
     <div>
