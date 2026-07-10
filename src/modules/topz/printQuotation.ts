@@ -319,7 +319,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   </div>
 
 </div>
-<script>window.onload = () => { window.print() }</script>
+<script>window.onload = () => { document.title = "${form.clientName} - Topz Cab Quotation"; window.print() }</script>
 </body>
 </html>`
 
