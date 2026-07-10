@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+const RouteMap = lazy(() => import('./RouteMap').then(m => ({ default: m.RouteMap })))
 import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
@@ -143,6 +144,7 @@ export function QuotationTool() {
   const [result, setResult] = useState<QuotationResult | null>(null)
   const [localResult, setLocalResult] = useState<LocalQuotationResult | null>(null)
   const [distLoading, setDistLoading] = useState(false)
+  const [mapData, setMapData] = useState<{ from: [number,number]; to: [number,number]; route: [number,number][] } | null>(null)
   const [savedQuoteNo, setSavedQuoteNo] = useState('')
   const [saved, setSaved] = useState(false)
 
@@ -232,7 +234,7 @@ export function QuotationTool() {
       const [flon, flat] = fromCoords
       const [tlon, tlat] = toCoords
       const r = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${flon},${flat};${tlon},${tlat}?overview=false`
+        `https://router.project-osrm.org/route/v1/driving/${flon},${flat};${tlon},${tlat}?overview=full&geometries=geojson`
       )
       const d = await r.json()
       if (d.code !== 'Ok') throw new Error('Route not found')
@@ -240,6 +242,11 @@ export function QuotationTool() {
       const km = form.isRoundTrip ? oneWayKm * 2 : oneWayKm
       setForm(f => ({ ...f, estimatedKm: String(km) }))
       if (selectedVehicle) recalc(selectedVehicle, km)
+      // Store map data: OSRM GeoJSON coords are [lon, lat], Leaflet needs [lat, lon]
+      const routeCoords: [number,number][] = d.routes[0].geometry.coordinates.map(
+        ([lon, lat]: [number, number]) => [lat, lon]
+      )
+      setMapData({ from: [flat, flon], to: [tlat, tlon], route: routeCoords })
     } catch (e: any) {
       toast.error('Could not fetch distance: ' + e.message)
     } finally {
@@ -333,7 +340,7 @@ export function QuotationTool() {
 
   function reset() {
     setForm(EMPTY); setSelectedVehicle(null); setResult(null); setLocalResult(null)
-    setSavedQuoteNo(''); setSaved(false); setVehicleOpen(false)
+    setSavedQuoteNo(''); setSaved(false); setVehicleOpen(false); setMapData(null)
   }
 
   const showSummary = selectedVehicle && (result || localResult)
@@ -411,15 +418,27 @@ export function QuotationTool() {
           </div>
         </div>
 
-        {/* ── Road Visual ── */}
-        {form.pickupLocation && (
+        {/* ── Map / Road Visual ── */}
+        {mapData ? (
+          <div className="mx-5 mb-4 rounded-xl overflow-hidden" style={{ border: '1px solid var(--glass-border)' }}>
+            <Suspense fallback={<div style={{ height: 280, background: 'var(--glass-bg)' }} className="flex items-center justify-center text-xs text-gray-500">Loading map…</div>}>
+              <RouteMap
+                from={mapData.from}
+                to={mapData.to}
+                routeCoords={mapData.route}
+                fromLabel={form.pickupLocation}
+                toLabel={form.dropLocation}
+              />
+            </Suspense>
+          </div>
+        ) : form.pickupLocation ? (
           <RoadVisual
             from={form.pickupLocation}
             to={form.dropLocation || '?'}
             roundTrip={!isLocal && form.isRoundTrip}
             vehicleType={selectedVehicle ? vehicleIcon(selectedVehicle.category) : 'car'}
           />
-        )}
+        ) : null}
 
         {/* ── Cross-state border tax badge ── */}
         {!isLocal && isCrossStateTrip && (
