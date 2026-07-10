@@ -100,10 +100,10 @@ const CITY_STATE: Record<string, string> = {
   mumbra:'MH', bhiwandi:'MH', mira:'MH', igatpuri:'MH', khandala:'MH',
   // State names as keys (when user types the state directly)
   maharashtra:'MH', 'goa state':'GA', gujarat:'GJ', rajasthan:'RJ',
-  delhi:'DL', 'uttar pradesh':'UP', 'madhya pradesh':'MP',
+  'uttar pradesh':'UP', 'madhya pradesh':'MP',
   karnataka:'KA', 'tamil nadu':'TN', kerala:'KL',
   telangana:'TG', 'andhra pradesh':'AP', 'west bengal':'WB',
-  himachal:'HP', uttarakhand:'UK', punjab:'PB', haryana:'HR',
+  himachal:'HP', uttarakhand:'UK', haryana:'HR',
 }
 
 function detectState(location: string): string | null {
