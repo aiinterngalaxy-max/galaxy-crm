@@ -19,6 +19,7 @@ interface FormState {
   pickupTime: string
   pickupLocation: string
   dropDate: string
+  returnTime: string
   dropLocation: string
   passengers: string
   estimatedKm: string
@@ -27,7 +28,7 @@ interface FormState {
 const EMPTY: FormState = {
   tripType: 'outstation', isRoundTrip: false,
   clientName: '', clientPhone: '', clientEmail: '',
-  pickupDate: '', pickupTime: '', pickupLocation: '', dropDate: '', dropLocation: '',
+  pickupDate: '', pickupTime: '', pickupLocation: '', dropDate: '', returnTime: '', dropLocation: '',
   passengers: '', estimatedKm: '',
 }
 
@@ -175,6 +176,7 @@ export function QuotationTool() {
     pickupDate: editQuote.pickupDate ?? '',
     pickupTime: '',
     dropDate: editQuote.dropDate ?? '',
+    returnTime: '',
     pickupLocation: editQuote.pickupLocation ?? '',
     dropLocation: editQuote.dropLocation ?? '',
     passengers: editQuote.passengers ?? '',
@@ -337,7 +339,7 @@ export function QuotationTool() {
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     await doSave(qNo)
-    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, nightExtra })
+    printQuotation({ form: { ...form, returnTime: form.returnTime }, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, nightExtra })
   }
 
   async function handleWhatsApp() {
@@ -382,7 +384,8 @@ export function QuotationTool() {
       'Charges Apply Garage to Garage',
       '[ Malad to Malad ]',
       '',
-      form.pickupTime ? `Time :- ${fmtTime(form.pickupTime)}` : '',
+      form.pickupTime ? `Pickup Time :- ${fmtTime(form.pickupTime)}` : '',
+      form.returnTime && !isLocal ? `Return Time :- ${fmtTime(form.returnTime)}` : '',
       tier !== 'normal' ? `_Note: ${TIER_LABEL[tier]} applied as per policy._` : '',
       '',
       'Thanks & Regards',
@@ -529,8 +532,14 @@ export function QuotationTool() {
             </div>
           </InputBox>
           {!isLocal && (
-            <InputBox label="Drop Date" icon={<Calendar className="w-3.5 h-3.5" />}>
+            <InputBox label="Return Date" icon={<Calendar className="w-3.5 h-3.5" />}>
               <input type="date" value={form.dropDate} onChange={set('dropDate')} min={form.pickupDate}
+                className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+            </InputBox>
+          )}
+          {!isLocal && (
+            <InputBox label="Return Time" icon={null}>
+              <input type="time" value={form.returnTime} onChange={set('returnTime')}
                 className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
             </InputBox>
           )}

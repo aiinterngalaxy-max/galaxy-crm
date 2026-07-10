@@ -7,6 +7,7 @@ interface PrintArgs {
     clientEmail: string
     pickupDate: string
     pickupTime?: string
+    returnTime?: string
     pickupLocation: string
     dropDate: string
     dropLocation: string
@@ -97,6 +98,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       <div class="value">${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '&bull; Round Trip' : '&bull; One Way'} &bull; ${result?.totalKm ?? 0} km</div>
     </div>
     ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
+    ${form.returnTime ? `<div class="trip-cell"><div class="label">Return Time</div><div class="value">${fmtTime(form.returnTime)}</div></div>` : ''}
   `
 
   const pricingRows = result ? `
