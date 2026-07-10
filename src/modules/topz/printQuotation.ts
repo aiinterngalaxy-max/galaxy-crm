@@ -20,7 +20,8 @@ interface PrintArgs {
   localResult: LocalQuotationResult | null
   days: number
   quoteNo: string
-  nightDA?: boolean
+  nightTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
+  nightExtra?: number
   overrideTotalAmount?: number
 }
 
@@ -34,10 +35,18 @@ function fmtTime(t: string): string {
 const fmt = (n: number) => `&#x20B9;${n.toLocaleString('en-IN')}`
 const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightDA, overrideTotalAmount }: PrintArgs) {
+const TIER_LABEL: Record<string, string> = {
+  normal: '',
+  night_da: 'NIGHT — DA ×2',
+  night_da_permit: 'NIGHT — DA ×2 + Permit',
+  full_day: 'NIGHT — Full Extra Day',
+}
+
+export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', nightExtra = 0, overrideTotalAmount }: PrintArgs) {
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
-  const totalAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
+  const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
+  const totalAmount = baseAmount + nightExtra
 
   const tripRows = isLocal ? `
     <div class="trip-cell">
@@ -61,14 +70,14 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       <div class="label">Passengers</div>
       <div class="value">${form.passengers}</div>
     </div>
-    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightDA ? ' &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">NIGHT — DA &times;2</span>' : ''}</div></div>` : ''}
+    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
   ` : `
     <div class="trip-cell">
       <div class="label">Pickup Date</div>
       <div class="value">${fmtDate(form.pickupDate)}</div>
     </div>
     <div class="trip-cell">
-      <div class="label">Drop Date</div>
+      <div class="label">Return Date</div>
       <div class="value">${fmtDate(form.dropDate)}</div>
     </div>
     <div class="trip-cell">
@@ -87,7 +96,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
       <div class="label">Duration</div>
       <div class="value">${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '&bull; Round Trip' : '&bull; One Way'} &bull; ${result?.totalKm ?? 0} km</div>
     </div>
-    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightDA ? ' &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">NIGHT — DA &times;2</span>' : ''}</div></div>` : ''}
+    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
   `
 
   const pricingRows = result ? `
@@ -103,7 +112,9 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     </tr>
     ${result.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(result.extraKmCost)}</td></tr>` : ''}
     ${vehicle.permitPerDay > 0 ? `<tr><td>Permit Charges</td><td>${fmt(vehicle.permitPerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightDA ? ' <span style="color:#c53030;font-size:10px;">(Night ×2)</span>' : ''}</td><td>${fmt(nightDA ? vehicle.driverAllowancePerDay * 2 : vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
+    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightTier !== 'normal' ? ` <span style="color:#c53030;font-size:10px;">(${TIER_LABEL[nightTier]})</span>` : ''}</td><td>${fmt(nightTier !== 'normal' ? vehicle.driverAllowancePerDay * 2 : vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
+    ${nightTier === 'night_da_permit' && vehicle.permitPerDay > 0 ? `<tr><td>Extra Night Permit</td><td>${fmt(vehicle.permitPerDay)}</td><td>${fmt(vehicle.permitPerDay)}</td></tr>` : ''}
+    ${nightTier === 'full_day' ? `<tr><td>Extra Day Charge <span style="color:#c53030;font-size:10px;">(Late Night)</span></td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
   ` : localResult ? `
     <tr>
       <td>Local Package</td>

@@ -32,10 +32,35 @@ const EMPTY: FormState = {
 }
 
 // Night trip = between midnight and 6 AM → DA applies twice
-function isNightTrip(time: string): boolean {
-  if (!time) return false
-  const [h] = time.split(':').map(Number)
-  return h >= 0 && h < 6
+// Night tier based on pickup time:
+// 'normal'         → 06:30 – 23:00  (normal per-day rate)
+// 'night_da'       → 23:01 – 00:59  (DA ×2)
+// 'night_da_permit'→ 01:00 – 01:59  (DA ×2 + permit)
+// 'full_day'       → 02:00 – 06:29  (charge full extra day)
+type NightTier = 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
+
+function getNightTier(time: string): NightTier {
+  if (!time) return 'normal'
+  const [h, m] = time.split(':').map(Number)
+  const mins = h * 60 + m
+  if (mins >= 390 && mins <= 1380) return 'normal'      // 6:30 – 23:00
+  if (mins > 1380 || mins < 60)    return 'night_da'    // 23:01 – 00:59
+  if (mins >= 60 && mins < 120)    return 'night_da_permit' // 01:00 – 01:59
+  return 'full_day'                                      // 02:00 – 06:29
+}
+
+const TIER_LABEL: Record<NightTier, string> = {
+  normal: '',
+  night_da: 'Night — DA ×2',
+  night_da_permit: 'Night — DA ×2 + Permit',
+  full_day: 'Night — Full Extra Day',
+}
+
+function nightSurcharge(tier: NightTier, vehicle: { driverAllowancePerDay: number; permitPerDay: number; perDayRate: number }): number {
+  if (tier === 'night_da')        return vehicle.driverAllowancePerDay
+  if (tier === 'night_da_permit') return vehicle.driverAllowancePerDay + vehicle.permitPerDay
+  if (tier === 'full_day')        return vehicle.perDayRate
+  return 0
 }
 
 function fmtTime(time: string): string {
@@ -180,7 +205,10 @@ export function QuotationTool() {
   const isLocal = form.tripType === 'local'
   const days = !isLocal && form.pickupDate && form.dropDate
     ? daysBetween(form.pickupDate, form.dropDate) : 1
-  const total = result?.total ?? localResult?.total ?? 0
+  const baseTotal = result?.total ?? localResult?.total ?? 0
+  const nightTier = getNightTier(form.pickupTime)
+  const nightExtra = selectedVehicle ? nightSurcharge(nightTier, selectedVehicle) : 0
+  const total = baseTotal + nightExtra
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
   const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
@@ -309,7 +337,7 @@ export function QuotationTool() {
     const qNo = savedQuoteNo || quoteNo()
     setSavedQuoteNo(qNo)
     await doSave(qNo)
-    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightDA: isNightTrip(form.pickupTime) })
+    printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, nightExtra })
   }
 
   async function handleWhatsApp() {
@@ -319,12 +347,12 @@ export function QuotationTool() {
     await doSave(qNo)
     const phone = form.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
 
-    const night = isNightTrip(form.pickupTime)
+    const tier = getNightTier(form.pickupTime)
     const da = selectedVehicle.driverAllowancePerDay
-    const daLine = da > 0
-      ? `${night ? da * 2 : da} DA per day${night ? ' _(Night trip — DA doubled)_' : ''}`
-      : ''
     const permit = selectedVehicle.permitPerDay
+    const daLine = da > 0
+      ? `${tier !== 'normal' ? da * 2 : da} DA per day${tier !== 'normal' ? ` _(${TIER_LABEL[tier]})_` : ''}`
+      : ''
     const approxKm = form.estimatedKm
       ? parseInt(form.estimatedKm)
       : result ? result.totalKm : localResult ? localResult.actualKm : 0
@@ -341,6 +369,8 @@ export function QuotationTool() {
       `${selectedVehicle.ratePerKm} Rate per km`,
       permit > 0 ? `${permit} Permit per day` : '',
       daLine,
+      tier === 'night_da_permit' && permit > 0 ? `${permit} Extra Night Permit` : '',
+      tier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Late Night)` : '',
       '',
       `*Total Amount For ${isLocal ? '1 Day' : `${days} Day${days > 1 ? 's' : ''}`} :- ${fmt(total)} + Toll Parking Extra + If Any Entry Tax Will Be Extra*`,
       '',
@@ -353,7 +383,7 @@ export function QuotationTool() {
       '[ Malad to Malad ]',
       '',
       form.pickupTime ? `Time :- ${fmtTime(form.pickupTime)}` : '',
-      night ? '_Note: Night trip — Driver Allowance charged twice as per policy._' : '',
+      tier !== 'normal' ? `_Note: ${TIER_LABEL[tier]} applied as per policy._` : '',
       '',
       'Thanks & Regards',
       '',
@@ -483,12 +513,18 @@ export function QuotationTool() {
             <input type="date" value={form.pickupDate} onChange={set('pickupDate')}
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
-          <InputBox label="Pickup Time" icon={null} error={isNightTrip(form.pickupTime)}>
+          <InputBox label="Pickup Time" icon={null} error={nightTier !== 'normal'}>
             <div className="flex items-center gap-1.5">
               <input type="time" value={form.pickupTime} onChange={set('pickupTime')}
                 className="flex-1 bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
-              {isNightTrip(form.pickupTime) && (
+              {nightTier === 'night_da' && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2</span>
+              )}
+              {nightTier === 'night_da_permit' && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2+Permit</span>
+              )}
+              {nightTier === 'full_day' && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>+Full Day</span>
               )}
             </div>
           </InputBox>
