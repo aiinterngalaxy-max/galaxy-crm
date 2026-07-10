@@ -165,16 +165,93 @@ function ClientStep({ quote, onChange, customers, setCustomers }: {
   )
 }
 
+// ── PDF → PNG renderer ────────────────────────────────────────────────────────
+async function loadPdfLib() {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
+  return pdfjsLib
+}
+
+async function renderPdfPageToPng(pdfDataUrl: string, pageNum: number): Promise<string> {
+  const pdfjsLib = await loadPdfLib()
+  // Strip data URL prefix and decode to binary
+  const base64 = pdfDataUrl.split(',')[1]
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
+  const page = await pdf.getPage(pageNum)
+  const scale = 2
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  const ctx = canvas.getContext('2d')!
+  await page.render({ canvas, viewport }).promise
+  return canvas.toDataURL('image/png')
+}
+
+async function getPdfPageCount(pdfDataUrl: string): Promise<number> {
+  const pdfjsLib = await loadPdfLib()
+  const base64 = pdfDataUrl.split(',')[1]
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
+  return pdf.numPages
+}
+
 // ── Step: Floor Plan ───────────────────────────────────────────────────────────
 function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
+  const [pdfRendering, setPdfRendering] = useState(false)
+  const [pdfPageCount, setPdfPageCount] = useState(0)
+  const [pdfPage, setPdfPage] = useState(1)
+  // pdfSourceData holds the original PDF data URL so user can switch pages
+  const [pdfSourceData, setPdfSourceData] = useState<string | null>(null)
+
   const handleFile = (file: File) => {
     if (!file) return
     const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf']
     if (!allowed.includes(file.type)) { toast.error('Please upload a JPG, PNG, or PDF file.'); return }
     if (file.size > 20 * 1024 * 1024) { toast.error('File too large (max 20MB)'); return }
     const reader = new FileReader()
-    reader.onload = e => onChange({ ...quote, floorPlan: { data: e.target!.result as string, mimeType: file.type, fileName: file.name }, floorPlanZones: [] })
+    reader.onload = async e => {
+      const dataUrl = e.target!.result as string
+      if (file.type === 'application/pdf') {
+        setPdfRendering(true)
+        setPdfSourceData(dataUrl)
+        setPdfPage(1)
+        try {
+          const count = await getPdfPageCount(dataUrl)
+          setPdfPageCount(count)
+          const png = await renderPdfPageToPng(dataUrl, 1)
+          onChange({ ...quote, floorPlan: { data: png, mimeType: 'image/png', fileName: file.name }, floorPlanZones: [] })
+        } catch {
+          toast.error('Failed to render PDF')
+        } finally {
+          setPdfRendering(false)
+        }
+      } else {
+        setPdfSourceData(null)
+        setPdfPageCount(0)
+        onChange({ ...quote, floorPlan: { data: dataUrl, mimeType: file.type, fileName: file.name }, floorPlanZones: [] })
+      }
+    }
     reader.readAsDataURL(file)
+  }
+
+  const handlePageChange = async (newPage: number) => {
+    if (!pdfSourceData || newPage < 1 || newPage > pdfPageCount) return
+    setPdfRendering(true)
+    setPdfPage(newPage)
+    try {
+      const png = await renderPdfPageToPng(pdfSourceData, newPage)
+      onChange({ ...quote, floorPlan: { data: png, mimeType: 'image/png', fileName: quote.floorPlan!.fileName }, floorPlanZones: [] })
+    } catch {
+      toast.error('Failed to render page')
+    } finally {
+      setPdfRendering(false)
+    }
   }
 
   const handleZonesChange = (zones: FPZone[]) => {
@@ -198,7 +275,7 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
           className="rounded-2xl p-16 text-center cursor-pointer border-2 border-dashed border-gray-800 hover:border-indigo-700/50 transition-colors"
         >
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 bg-indigo-900/20 border border-indigo-800/30">
-            <Upload className="w-7 h-7 text-indigo-400" />
+            {pdfRendering ? <span className="animate-spin text-indigo-400 text-xl">⟳</span> : <Upload className="w-7 h-7 text-indigo-400" />}
           </div>
           <p className="text-lg font-bold text-gray-200 mb-2">Upload Floor Plan</p>
           <p className="text-sm text-gray-500 mb-6">JPG, PNG, or PDF · Max 20MB</p>
@@ -207,7 +284,7 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
             onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
         </div>
         <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-          {[['1', 'Upload your floor plan image'], ['2', 'Draw zones around each room'], ['3', 'Drag products from sidebar into zones']].map(([step, text]) => (
+          {[['1', 'Upload floor plan (image or PDF)'], ['2', 'Draw zones around each room'], ['3', 'Drag products from sidebar into zones']].map(([step, text]) => (
             <div key={step} className="px-3 py-4 rounded-2xl bg-gray-900 border border-gray-800">
               <div className="w-7 h-7 rounded-full flex items-center justify-center mx-auto mb-2 text-xs font-black bg-indigo-900/30 text-indigo-400 border border-indigo-800/30">{step}</div>
               <p className="text-xs text-gray-500">{text}</p>
@@ -235,33 +312,38 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {pdfSourceData && pdfPageCount > 1 && (
+            <div className="flex items-center gap-1 text-xs text-gray-400 border border-gray-700 rounded-lg px-2 py-1">
+              <button onClick={() => handlePageChange(pdfPage - 1)} disabled={pdfPage <= 1 || pdfRendering}
+                className="px-1 disabled:opacity-40 hover:text-white transition-colors">‹</button>
+              <span>Page {pdfPage} / {pdfPageCount}</span>
+              <button onClick={() => handlePageChange(pdfPage + 1)} disabled={pdfPage >= pdfPageCount || pdfRendering}
+                className="px-1 disabled:opacity-40 hover:text-white transition-colors">›</button>
+            </div>
+          )}
           <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-400 border border-indigo-800/40 hover:bg-indigo-900/20 cursor-pointer transition-colors">
             <Upload className="w-3.5 h-3.5" /> Replace
             <input type="file" accept="image/*,.pdf" className="sr-only"
               onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
           </label>
-          <button onClick={() => onChange({ ...quote, floorPlan: null, floorPlanZones: [] })}
+          <button onClick={() => { onChange({ ...quote, floorPlan: null, floorPlanZones: [] }); setPdfSourceData(null) }}
             className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors" title="Remove floor plan">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {quote.floorPlan.mimeType === 'application/pdf' ? (
-          <>
-            <div className="px-4 py-2.5 bg-yellow-900/20 border-b border-yellow-800/30 text-xs text-yellow-400 shrink-0">
-              PDF uploaded — zone drawing is only available for image uploads (JPG/PNG). Add rooms manually in the next step.
-            </div>
-            <iframe src={quote.floorPlan.data} className="w-full flex-1 border-0" title="Floor Plan PDF" />
-          </>
-        ) : (
-          <FloorPlanEditor
-            floorPlanData={quote.floorPlan.data}
-            zones={quote.floorPlanZones || []}
-            onZonesChange={handleZonesChange}
-            products={products}
-          />
+      <div className="flex-1 overflow-hidden relative">
+        {pdfRendering && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-950/70">
+            <span className="text-indigo-400 text-sm animate-pulse">Rendering page…</span>
+          </div>
         )}
+        <FloorPlanEditor
+          floorPlanData={quote.floorPlan.data}
+          zones={quote.floorPlanZones || []}
+          onZonesChange={handleZonesChange}
+          products={products}
+        />
       </div>
     </div>
   )
