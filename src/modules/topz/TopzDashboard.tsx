@@ -262,7 +262,7 @@ const CATEGORIES = [
   { type: 'bus' as VehicleType,       label: 'Bus',        icon: <Bus className="w-7 h-7" />,   color: '#f0c040', bg: 'rgba(240,192,64,0.10)',  border: 'rgba(240,192,64,0.30)' },
 ]
 
-type EditField = 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
+type EditField = 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
 
 export function TopzRateChart() {
   const navigate = useNavigate()
@@ -306,8 +306,8 @@ export function TopzRateChart() {
     const isChanged = val !== defaultVal
 
     if (!editMode) return (
-      <span style={{ color: field === 'perDayRate' ? '#f0c040' : 'var(--text-muted)', fontWeight: field === 'perDayRate' ? 700 : undefined }}>
-        {val === 0 && field !== 'perDayRate' ? '—' : `₹${val}`}
+      <span style={{ color: 'var(--text-muted)' }}>
+        {val === 0 ? '—' : `₹${val}`}
         {isChanged && <span className="ml-1 text-xs text-green-400">*</span>}
       </span>
     )
@@ -328,8 +328,8 @@ export function TopzRateChart() {
     return (
       <button onClick={() => startEdit(v.name, field, val)}
         className="flex items-center gap-1 group hover:opacity-80 transition-opacity"
-        style={{ color: field === 'perDayRate' ? '#f0c040' : 'var(--text-muted)', fontWeight: field === 'perDayRate' ? 700 : undefined }}>
-        {val === 0 && field !== 'perDayRate' ? '—' : `₹${val}`}
+          style={{ color: 'var(--text-muted)' }}>
+        {val === 0 ? '—' : `₹${val}`}
         {isChanged && <span className="text-xs text-green-400">*</span>}
         <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
       </button>
@@ -406,7 +406,7 @@ export function TopzRateChart() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                  {['Vehicle', 'Type', 'Seats', 'Rate/km', 'Permit/day', 'Driver Allow.', 'Per Day (300km)', 'Local (8h/80km)'].map(h => (
+                  {['Vehicle', 'Type', 'Seats', 'Rate/km', 'Permit/day', 'Driver Allow.', 'Per Day (auto)', 'Local (8h/80km)'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                   ))}
                 </tr>
@@ -422,7 +422,10 @@ export function TopzRateChart() {
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="ratePerKm" /></td>
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="permitPerDay" /></td>
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="driverAllowancePerDay" /></td>
-                    <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="perDayRate" /></td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span className="font-bold" style={{ color: '#f0c040' }}>₹{v.perDayRate.toLocaleString('en-IN')}</span>
+                      <span className="ml-1 text-xs" style={{ color: 'var(--text-muted)' }}>auto</span>
+                    </td>
                     <td className="px-4 py-2.5 whitespace-nowrap"><PriceCell v={v} field="localRate" /></td>
                   </tr>
                 ))}

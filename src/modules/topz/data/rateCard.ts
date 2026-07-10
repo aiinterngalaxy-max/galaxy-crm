@@ -91,7 +91,7 @@ export function daysBetween(from: string, to: string): number {
 
 const PRICE_KEY = 'topz-price-overrides'
 
-type PriceField = 'perDayRate' | 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
+type PriceField = 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
 
 export function getPriceOverrides(): Record<string, Partial<Pick<Vehicle, PriceField>>> {
   try { return JSON.parse(localStorage.getItem(PRICE_KEY) ?? '{}') } catch { return {} }
@@ -105,5 +105,9 @@ export function setPriceOverride(name: string, field: PriceField, value: number)
 
 export function getVehicles(): Vehicle[] {
   const overrides = getPriceOverrides()
-  return VEHICLES.map(v => overrides[v.name] ? { ...v, ...overrides[v.name] } : v)
+  return VEHICLES.map(v => {
+    const merged = overrides[v.name] ? { ...v, ...overrides[v.name] } : { ...v }
+    merged.perDayRate = merged.minKmPerDay * merged.ratePerKm + merged.permitPerDay + merged.driverAllowancePerDay
+    return merged
+  })
 }
