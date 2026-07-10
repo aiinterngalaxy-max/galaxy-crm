@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { FileText, LayoutDashboard, ArrowLeft, Settings, CalendarCheck, ScrollText, Users, BarChart2 } from 'lucide-react'
+import { FileText, LayoutDashboard, ArrowLeft, CalendarCheck, ScrollText, Users, BarChart2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getTopzTheme } from './TopzSettings'
 
@@ -40,7 +40,6 @@ export function TopzLayout() {
           <NavItem to="/topz/bookings" icon={<CalendarCheck className="w-4 h-4" />} label="Bookings" />
           <NavItem to="/topz/suppliers" icon={<Users className="w-4 h-4" />} label="Suppliers" />
           <NavItem to="/topz/rate-chart" icon={<BarChart2 className="w-4 h-4" />} label="Rate Chart" />
-          <NavItem to="/topz/settings" icon={<Settings className="w-4 h-4" />} label="Settings" />
           <NavItem to="/topz/terms" icon={<ScrollText className="w-4 h-4" />} label="Terms & Conditions" />
         </nav>
 

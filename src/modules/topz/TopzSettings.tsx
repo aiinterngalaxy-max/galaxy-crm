@@ -2,8 +2,8 @@ import { Monitor, Sun } from 'lucide-react'
 
 const TOPZ_THEME_KEY = 'topz-ui-theme'
 
-export function getTopzTheme(): 'dark' | 'light' {
-  return (localStorage.getItem(TOPZ_THEME_KEY) as 'dark' | 'light') ?? 'dark'
+export function getTopzTheme(): 'dark' {
+  return 'dark'
 }
 
 export function setTopzTheme(t: 'dark' | 'light') {
