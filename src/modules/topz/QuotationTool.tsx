@@ -350,16 +350,12 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    setSavedQuoteNo(qNo)
-    await doSave(qNo)
     printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc })
   }
 
   async function handleWhatsApp() {
     if (!selectedVehicle || !form.clientPhone) { toast.error('Client phone number required'); return }
     const qNo = savedQuoteNo || quoteNo()
-    setSavedQuoteNo(qNo)
-    await doSave(qNo)
     const phone = form.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
 
     const tier = getNightTier(form.pickupTime)
