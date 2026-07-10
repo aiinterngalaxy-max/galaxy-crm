@@ -169,9 +169,9 @@ function ClientStep({ quote, onChange, customers, setCustomers }: {
 function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
   const handleFile = (file: File) => {
     if (!file) return
-    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
-    if (!allowed.includes(file.type)) { toast.error('Please upload a JPG or PNG image.'); return }
-    if (file.size > 15 * 1024 * 1024) { toast.error('File too large (max 15MB)'); return }
+    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf']
+    if (!allowed.includes(file.type)) { toast.error('Please upload a JPG, PNG, or PDF file.'); return }
+    if (file.size > 20 * 1024 * 1024) { toast.error('File too large (max 20MB)'); return }
     const reader = new FileReader()
     reader.onload = e => onChange({ ...quote, floorPlan: { data: e.target!.result as string, mimeType: file.type, fileName: file.name }, floorPlanZones: [] })
     reader.readAsDataURL(file)
@@ -201,9 +201,9 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
             <Upload className="w-7 h-7 text-indigo-400" />
           </div>
           <p className="text-lg font-bold text-gray-200 mb-2">Upload Floor Plan</p>
-          <p className="text-sm text-gray-500 mb-6">JPG or PNG · Max 15MB</p>
+          <p className="text-sm text-gray-500 mb-6">JPG, PNG, or PDF · Max 20MB</p>
           <button type="button" className="px-8 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition-colors">Browse File</button>
-          <input id="fp-file-input" type="file" accept=".jpg,.jpeg,.png,.webp" className="hidden"
+          <input id="fp-file-input" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden"
             onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
         </div>
         <div className="mt-6 grid grid-cols-3 gap-4 text-center">
@@ -247,12 +247,16 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
         </div>
       </div>
       <div className="flex-1 overflow-hidden">
-        <FloorPlanEditor
-          floorPlanData={quote.floorPlan.data}
-          zones={quote.floorPlanZones || []}
-          onZonesChange={handleZonesChange}
-          products={products}
-        />
+        {quote.floorPlan.mimeType === 'application/pdf' ? (
+          <iframe src={quote.floorPlan.data} className="w-full h-full border-0" title="Floor Plan PDF" />
+        ) : (
+          <FloorPlanEditor
+            floorPlanData={quote.floorPlan.data}
+            zones={quote.floorPlanZones || []}
+            onZonesChange={handleZonesChange}
+            products={products}
+          />
+        )}
       </div>
     </div>
   )
@@ -683,7 +687,7 @@ export function QuotationBuilder() {
           const quotePath = isEditMode ? editId! : `tmp_${Date.now()}`
           floorPlanUrl = await Promise.race([
             uploadBase64(
-              `floor-plans/${quotePath}.${quote.floorPlan.mimeType.split('/')[1] || 'jpg'}`,
+              `floor-plans/${quotePath}.${quote.floorPlan.mimeType === 'application/pdf' ? 'pdf' : quote.floorPlan.mimeType.split('/')[1] || 'jpg'}`,
               quote.floorPlan.data,
               quote.floorPlan.mimeType
             ),
