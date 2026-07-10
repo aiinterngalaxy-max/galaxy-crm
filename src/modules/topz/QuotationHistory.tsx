@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download } from 'lucide-react'
+import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil } from 'lucide-react'
 import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { printQuotation } from './printQuotation'
@@ -210,6 +210,12 @@ export function QuotationHistory() {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
+                                  <button onClick={() => navigate('/topz/quotation', { state: { edit: q } })} title="Edit quotation"
+                                    className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--text-muted)' }}
+                                    onMouseEnter={e => (e.currentTarget.style.color = '#f0c040')}
+                                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
                                   {q.status === 'draft' && (
                                     <button onClick={() => handleStatus(q.id, 'sent')} title="Mark as sent" className="p-1.5 rounded-lg hover:bg-blue-900/20 text-blue-400 transition-colors">
                                       <Send className="w-3.5 h-3.5" />

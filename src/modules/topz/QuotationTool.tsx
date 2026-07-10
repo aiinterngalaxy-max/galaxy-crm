@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useLocation } from 'react-router-dom'
 const RouteMap = lazy(() => import('./RouteMap').then(m => ({ default: m.RouteMap })))
 import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
@@ -138,17 +139,42 @@ function vehicleIcon(category: string) {
 }
 
 export function QuotationTool() {
-  const [form, setForm] = useState<FormState>(EMPTY)
+  const location = useLocation()
+  const editQuote = (location.state as any)?.edit ?? null
+  const [form, setForm] = useState<FormState>(editQuote ? {
+    tripType: editQuote.tripType ?? 'outstation',
+    isRoundTrip: editQuote.isRoundTrip ?? false,
+    clientName: editQuote.clientName ?? '',
+    clientPhone: editQuote.clientPhone ?? '',
+    clientEmail: editQuote.clientEmail ?? '',
+    pickupDate: editQuote.pickupDate ?? '',
+    pickupTime: '',
+    dropDate: editQuote.dropDate ?? '',
+    pickupLocation: editQuote.pickupLocation ?? '',
+    dropLocation: editQuote.dropLocation ?? '',
+    passengers: editQuote.passengers ?? '',
+    estimatedKm: editQuote.estimatedKm ?? '',
+  } : EMPTY)
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [vehicleOpen, setVehicleOpen] = useState(false)
   const [result, setResult] = useState<QuotationResult | null>(null)
   const [localResult, setLocalResult] = useState<LocalQuotationResult | null>(null)
   const [distLoading, setDistLoading] = useState(false)
   const [mapData, setMapData] = useState<{ from: [number,number]; to: [number,number]; route: [number,number][] } | null>(null)
-  const [savedQuoteNo, setSavedQuoteNo] = useState('')
+  const [savedQuoteNo, setSavedQuoteNo] = useState(editQuote?.quoteNo ?? '')
   const [saved, setSaved] = useState(false)
 
   const vehicles = getVehicles()
+
+  // Pre-select vehicle when editing a saved quote
+  useEffect(() => {
+    if (editQuote?.vehicleName) {
+      const v = vehicles.find(v => v.name === editQuote.vehicleName)
+      if (v) setSelectedVehicle(v)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const passengers = parseInt(form.passengers) || 0
   const suggested = passengers > 0 ? getSuggestedVehicles(passengers, vehicles) : vehicles
   const isLocal = form.tripType === 'local'
