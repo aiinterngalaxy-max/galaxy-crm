@@ -13,7 +13,7 @@ export function TopzLayout() {
     window.addEventListener('topz-theme-change', handler)
     return () => window.removeEventListener('topz-theme-change', handler)
   }, [])
-  const isLight = theme === 'light'
+  const isLight = false
   const sidebarBg = isLight ? 'rgba(255,255,255,0.95)' : 'var(--sidebar-bg)'
   const sidebarBorder = isLight ? 'rgba(0,0,0,0.08)' : 'var(--sidebar-border)'
   const appBg = isLight ? '#f0f0f5' : 'var(--app-bg)'
