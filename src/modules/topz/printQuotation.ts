@@ -143,6 +143,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
 <meta charset="UTF-8" />
 <title>Quotation ${quoteNo} &mdash; Topz Cab</title>
 <style>
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; background: #fff; font-size: 13px; }
   .page { max-width: 800px; margin: 0 auto; padding: 32px; }
