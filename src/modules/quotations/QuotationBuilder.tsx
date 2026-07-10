@@ -30,6 +30,8 @@ interface QuoteState {
   floorPlan: { data: string; mimeType: string; fileName: string } | null
   floorPlanZones: FPZone[]
   rooms: QuoteRoom[]
+  pdfAttachment: { data: string; fileName: string } | null
+  pdfUrl: string | null
 }
 
 const PAYMENT_TERMS_OPTIONS = [
@@ -474,8 +476,10 @@ function printFloorPlan(quote: QuoteState, products: CRMProduct[]) {
 }
 
 // ── Step: Summary ──────────────────────────────────────────────────────────────
-function SummaryStep({ quote, pricing, saving, onSave, customers, products, isEdit }: {
-  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void; customers: Customer[]; products: CRMProduct[]; isEdit: boolean
+function SummaryStep({ quote, pricing, saving, onSave, onPdfChange, customers, products, isEdit }: {
+  quote: QuoteState; pricing: ReturnType<typeof computePricing>; saving: boolean; onSave: () => void
+  onPdfChange: (pdf: { data: string; fileName: string } | null) => void
+  customers: Customer[]; products: CRMProduct[]; isEdit: boolean
 }) {
   const customer = customers.find(c => c.id === quote.customerId)
   const checks = [
@@ -484,6 +488,18 @@ function SummaryStep({ quote, pricing, saving, onSave, customers, products, isEd
     { label: 'At least 1 product', ok: pricing.lineItems.length > 0 },
   ]
   const canSave = checks.every(c => c.ok)
+
+  function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.type !== 'application/pdf') { alert('Please select a PDF file'); return }
+    const reader = new FileReader()
+    reader.onload = ev => onPdfChange({ data: ev.target!.result as string, fileName: file.name })
+    reader.readAsDataURL(file)
+  }
+
+  const existingPdfUrl = quote.pdfUrl
+  const pendingPdf = quote.pdfAttachment
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-5">
@@ -517,6 +533,40 @@ function SummaryStep({ quote, pricing, saving, onSave, customers, products, isEd
             </div>
           </div>
         ))}
+      </div>
+
+      {/* PDF Attachment */}
+      <div className="p-4 rounded-xl bg-gray-800/50 border border-gray-700 space-y-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Quotation PDF Attachment</p>
+        {pendingPdf ? (
+          <div className="flex items-center gap-3">
+            <Upload className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span className="text-sm text-gray-200 truncate flex-1">{pendingPdf.fileName}</span>
+            <button onClick={() => onPdfChange(null)} className="text-red-400 hover:text-red-300 transition-colors">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ) : existingPdfUrl ? (
+          <div className="flex items-center gap-3">
+            <FileImage className="w-4 h-4 text-green-400 shrink-0" />
+            <a href={existingPdfUrl} target="_blank" rel="noopener noreferrer"
+              className="text-sm text-indigo-400 hover:text-indigo-300 underline truncate flex-1">
+              View attached PDF
+            </a>
+            <label className="text-xs text-gray-400 hover:text-gray-200 cursor-pointer transition-colors">
+              Replace
+              <input type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload} />
+            </label>
+          </div>
+        ) : (
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <Upload className="w-4 h-4 text-gray-500 group-hover:text-indigo-400 transition-colors shrink-0" />
+            <span className="text-sm text-gray-500 group-hover:text-gray-300 transition-colors">
+              Click to upload a PDF (quotation document, BOQ, etc.)
+            </span>
+            <input type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload} />
+          </label>
+        )}
       </div>
 
       {/* Grand total */}
@@ -574,6 +624,8 @@ export function QuotationBuilder() {
     floorPlan:       null,
     floorPlanZones:  [],
     rooms:           [],
+    pdfAttachment:   null,
+    pdfUrl:          null,
   })
 
   useEffect(() => {
@@ -604,6 +656,8 @@ export function QuotationBuilder() {
             : null,
           floorPlanZones:   data.floorPlanZones || [],
           rooms:            data.rooms || [],
+          pdfAttachment:    null,
+          pdfUrl:           data.pdfUrl || null,
         })
       } else if (searchParams.get('customerId')) {
         const c = loadedCustomers.find((x: Customer) => x.id === searchParams.get('customerId'))
@@ -649,6 +703,20 @@ export function QuotationBuilder() {
         floorPlanUrl = quote.floorPlan.data // already a URL or previously stored base64
       }
 
+      // Upload PDF attachment if a new one was selected
+      let pdfUrl: string | null = quote.pdfUrl || null
+      if (quote.pdfAttachment?.data) {
+        try {
+          const quotePath = isEditMode ? editId! : `tmp_${Date.now()}`
+          pdfUrl = await Promise.race([
+            uploadBase64(`quotation-pdfs/${quotePath}.pdf`, quote.pdfAttachment.data, 'application/pdf'),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Upload timeout')), 30000)),
+          ])
+        } catch {
+          toast.error('PDF upload failed — quotation saved without PDF attachment')
+        }
+      }
+
       const lineItems = pricing.lineItems.map((item, idx) => ({
         id:          `li_${idx + 1}`,
         productId:   item.productId,
@@ -674,6 +742,7 @@ export function QuotationBuilder() {
         floorPlanZones:     quote.floorPlanZones,
         floorPlanUrl:       floorPlanUrl || null,
         floorPlanFileName:  quote.floorPlan?.fileName || null,
+        pdfUrl:             pdfUrl || null,
         sectionDiscounts:   quote.sectionDiscounts,
         subtotal:           pricing.productSubtotal,
         discountAmount:     pricing.discountAmount,
@@ -797,7 +866,7 @@ export function QuotationBuilder() {
         {step === 1 && <FloorPlanStep quote={quote} onChange={setQuote} products={products} />}
         {step === 2 && <RoomsStep quote={quote} onChange={setQuote} products={products} onGoToFloorPlan={() => setStep(1)} />}
         {step === 3 && <BOQStep quote={quote} onChange={setQuote} products={products} pricing={pricing} />}
-        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} customers={customers} products={products} isEdit={isEditMode} />}
+        {step === 4 && <SummaryStep quote={quote} pricing={pricing} saving={saving} onSave={handleSave} onPdfChange={pdf => setQuote(q => ({ ...q, pdfAttachment: pdf }))} customers={customers} products={products} isEdit={isEditMode} />}
       </div>
 
       {/* Footer nav */}
