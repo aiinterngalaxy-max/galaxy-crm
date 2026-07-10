@@ -59,10 +59,9 @@ const TIER_LABEL: Record<NightTier, string> = {
 
 type VehicleRates = { driverAllowancePerDay: number; permitPerDay: number; perDayRate: number }
 
-// Pickup surcharge: no permit even if tier is night_da_permit
+// Pickup surcharge: always just +DA for any non-normal time (no permit, no full day)
 function pickupSurcharge(tier: NightTier, v: VehicleRates): number {
-  if (tier === 'night_da' || tier === 'night_da_permit') return v.driverAllowancePerDay
-  if (tier === 'full_day') return v.perDayRate
+  if (tier !== 'normal') return v.driverAllowancePerDay
   return 0
 }
 
@@ -388,7 +387,6 @@ export function QuotationTool() {
       permit > 0 ? `${permit} Permit per day` : '',
       daLine,
       rTier === 'night_da_permit' && permit > 0 ? `${permit} Extra Night Permit (Return after 1AM)` : '',
-      tier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Pickup Late Night)` : '',
       rTier === 'full_day' ? `${fmt(selectedVehicle.perDayRate)} Extra Day Charge (Return Late Night)` : '',
       '',
       `*Total Amount For ${isLocal ? '1 Day' : `${days} Day${days > 1 ? 's' : ''}`} :- ${fmt(total)} + Toll Parking Extra + If Any Entry Tax Will Be Extra*`,
@@ -545,7 +543,7 @@ export function QuotationTool() {
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA×2+Permit</span>
               )}
               {nightTier === 'full_day' && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>+Full Day</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>DA only</span>
               )}
             </div>
           </InputBox>

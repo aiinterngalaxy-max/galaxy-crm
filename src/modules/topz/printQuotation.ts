@@ -119,7 +119,7 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
     ${(nightTier !== 'normal' && nightTier !== 'full_day') ? `<tr><td>Pickup Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
     ${(retTier !== 'normal' && retTier !== 'full_day') ? `<tr><td>Return Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
     ${retTier === 'night_da_permit' && vehicle.permitPerDay > 0 ? `<tr><td>Return Night Permit <span style="color:#c53030;font-size:10px;">(after 1AM)</span></td><td>${fmt(vehicle.permitPerDay)}</td><td>${fmt(vehicle.permitPerDay)}</td></tr>` : ''}
-    ${nightTier === 'full_day' ? `<tr><td>Extra Day — Pickup Late Night</td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
+    ${nightTier === 'full_day' ? `<tr><td>Pickup Late Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
     ${retTier === 'full_day' ? `<tr><td>Extra Day — Return Late Night</td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
   ` : localResult ? `
     <tr>
