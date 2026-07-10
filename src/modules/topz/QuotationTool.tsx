@@ -200,6 +200,10 @@ export function QuotationTool() {
   const [savedQuoteNo, setSavedQuoteNo] = useState(editQuote?.quoteNo ?? '')
   const [saved, setSaved] = useState(false)
   const [includeTnc, setIncludeTnc] = useState(false)
+  const [showNotePicker, setShowNotePicker] = useState(false)
+  const [selectedNotes, setSelectedNotes] = useState<Set<string>>(
+    new Set(['min_km', 'extra_km', 'valid', 'advance', 'toll', 'one_way'])
+  )
 
   const vehicles = getVehicles()
 
@@ -350,7 +354,7 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc })
+    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes })
   }
 
   async function handleWhatsApp() {
@@ -732,7 +736,14 @@ export function QuotationTool() {
                 style={{ background: 'rgba(37,211,102,0.12)', borderColor: 'rgba(37,211,102,0.4)', color: '#25d366' }}>
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 relative">
+                <button onClick={() => setShowNotePicker(p => !p)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all"
+                  style={showNotePicker
+                    ? { background: 'rgba(240,192,64,0.12)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }
+                    : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                  Notes ({selectedNotes.size})
+                </button>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs" style={{ color: 'var(--text-muted)' }}>
                   <input type="checkbox" checked={includeTnc} onChange={e => setIncludeTnc(e.target.checked)}
                     className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer" />
@@ -741,6 +752,33 @@ export function QuotationTool() {
                 <button onClick={handlePrint} className="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
                   <Printer className="w-4 h-4" /> Print PDF
                 </button>
+                {showNotePicker && (
+                  <div className="absolute bottom-full right-0 mb-2 z-50 rounded-2xl p-4 space-y-2 w-72 shadow-xl"
+                    style={{ background: 'var(--sidebar-bg)', border: '1px solid var(--glass-border)' }}>
+                    <p className="text-xs font-bold mb-2" style={{ color: 'var(--text-base)' }}>Notes in PDF</p>
+                    {[
+                      { id: 'min_km',    label: 'Minimum km per day + extra km rate' },
+                      { id: 'one_way',   label: 'One-way / Round trip fare note' },
+                      { id: 'toll',      label: 'Tolls, parking & taxes extra' },
+                      { id: 'valid',     label: 'Quotation valid for 7 days' },
+                      { id: 'advance',   label: '50% advance to confirm booking' },
+                      { id: 'waiting',   label: 'Waiting charges apply' },
+                      { id: 'inclusive', label: 'All-inclusive — no extras' },
+                    ].map(n => (
+                      <label key={n.id} className="flex items-center gap-2.5 cursor-pointer group">
+                        <input type="checkbox"
+                          checked={selectedNotes.has(n.id)}
+                          onChange={e => {
+                            const next = new Set(selectedNotes)
+                            e.target.checked ? next.add(n.id) : next.delete(n.id)
+                            setSelectedNotes(next)
+                          }}
+                          className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer shrink-0" />
+                        <span className="text-xs group-hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>{n.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

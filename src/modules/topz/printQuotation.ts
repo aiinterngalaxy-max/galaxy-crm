@@ -26,6 +26,7 @@ interface PrintArgs {
   nightExtra?: number
   overrideTotalAmount?: number
   includeTnc?: boolean
+  selectedNotes?: Set<string>
 }
 
 function fmtTime(t: string): string {
@@ -57,7 +58,8 @@ async function getLogoBase64(): Promise<string> {
   } catch { return '' }
 }
 
-export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false }: PrintArgs) {
+export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes }: PrintArgs) {
+  const has = (id: string) => !selectedNotes || selectedNotes.has(id)
   const logoDataUrl = await getLogoBase64()
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
@@ -144,11 +146,20 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     ${localResult.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${localResult.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(localResult.extraKmCost)}</td></tr>` : ''}
   ` : ''
 
-  const termsText = isLocal
-    ? `<p>Local package includes 8 hours and 80 km. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.</p>
-       <p>Waiting charges apply beyond 8 hours at actuals.</p>`
-    : `<p>Minimum ${vehicle.minKmPerDay} km per day applies. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.</p>
-       <p>${form.isRoundTrip ? 'Round trip fare — includes both legs of the journey.' : 'One-way fare only.'}</p>`
+  const noteLines: string[] = []
+  if (isLocal) {
+    if (has('min_km')) noteLines.push(`Local package includes 8 hours and 80 km. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
+    if (has('waiting')) noteLines.push('Waiting charges apply beyond 8 hours at actuals.')
+  } else {
+    if (has('min_km')) noteLines.push(`Minimum ${vehicle.minKmPerDay} km per day applies. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
+    if (has('one_way')) noteLines.push(form.isRoundTrip ? 'Round trip fare — includes both legs of the journey.' : 'One-way fare only.')
+  }
+  if (has('toll')) noteLines.push('Tolls, parking charges, and state taxes are extra unless specified.')
+  if (has('inclusive')) noteLines.push('All-inclusive fare — no additional charges.')
+  if (has('valid')) noteLines.push('This quotation is valid for 7 days from the date of issue.')
+  if (has('advance')) noteLines.push('50% advance required to confirm booking. Balance to be paid before departure.')
+  if (has('waiting') && !isLocal) noteLines.push('Waiting charges apply beyond the complimentary waiting period.')
+  const termsText = noteLines.map(l => `<p>${l}</p>`).join('\n    ')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -265,12 +276,10 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     </tbody>
   </table>
 
-  <p class="section-title">Notes</p>
+  ${noteLines.length > 0 ? `<p class="section-title">Notes</p>
   <div class="terms">
     ${termsText}
-    <p>This quotation is valid for 7 days from the date of issue.</p>
-    <p>50% advance required to confirm booking. Balance to be paid before departure.</p>
-  </div>
+  </div>` : ''}
 
   ${includeTnc ? `<p class="section-title" style="margin-top:20px;">Terms &amp; Conditions</p>
   <div class="tnc">` : '<!--'}
