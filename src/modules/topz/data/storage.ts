@@ -42,6 +42,7 @@ export interface Booking {
   status: 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
   notes: string
   tripType: 'outstation' | 'local'
+  supplier?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

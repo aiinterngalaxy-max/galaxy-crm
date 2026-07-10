@@ -33,6 +33,9 @@ export function QuotationHistory() {
   const [quotes, setQuotes] = useState<SavedQuotation[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | SavedQuotation['status']>('all')
+  const [convertTarget, setConvertTarget] = useState<SavedQuotation | null>(null)
+  const [supplierName, setSupplierName] = useState('')
+  const [converting, setConverting] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -47,10 +50,10 @@ export function QuotationHistory() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  function handlePrint(q: SavedQuotation) {
+  async function handlePrint(q: SavedQuotation) {
     const vehicle = getVehicles().find(v => v.name === q.vehicleName)
     if (!vehicle) { toast.error('Vehicle data not found'); return }
-    printQuotation({
+    await printQuotation({
       form: {
         clientName: q.clientName,
         clientPhone: q.clientPhone,
@@ -88,29 +91,35 @@ export function QuotationHistory() {
     } catch { toast.error('Failed to update') }
   }
 
-  async function handleConvertToBooking(q: SavedQuotation) {
+  async function doConvert() {
+    if (!convertTarget) return
+    setConverting(true)
     try {
       await saveBooking({
         id: Math.random().toString(36).slice(2, 10),
         createdAt: new Date().toISOString(),
-        quoteNo: q.quoteNo,
-        clientName: q.clientName,
-        clientPhone: q.clientPhone,
-        vehicleName: q.vehicleName,
-        pickupDate: q.pickupDate,
-        dropDate: q.dropDate,
-        pickupLocation: q.pickupLocation,
-        dropLocation: q.dropLocation,
-        totalAmount: q.totalAmount,
+        quoteNo: convertTarget.quoteNo,
+        clientName: convertTarget.clientName,
+        clientPhone: convertTarget.clientPhone,
+        vehicleName: convertTarget.vehicleName,
+        pickupDate: convertTarget.pickupDate,
+        dropDate: convertTarget.dropDate,
+        pickupLocation: convertTarget.pickupLocation,
+        dropLocation: convertTarget.dropLocation,
+        totalAmount: convertTarget.totalAmount,
         advancePaid: 0,
         status: 'confirmed',
         notes: '',
-        tripType: q.tripType,
+        tripType: convertTarget.tripType,
+        supplier: supplierName.trim(),
       })
-      await updateQuotationStatus(q.id, 'converted')
+      await updateQuotationStatus(convertTarget.id, 'converted')
       refresh()
       toast.success('Booking created!')
+      setConvertTarget(null)
+      setSupplierName('')
     } catch { toast.error('Failed to convert') }
+    finally { setConverting(false) }
   }
 
   const filtered = filter === 'all' ? quotes : quotes.filter(q => q.status === filter)
@@ -222,7 +231,7 @@ export function QuotationHistory() {
                                     </button>
                                   )}
                                   {q.status !== 'converted' && (
-                                    <button onClick={() => handleConvertToBooking(q)} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
+                                    <button onClick={() => { setConvertTarget(q); setSupplierName('') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
                                       <CheckCircle className="w-3.5 h-3.5" />
                                     </button>
                                   )}
@@ -256,6 +265,42 @@ export function QuotationHistory() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Supplier modal */}
+      {convertTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="glass-card rounded-2xl p-6 w-full max-w-sm space-y-4" style={{ background: 'var(--sidebar-bg)', border: '1px solid var(--glass-border)' }}>
+            <h3 className="text-base font-bold" style={{ color: 'var(--text-base)' }}>Convert to Booking</h3>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Client: <span className="font-semibold" style={{ color: 'var(--text-base)' }}>{convertTarget.clientName}</span>
+            </p>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>Supplier / Driver Name</label>
+              <input
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-base)' }}
+                placeholder="e.g. Rajesh Travels, Amit Driver…"
+                value={supplierName}
+                onChange={e => setSupplierName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && doConvert()}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setConvertTarget(null)}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors"
+                style={{ borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                Cancel
+              </button>
+              <button onClick={doConvert} disabled={converting}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg,#f0c040,#c8960a)', color: '#1a1a2e' }}>
+                {converting ? 'Creating…' : 'Confirm Booking'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

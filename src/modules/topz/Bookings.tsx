@@ -209,7 +209,7 @@ export function Bookings() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                          {['Client', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'Status', ''].map(h => (
+                          {['Client', 'Supplier', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'Status', ''].map(h => (
                             <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                           ))}
                         </tr>
@@ -228,6 +228,7 @@ export function Bookings() {
                                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{b.clientPhone}</p>
                                   {b.quoteNo && <p className="text-xs font-mono" style={{ color: '#f0c04060' }}>{b.quoteNo}</p>}
                                 </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{b.supplier || <span className="opacity-30">—</span>}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{b.vehicleName}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>
                                   {fmtDate(b.pickupDate)}

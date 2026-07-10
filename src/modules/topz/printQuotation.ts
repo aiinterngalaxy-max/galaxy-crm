@@ -45,7 +45,20 @@ const TIER_LABEL: Record<string, string> = {
   full_day: 'NIGHT — Full Extra Day',
 }
 
-export function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false }: PrintArgs) {
+async function getLogoBase64(): Promise<string> {
+  try {
+    const res = await fetch('/topz-logo.png')
+    const blob = await res.blob()
+    return await new Promise(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.readAsDataURL(blob)
+    })
+  } catch { return '' }
+}
+
+export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false }: PrintArgs) {
+  const logoDataUrl = await getLogoBase64()
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
@@ -195,9 +208,12 @@ export function printQuotation({ form, vehicle, result, localResult, days, quote
 <div class="page">
 
   <div class="header">
-    <div>
-      <div class="brand-name">TOPZ CAB</div>
-      <div class="brand-tagline">Outstation &middot; Corporate &middot; Luxury Travel</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="Topz Cab" style="width:72px;height:72px;object-fit:contain" />` : ''}
+      <div>
+        <div class="brand-name">TOPZ CAB</div>
+        <div class="brand-tagline">Outstation &middot; Corporate &middot; Luxury Travel</div>
+      </div>
     </div>
     <div class="brand-contact">
       <strong>Topz Cab Services</strong><br/>

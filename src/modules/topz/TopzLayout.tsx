@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { FileText, LayoutDashboard, ArrowLeft, Settings, CalendarCheck, ScrollText } from 'lucide-react'
+import { FileText, LayoutDashboard, ArrowLeft, Settings, CalendarCheck, ScrollText, Users } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getTopzTheme } from './TopzSettings'
 
@@ -28,16 +28,9 @@ export function TopzLayout() {
         borderRight: `1px solid ${sidebarBorder}`,
       }}>
         {/* Brand */}
-        <div className="px-4 py-5 border-b border-gray-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0" style={{ background: 'linear-gradient(135deg,#1a1a2e,#16213e)', color: '#f0c040', border: '1px solid rgba(240,192,64,0.3)' }}>
-              TC
-            </div>
-            <div>
-              <p className="font-bold text-sm leading-none" style={{ color: '#f0c040' }}>Topz Cab</p>
-              <p className="text-xs text-gray-500 mt-0.5">Travel Management</p>
-            </div>
-          </div>
+        <div className="px-4 py-4 border-b border-gray-800 flex flex-col items-center gap-2">
+          <img src="/topz-logo.png" alt="Topz Cab" className="w-24 h-24 object-contain" />
+          <p className="text-xs text-gray-500">Travel Management</p>
         </div>
 
         {/* Nav */}
@@ -45,6 +38,7 @@ export function TopzLayout() {
           <NavItem to="/topz" icon={<LayoutDashboard className="w-4 h-4" />} label="Dashboard" end />
           <NavItem to="/topz/quotations" icon={<FileText className="w-4 h-4" />} label="Quotations" />
           <NavItem to="/topz/bookings" icon={<CalendarCheck className="w-4 h-4" />} label="Bookings" />
+          <NavItem to="/topz/suppliers" icon={<Users className="w-4 h-4" />} label="Suppliers" />
           <NavItem to="/topz/settings" icon={<Settings className="w-4 h-4" />} label="Settings" />
           <NavItem to="/topz/terms" icon={<ScrollText className="w-4 h-4" />} label="Terms & Conditions" />
         </nav>
