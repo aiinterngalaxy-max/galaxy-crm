@@ -384,7 +384,7 @@ export function QuotationTool() {
       sep,
       `*${selectedVehicle.seats} Seater ${selectedVehicle.name}*`,
       `📍 ${tripLabel}`,
-      isLocal ? '' : `🗓 ${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '· Round Trip' : '· One Way'}`,
+      isLocal ? '' : `🗓 ${days} Day${days > 1 ? 's' : ''}`,
       '',
       sep,
       `*RATE DETAILS*`,
@@ -457,21 +457,6 @@ export function QuotationTool() {
             ))}
           </div>
 
-          {!isLocal && (
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <div onClick={() => setForm(f => ({ ...f, isRoundTrip: !f.isRoundTrip }))}
-                className="relative transition-colors"
-                style={{ width: 44, height: 24, borderRadius: 12,
-                  background: form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.1)',
-                  border: `1px solid ${form.isRoundTrip ? '#f0c040' : 'rgba(255,255,255,0.15)'}` }}>
-                <span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow transition-transform block"
-                  style={{ transform: `translateX(${form.isRoundTrip ? '22px' : '3px'})` }} />
-              </div>
-              <span className="text-sm font-medium" style={{ color: form.isRoundTrip ? '#f0c040' : 'var(--text-muted)' }}>
-                Round trip
-              </span>
-            </label>
-          )}
         </div>
 
         {/* ── Row 2: Pickup / Drop location bar ── */}
@@ -628,7 +613,6 @@ export function QuotationTool() {
             <Calendar className="w-3.5 h-3.5 shrink-0" />
             <span>
               <strong>{days} day{days > 1 ? 's' : ''}</strong> &middot; {form.pickupDate} → {form.dropDate}
-              {form.isRoundTrip && <span className="ml-2 px-1.5 py-0.5 rounded-full font-bold" style={{ background: 'rgba(240,192,64,0.15)', color: '#f0c040' }}>RT</span>}
             </span>
           </div>
         )}
@@ -830,7 +814,7 @@ export function QuotationTool() {
           <div className="text-xs space-y-1 px-1" style={{ color: 'var(--text-muted)' }}>
             {result && <p>&bull; Minimum {selectedVehicle.minKmPerDay} km/day applies. Toll, parking &amp; state taxes extra.</p>}
             {localResult && <p>&bull; Local package: 8 hours &amp; 80 km included. Extra km at &#8377;{selectedVehicle.ratePerKm}/km.</p>}
-            <p>&bull; GST applicable as per government norms. Rate valid for {form.isRoundTrip ? 'round trip' : 'one-way'} trip only.</p>
+            <p>&bull; GST applicable as per government norms. Rate valid for one-way trip only.</p>
           </div>
         </div>
       )}

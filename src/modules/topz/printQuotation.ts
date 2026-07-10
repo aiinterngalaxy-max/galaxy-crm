@@ -112,7 +112,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     </div>
     <div class="trip-cell">
       <div class="label">Duration</div>
-      <div class="value">${days} Day${days > 1 ? 's' : ''} ${form.isRoundTrip ? '&bull; Round Trip' : '&bull; One Way'} &bull; ${result?.totalKm ?? 0} km</div>
+      <div class="value">${days} Day${days > 1 ? 's' : ''} &bull; ${result?.totalKm ?? 0} km</div>
     </div>
     ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
     ${form.returnTime ? `<div class="trip-cell"><div class="label">Return Time</div><div class="value">${fmtTime(form.returnTime)}</div></div>` : ''}
@@ -152,7 +152,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     if (has('waiting')) noteLines.push('Waiting charges apply beyond 8 hours at actuals.')
   } else {
     if (has('min_km')) noteLines.push(`Minimum ${vehicle.minKmPerDay} km per day applies. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
-    if (has('one_way')) noteLines.push(form.isRoundTrip ? 'Round trip fare — includes both legs of the journey.' : 'One-way fare only.')
+    if (has('one_way')) noteLines.push('One-way fare only.')
   }
   if (has('toll')) noteLines.push('Tolls, parking charges, and state taxes are extra unless specified.')
   if (has('inclusive')) noteLines.push('All-inclusive fare — no additional charges.')
