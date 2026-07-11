@@ -1,4 +1,4 @@
-const BASE = '/api/topz'
+const BASE = '/api/topz-'
 
 export interface SavedQuotation {
   id: string
