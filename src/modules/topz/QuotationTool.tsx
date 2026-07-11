@@ -804,30 +804,107 @@ export function QuotationTool() {
               <thead>
                 <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Description</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Amount</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold w-28" style={{ color: 'var(--text-muted)' }}>Rate</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold w-16" style={{ color: 'var(--text-muted)' }}>Qty</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold w-28" style={{ color: 'var(--text-muted)' }}>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {result && (
-                  <>
-                    <Row label={`Base rate: ${fmt(selectedVehicle.perDayRate)}/day × ${result.days} day${result.days > 1 ? 's' : ''} (incl. ${result.minKm} km)`} value={fmt(result.baseCost)} />
-                    {result.extraKm > 0 && <Row label={`Extra km: ${result.extraKm} km × ₹${selectedVehicle.ratePerKm}/km`} value={fmt(result.extraKmCost)} />}
-                  </>
-                )}
+                {result && (() => {
+                  const kmRatePerDay = selectedVehicle.perDayRate - selectedVehicle.driverAllowancePerDay - selectedVehicle.permitPerDay
+                  const daysLabel = `${result.days} day${result.days > 1 ? 's' : ''}`
+                  return (
+                    <>
+                      <Row4
+                        label={`Vehicle charges — ${selectedVehicle.name} (${result.minKm} km/day incl.)`}
+                        rate={`${fmt(kmRatePerDay)}/day`}
+                        qty={daysLabel}
+                        value={fmt(kmRatePerDay * result.days)}
+                      />
+                      {selectedVehicle.driverAllowancePerDay > 0 && (
+                        <Row4
+                          label="Driver allowance"
+                          rate={`${fmt(selectedVehicle.driverAllowancePerDay)}/day`}
+                          qty={daysLabel}
+                          value={fmt(selectedVehicle.driverAllowancePerDay * result.days)}
+                          muted
+                        />
+                      )}
+                      {selectedVehicle.permitPerDay > 0 && (
+                        <Row4
+                          label="Permit"
+                          rate={`${fmt(selectedVehicle.permitPerDay)}/day`}
+                          qty={daysLabel}
+                          value={fmt(selectedVehicle.permitPerDay * result.days)}
+                          muted
+                        />
+                      )}
+                      {result.extraKm > 0 && (
+                        <Row4
+                          label={`Extra km — ${result.extraKm} km beyond ${result.minKm} km/day limit`}
+                          rate={`₹${selectedVehicle.ratePerKm}/km`}
+                          qty={`${result.extraKm} km`}
+                          value={fmt(result.extraKmCost)}
+                        />
+                      )}
+                    </>
+                  )
+                })()}
                 {localResult && (
                   <>
-                    <Row label={`Local package: 8hr / 80km (${fmt(selectedVehicle.localRate)})`} value={fmt(localResult.baseCost)} />
-                    {localResult.extraKm > 0 && <Row label={`Extra km: ${localResult.extraKm} km × ₹${selectedVehicle.ratePerKm}/km`} value={fmt(localResult.extraKmCost)} />}
+                    <Row4
+                      label="Local package — 8 hrs / 80 km included"
+                      rate={fmt(selectedVehicle.localRate)}
+                      qty="1 package"
+                      value={fmt(localResult.baseCost)}
+                    />
+                    {localResult.extraKm > 0 && (
+                      <Row4
+                        label={`Extra km — ${localResult.extraKm} km beyond 80 km limit`}
+                        rate={`₹${selectedVehicle.ratePerKm}/km`}
+                        qty={`${localResult.extraKm} km`}
+                        value={fmt(localResult.extraKmCost)}
+                      />
+                    )}
                   </>
+                )}
+                {nightTier !== 'normal' && selectedVehicle && (
+                  <Row4
+                    label={`Pickup night surcharge (${TIER_LABEL[nightTier]})`}
+                    rate={nightTier === 'full_day' ? fmt(selectedVehicle.perDayRate) : fmt(selectedVehicle.driverAllowancePerDay)}
+                    qty="1"
+                    value={fmt(pickupSurcharge(nightTier, selectedVehicle))}
+                    muted
+                  />
+                )}
+                {retTier !== 'normal' && selectedVehicle && (
+                  <Row4
+                    label={`Return night surcharge (${TIER_LABEL[retTier]})`}
+                    rate={retTier === 'full_day' ? fmt(selectedVehicle.perDayRate) : fmt(selectedVehicle.driverAllowancePerDay)}
+                    qty="1"
+                    value={fmt(returnSurcharge(retTier, selectedVehicle))}
+                    muted
+                  />
+                )}
+                {retTier === 'night_da_permit' && selectedVehicle.permitPerDay > 0 && (
+                  <Row4
+                    label="Night permit (return after 1 AM)"
+                    rate={fmt(selectedVehicle.permitPerDay)}
+                    qty="1"
+                    value={fmt(selectedVehicle.permitPerDay)}
+                    muted
+                  />
                 )}
                 {finalAmount !== '' && discountAmount > 0 && (
                   <tr style={{ borderTop: '1px solid var(--glass-border)' }}>
-                    <td className="px-4 py-3 text-sm" style={{ color: '#f87171' }}>Discount</td>
-                    <td className="px-4 py-3 text-right font-semibold" style={{ color: '#f87171' }}>− {fmt(discountAmount)}</td>
+                    <td className="px-4 py-2.5 text-sm" style={{ color: '#f87171' }}>Negotiated discount</td>
+                    <td colSpan={2} />
+                    <td className="px-4 py-2.5 text-right font-semibold" style={{ color: '#f87171' }}>− {fmt(discountAmount)}</td>
                   </tr>
                 )}
-                <tr style={{ background: 'rgba(201,168,64,0.08)', borderTop: '1px solid var(--glass-border)' }}>
+                <tr style={{ background: 'rgba(201,168,64,0.08)', borderTop: '2px solid rgba(201,168,64,0.3)' }}>
                   <td className="px-4 py-3 font-bold text-sm" style={{ color: 'var(--text-base)' }}>Total</td>
+                  <td colSpan={2} />
                   <td className="px-4 py-3 font-bold text-right text-gold-400 text-lg">{fmt(total)}</td>
                 </tr>
               </tbody>
@@ -1025,6 +1102,18 @@ function Row({ label, value }: { label: string; value: string }) {
     <tr style={{ borderBottom: '1px solid var(--glass-border)' }}>
       <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--text-base)' }}>{label}</td>
       <td className="px-4 py-2.5 text-sm text-right font-medium" style={{ color: 'var(--text-base)' }}>{value}</td>
+    </tr>
+  )
+}
+
+function Row4({ label, rate, qty, value, muted }: { label: string; rate: string; qty: string; value: string; muted?: boolean }) {
+  const color = muted ? 'var(--text-muted)' : 'var(--text-base)'
+  return (
+    <tr style={{ borderBottom: '1px solid var(--glass-border)' }}>
+      <td className="px-4 py-2 text-sm" style={{ color }}>{label}</td>
+      <td className="px-4 py-2 text-right text-xs" style={{ color: 'var(--text-muted)' }}>{rate}</td>
+      <td className="px-4 py-2 text-right text-xs" style={{ color: 'var(--text-muted)' }}>{qty}</td>
+      <td className="px-4 py-2 text-right text-sm font-medium" style={{ color }}>{value}</td>
     </tr>
   )
 }

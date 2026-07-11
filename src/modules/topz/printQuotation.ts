@@ -113,59 +113,97 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     ${returnTimeStr ? `<br/><strong>${returnTimeStr}</strong>` : ''}
   `
 
-  // Main pricing row
-  const baseRate = isLocal ? vehicle.localRate : vehicle.perDayRate
-  const qty = isLocal ? 1 : days
+  // Pricing rows
   const baseCost = result?.baseCost ?? localResult?.baseCost ?? baseAmount
+  const kmRatePerDay = vehicle.perDayRate - vehicle.driverAllowancePerDay - vehicle.permitPerDay
 
-  // Extra rows
-  const extraRows: string[] = []
+  const dataRows: string[] = []
 
-  if (result?.extraKm && result.extraKm > 0) {
-    extraRows.push(`<tr>
-      <td style="text-align:center"></td>
-      <td>Extra KM Charges — ${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td>
-      <td style="text-align:right">${fmt(vehicle.ratePerKm)}</td>
-      <td style="text-align:center">${result.extraKm}</td>
-      <td style="text-align:right">${fmt(result.extraKmCost)}</td>
-    </tr>`)
-  }
-  if (localResult?.extraKm && localResult.extraKm > 0) {
-    extraRows.push(`<tr>
-      <td style="text-align:center"></td>
-      <td>Extra KM Charges — ${localResult.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td>
-      <td style="text-align:right">${fmt(vehicle.ratePerKm)}</td>
-      <td style="text-align:center">${localResult.extraKm}</td>
-      <td style="text-align:right">${fmt(localResult.extraKmCost)}</td>
-    </tr>`)
-  }
-  if (nightTier !== 'normal') {
-    const extra = nightTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
-    extraRows.push(`<tr>
-      <td style="text-align:center"></td>
-      <td>Pickup Night Surcharge (${TIER_LABEL[nightTier]})</td>
-      <td style="text-align:right">${fmt(extra)}</td>
+  if (isLocal) {
+    dataRows.push(`<tr>
       <td style="text-align:center">1</td>
-      <td style="text-align:right">${fmt(extra)}</td>
-    </tr>`)
-  }
-  if (retTier !== 'normal') {
-    const extra = retTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
-    extraRows.push(`<tr>
-      <td style="text-align:center"></td>
-      <td>Return Night Surcharge (${TIER_LABEL[retTier]})</td>
-      <td style="text-align:right">${fmt(extra)}</td>
+      <td>${descriptionHtml}</td>
+      <td style="text-align:right">${fmt(vehicle.localRate)}</td>
       <td style="text-align:center">1</td>
-      <td style="text-align:right">${fmt(extra)}</td>
+      <td style="text-align:right">${fmt(localResult?.baseCost ?? 0)}</td>
     </tr>`)
-    if (retTier === 'night_da_permit' && vehicle.permitPerDay > 0) {
-      extraRows.push(`<tr>
+    if (localResult?.extraKm && localResult.extraKm > 0) {
+      dataRows.push(`<tr>
         <td style="text-align:center"></td>
-        <td>Return Night Permit (after 1AM)</td>
-        <td style="text-align:right">${fmt(vehicle.permitPerDay)}</td>
-        <td style="text-align:center">1</td>
-        <td style="text-align:right">${fmt(vehicle.permitPerDay)}</td>
+        <td style="color:#555">Extra KM — ${localResult.extraKm} km beyond 80 km limit</td>
+        <td style="text-align:right;color:#555">&#x20B9;${vehicle.ratePerKm}/km</td>
+        <td style="text-align:center;color:#555">${localResult.extraKm} km</td>
+        <td style="text-align:right">${fmt(localResult.extraKmCost)}</td>
       </tr>`)
+    }
+  } else {
+    dataRows.push(`<tr>
+      <td style="text-align:center">1</td>
+      <td>${descriptionHtml}</td>
+      <td></td><td></td><td></td>
+    </tr>`)
+    dataRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td style="color:#555;padding-left:18px">Vehicle charges — ${vehicle.name} (${vehicle.minKmPerDay} km/day incl.)</td>
+      <td style="text-align:right;color:#555">${fmt(kmRatePerDay)}/day</td>
+      <td style="text-align:center;color:#555">${days} day${days > 1 ? 's' : ''}</td>
+      <td style="text-align:right">${fmt(kmRatePerDay * days)}</td>
+    </tr>`)
+    if (vehicle.driverAllowancePerDay > 0) {
+      dataRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td style="color:#555;padding-left:18px">Driver allowance</td>
+        <td style="text-align:right;color:#555">${fmt(vehicle.driverAllowancePerDay)}/day</td>
+        <td style="text-align:center;color:#555">${days} day${days > 1 ? 's' : ''}</td>
+        <td style="text-align:right">${fmt(vehicle.driverAllowancePerDay * days)}</td>
+      </tr>`)
+    }
+    if (vehicle.permitPerDay > 0) {
+      dataRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td style="color:#555;padding-left:18px">Permit</td>
+        <td style="text-align:right;color:#555">${fmt(vehicle.permitPerDay)}/day</td>
+        <td style="text-align:center;color:#555">${days} day${days > 1 ? 's' : ''}</td>
+        <td style="text-align:right">${fmt(vehicle.permitPerDay * days)}</td>
+      </tr>`)
+    }
+    if (result?.extraKm && result.extraKm > 0) {
+      dataRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td style="color:#555;padding-left:18px">Extra KM — ${result.extraKm} km beyond ${vehicle.minKmPerDay} km/day limit</td>
+        <td style="text-align:right;color:#555">&#x20B9;${vehicle.ratePerKm}/km</td>
+        <td style="text-align:center;color:#555">${result.extraKm} km</td>
+        <td style="text-align:right">${fmt(result.extraKmCost)}</td>
+      </tr>`)
+    }
+    if (nightTier !== 'normal') {
+      const extra = nightTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
+      dataRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td style="color:#555;padding-left:18px">Pickup night surcharge (${TIER_LABEL[nightTier]})</td>
+        <td style="text-align:right;color:#555">${fmt(extra)}</td>
+        <td style="text-align:center;color:#555">1</td>
+        <td style="text-align:right">${fmt(extra)}</td>
+      </tr>`)
+    }
+    if (retTier !== 'normal') {
+      const extra = retTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
+      dataRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td style="color:#555;padding-left:18px">Return night surcharge (${TIER_LABEL[retTier]})</td>
+        <td style="text-align:right;color:#555">${fmt(extra)}</td>
+        <td style="text-align:center;color:#555">1</td>
+        <td style="text-align:right">${fmt(extra)}</td>
+      </tr>`)
+      if (retTier === 'night_da_permit' && vehicle.permitPerDay > 0) {
+        dataRows.push(`<tr>
+          <td style="text-align:center"></td>
+          <td style="color:#555;padding-left:18px">Night permit (return after 1 AM)</td>
+          <td style="text-align:right;color:#555">${fmt(vehicle.permitPerDay)}</td>
+          <td style="text-align:center;color:#555">1</td>
+          <td style="text-align:right">${fmt(vehicle.permitPerDay)}</td>
+        </tr>`)
+      }
     }
   }
 
@@ -305,14 +343,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td class="c">1</td>
-        <td>${descriptionHtml}</td>
-        <td class="r">${fmt(baseRate)}</td>
-        <td class="c">${qty}</td>
-        <td class="r">${fmt(baseCost)}</td>
-      </tr>
-      ${extraRows.join('\n')}
+      ${dataRows.join('\n')}
     </tbody>
   </table>
 
