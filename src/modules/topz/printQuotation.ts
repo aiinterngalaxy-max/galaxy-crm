@@ -337,8 +337,8 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
           <strong>UPI:</strong> shahkrish2003@oksbi
         </p>
         ${qrDataUrl ? `<div style="text-align:center;flex-shrink:0">
-          <img src="${qrDataUrl}" style="width:90px;height:90px;object-fit:contain;display:block" />
-          <span style="font-size:8.5px;color:#777">Scan to pay</span>
+          <img src="${qrDataUrl}" style="width:150px;height:150px;object-fit:contain;display:block" />
+          <span style="font-size:10px;color:#555;font-weight:600">Scan to pay via UPI</span>
         </div>` : ''}
       </div>
     </div>
