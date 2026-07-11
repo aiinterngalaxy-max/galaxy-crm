@@ -816,8 +816,8 @@ export function QuotationTool() {
                   return (
                     <>
                       <Row4
-                        label={`Vehicle charges — ${selectedVehicle.name} (${result.minKm} km/day incl.)`}
-                        rate={`${fmt(kmRatePerDay)}/day`}
+                        label={`Vehicle charges — ${selectedVehicle.name}`}
+                        rate={`${result.minKm} km × ₹${selectedVehicle.ratePerKm}/km`}
                         qty={daysLabel}
                         value={fmt(kmRatePerDay * result.days)}
                       />

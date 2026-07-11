@@ -144,8 +144,8 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     </tr>`)
     dataRows.push(`<tr>
       <td style="text-align:center"></td>
-      <td style="color:#555;padding-left:18px">Vehicle charges — ${vehicle.name} (${vehicle.minKmPerDay} km/day incl.)</td>
-      <td style="text-align:right;color:#555">${fmt(kmRatePerDay)}/day</td>
+      <td style="color:#555;padding-left:18px">Vehicle charges — ${vehicle.name}</td>
+      <td style="text-align:right;color:#555">${vehicle.minKmPerDay} km &times; &#x20B9;${vehicle.ratePerKm}/km</td>
       <td style="text-align:center;color:#555">${days} day${days > 1 ? 's' : ''}</td>
       <td style="text-align:right">${fmt(kmRatePerDay * days)}</td>
     </tr>`)
