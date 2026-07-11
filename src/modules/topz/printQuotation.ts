@@ -46,6 +46,23 @@ const TIER_LABEL: Record<string, string> = {
   full_day: 'NIGHT — Full Extra Day',
 }
 
+function numberToWords(n: number): string {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+  if (n === 0) return 'Zero Rupees Only'
+  function helper(num: number): string {
+    if (num === 0) return ''
+    if (num < 20) return ones[num] + ' '
+    if (num < 100) return tens[Math.floor(num / 10)] + ' ' + helper(num % 10)
+    if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred ' + helper(num % 100)
+    if (num < 100000) return helper(Math.floor(num / 1000)) + 'Thousand ' + helper(num % 1000)
+    if (num < 10000000) return helper(Math.floor(num / 100000)) + 'Lakh ' + helper(num % 100000)
+    return helper(Math.floor(num / 10000000)) + 'Crore ' + helper(num % 10000000)
+  }
+  return helper(n).trim() + ' Rupees Only'
+}
+
 async function getLogoBase64(): Promise<string> {
   try {
     const res = await fetch('/topz-logo.png')
@@ -66,86 +83,88 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
   const totalAmount = baseAmount + nightExtra
 
-  const tripRows = isLocal ? `
-    <div class="trip-cell">
-      <div class="label">Trip Type</div>
-      <div class="value">Local Package</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Package</div>
-      <div class="value">8 Hours / 80 km</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Date</div>
-      <div class="value">${fmtDate(form.pickupDate)}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Pickup Location</div>
-      <div class="value">${form.pickupLocation}</div>
-    </div>
-    ${form.dropLocation ? `<div class="trip-cell"><div class="label">Drop Location</div><div class="value">${form.dropLocation}</div></div>` : ''}
-    <div class="trip-cell">
-      <div class="label">Passengers</div>
-      <div class="value">${form.passengers}</div>
-    </div>
-    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
-  ` : `
-    <div class="trip-cell">
-      <div class="label">Pickup Date</div>
-      <div class="value">${fmtDate(form.pickupDate)}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Return Date</div>
-      <div class="value">${fmtDate(form.dropDate)}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Pickup Location</div>
-      <div class="value">${form.pickupLocation}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Drop Location</div>
-      <div class="value">${form.dropLocation}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Passengers</div>
-      <div class="value">${form.passengers}</div>
-    </div>
-    <div class="trip-cell">
-      <div class="label">Duration</div>
-      <div class="value">${days} Day${days > 1 ? 's' : ''} &bull; ${result?.totalKm ?? 0} km</div>
-    </div>
-    ${form.pickupTime ? `<div class="trip-cell"><div class="label">Pickup Time</div><div class="value">${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` &nbsp;<span style="color:#c53030;font-size:10px;font-weight:700;">${TIER_LABEL[nightTier]}</span>` : ''}</div></div>` : ''}
-    ${form.returnTime ? `<div class="trip-cell"><div class="label">Return Time</div><div class="value">${fmtTime(form.returnTime)}</div></div>` : ''}
+  // Description block for the main table row
+  const dutyType = isLocal
+    ? `LOCAL PACKAGE - 8 HRS / 80 KMS`
+    : `OUTSTATION - 300 KMS PER DAY (${form.pickupLocation} - ${form.dropLocation})`
+
+  const dateRange = isLocal
+    ? fmtDate(form.pickupDate)
+    : `${fmtDate(form.pickupDate)}${form.dropDate && form.dropDate !== form.pickupDate ? ` to ${fmtDate(form.dropDate)}` : ''}`
+
+  const pickupTimeStr = form.pickupTime
+    ? `Pickup Time: ${fmtTime(form.pickupTime)}${nightTier !== 'normal' ? ` (${TIER_LABEL[nightTier]})` : ''}`
+    : ''
+  const returnTimeStr = form.returnTime && !isLocal
+    ? `Return Time: ${fmtTime(form.returnTime)}${retTier !== 'normal' ? ` (${TIER_LABEL[retTier]})` : ''}`
+    : ''
+
+  const descriptionHtml = `
+    <strong>Vehicle:</strong> ${vehicle.name} | ${vehicle.category} | ${vehicle.seats} Seater<br/>
+    <strong>Duty Type:</strong> ${dutyType}<br/>
+    <strong>Date:</strong> ${dateRange}<br/>
+    <strong>Passengers:</strong> ${form.passengers}
+    ${pickupTimeStr ? `<br/><strong>${pickupTimeStr}</strong>` : ''}
+    ${returnTimeStr ? `<br/><strong>${returnTimeStr}</strong>` : ''}
   `
 
-  const pricingRows = result ? `
-    <tr>
-      <td>Base Rate</td>
-      <td>${fmt(vehicle.perDayRate)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td>
-      <td>${fmt(result.baseCost)}</td>
-    </tr>
-    <tr>
-      <td>Minimum KM Package</td>
-      <td>${vehicle.minKmPerDay} km/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td>
-      <td>Included</td>
-    </tr>
-    ${result.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(result.extraKmCost)}</td></tr>` : ''}
-    ${vehicle.permitPerDay > 0 ? `<tr><td>Permit Charges</td><td>${fmt(vehicle.permitPerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${vehicle.driverAllowancePerDay > 0 ? `<tr><td>Driver Allowance${nightTier !== 'normal' || retTier !== 'normal' ? ` <span style="color:#c53030;font-size:10px;">(Night surcharge applied)</span>` : ''}</td><td>${fmt(vehicle.driverAllowancePerDay)}/day &times; ${result.days} day${result.days > 1 ? 's' : ''}</td><td>Included</td></tr>` : ''}
-    ${(nightTier !== 'normal' && nightTier !== 'full_day') ? `<tr><td>Pickup Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
-    ${(retTier !== 'normal' && retTier !== 'full_day') ? `<tr><td>Return Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
-    ${retTier === 'night_da_permit' && vehicle.permitPerDay > 0 ? `<tr><td>Return Night Permit <span style="color:#c53030;font-size:10px;">(after 1AM)</span></td><td>${fmt(vehicle.permitPerDay)}</td><td>${fmt(vehicle.permitPerDay)}</td></tr>` : ''}
-    ${nightTier === 'full_day' ? `<tr><td>Pickup Late Night Surcharge <span style="color:#c53030;font-size:10px;">(DA ×2)</span></td><td>${fmt(vehicle.driverAllowancePerDay)}</td><td>${fmt(vehicle.driverAllowancePerDay)}</td></tr>` : ''}
-    ${retTier === 'full_day' ? `<tr><td>Extra Day — Return Late Night</td><td>${fmt(vehicle.perDayRate)}</td><td>${fmt(vehicle.perDayRate)}</td></tr>` : ''}
-  ` : localResult ? `
-    <tr>
-      <td>Local Package</td>
-      <td>8 Hours / 80 km</td>
-      <td>${fmt(localResult.baseCost)}</td>
-    </tr>
-    ${localResult.extraKm > 0 ? `<tr><td>Extra KM Charges</td><td>${localResult.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td><td>${fmt(localResult.extraKmCost)}</td></tr>` : ''}
-  ` : ''
+  // Main pricing row
+  const baseRate = isLocal ? vehicle.localRate : vehicle.perDayRate
+  const qty = isLocal ? 1 : days
+  const baseCost = result?.baseCost ?? localResult?.baseCost ?? baseAmount
 
+  // Extra rows
+  const extraRows: string[] = []
+
+  if (result?.extraKm && result.extraKm > 0) {
+    extraRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td>Extra KM Charges — ${result.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td>
+      <td style="text-align:right">${fmt(vehicle.ratePerKm)}</td>
+      <td style="text-align:center">${result.extraKm}</td>
+      <td style="text-align:right">${fmt(result.extraKmCost)}</td>
+    </tr>`)
+  }
+  if (localResult?.extraKm && localResult.extraKm > 0) {
+    extraRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td>Extra KM Charges — ${localResult.extraKm} km &times; &#x20B9;${vehicle.ratePerKm}/km</td>
+      <td style="text-align:right">${fmt(vehicle.ratePerKm)}</td>
+      <td style="text-align:center">${localResult.extraKm}</td>
+      <td style="text-align:right">${fmt(localResult.extraKmCost)}</td>
+    </tr>`)
+  }
+  if (nightTier !== 'normal') {
+    const extra = nightTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
+    extraRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td>Pickup Night Surcharge (${TIER_LABEL[nightTier]})</td>
+      <td style="text-align:right">${fmt(extra)}</td>
+      <td style="text-align:center">1</td>
+      <td style="text-align:right">${fmt(extra)}</td>
+    </tr>`)
+  }
+  if (retTier !== 'normal') {
+    const extra = retTier === 'full_day' ? vehicle.perDayRate : vehicle.driverAllowancePerDay
+    extraRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td>Return Night Surcharge (${TIER_LABEL[retTier]})</td>
+      <td style="text-align:right">${fmt(extra)}</td>
+      <td style="text-align:center">1</td>
+      <td style="text-align:right">${fmt(extra)}</td>
+    </tr>`)
+    if (retTier === 'night_da_permit' && vehicle.permitPerDay > 0) {
+      extraRows.push(`<tr>
+        <td style="text-align:center"></td>
+        <td>Return Night Permit (after 1AM)</td>
+        <td style="text-align:right">${fmt(vehicle.permitPerDay)}</td>
+        <td style="text-align:center">1</td>
+        <td style="text-align:right">${fmt(vehicle.permitPerDay)}</td>
+      </tr>`)
+    }
+  }
+
+  // Notes
   const noteLines: string[] = []
   if (isLocal) {
     if (has('min_km')) noteLines.push(`Local package includes 8 hours and 80 km. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
@@ -159,7 +178,6 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   if (has('valid')) noteLines.push('This quotation is valid for 7 days from the date of issue.')
   if (has('advance')) noteLines.push('50% advance required to confirm booking. Balance to be paid before departure.')
   if (has('waiting') && !isLocal) noteLines.push('Waiting charges apply beyond the complimentary waiting period.')
-  const termsText = noteLines.map(l => `<p>${l}</p>`).join('\n    ')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -169,153 +187,191 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
 <style>
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; background: #fff; font-size: 13px; }
-  .page { max-width: 800px; margin: 0 auto; padding: 32px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #1a1a2e; margin-bottom: 24px; }
-  .brand-name { font-size: 32px; font-weight: 900; color: #1a1a2e; letter-spacing: -1px; }
-  .brand-tagline { font-size: 11px; color: #666; margin-top: 2px; }
-  .brand-contact { font-size: 11px; color: #555; text-align: right; line-height: 1.7; }
-  .meta-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-  .meta-box { background: #f8f8f8; border-radius: 10px; padding: 14px 18px; min-width: 200px; }
-  .meta-box h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 8px; }
-  .meta-box p { font-size: 13px; color: #1a1a2e; line-height: 1.6; }
-  .meta-box p strong { font-weight: 700; }
-  .quote-no-box { text-align: right; }
-  .quote-no-box .qno { font-size: 22px; font-weight: 800; color: #1a1a2e; }
-  .quote-no-box .qdate { font-size: 11px; color: #888; margin-top: 2px; }
-  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #888; margin-bottom: 10px; }
-  .trip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
-  .trip-cell { background: #f8f8f8; border-radius: 8px; padding: 12px 14px; }
-  .trip-cell .label { font-size: 10px; color: #999; font-weight: 600; text-transform: uppercase; margin-bottom: 3px; }
-  .trip-cell .value { font-size: 13px; color: #1a1a2e; font-weight: 600; }
-  .vehicle-bar { display: flex; justify-content: space-between; align-items: center; background: #1a1a2e; color: #fff; border-radius: 10px; padding: 14px 18px; margin-bottom: 24px; }
-  .vehicle-bar .vname { font-size: 16px; font-weight: 700; }
-  .vehicle-bar .vmeta { font-size: 11px; color: #aaa; margin-top: 2px; }
-  .vehicle-bar .vrate { font-size: 20px; font-weight: 800; color: #f0c040; }
-  .vehicle-bar .vrate-label { font-size: 10px; color: #aaa; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-  th { background: #f0f0f0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #666; padding: 10px 14px; text-align: left; }
-  th:last-child { text-align: right; }
-  td { padding: 11px 14px; border-bottom: 1px solid #eee; font-size: 13px; color: #1a1a2e; }
-  td:last-child { text-align: right; font-weight: 600; }
-  .total-row td { background: #1a1a2e; color: #fff; font-weight: 800; font-size: 15px; border-bottom: none; }
-  .total-row td:last-child { color: #f0c040; font-size: 18px; }
-  .terms { background: #f8f8f8; border-radius: 8px; padding: 14px 16px; margin-bottom: 24px; }
-  .terms p { font-size: 11px; color: #666; line-height: 1.8; }
-  .terms p::before { content: "•  "; }
-  .footer { border-top: 2px solid #eee; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; }
-  .footer p { font-size: 11px; color: #aaa; }
-  .footer .thank { font-size: 13px; font-weight: 700; color: #1a1a2e; }
-  .tnc { border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin-bottom: 24px; background: #fafafa; }
+  body { font-family: Arial, sans-serif; color: #1a1a1a; background: #fff; font-size: 12px; }
+  .page { max-width: 780px; margin: 0 auto; padding: 28px 32px; }
+
+  /* Header */
+  .header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; border-bottom: 2px solid #1a1a1a; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-name { font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #1a1a1a; }
+  .brand-tagline { font-size: 10px; color: #777; margin-top: 1px; }
+  .header-contact { font-size: 10.5px; color: #444; text-align: right; line-height: 1.75; }
+
+  /* Bill To / Quote meta */
+  .meta-row { display: flex; justify-content: space-between; margin-bottom: 16px; gap: 20px; }
+  .bill-to { font-size: 11px; color: #333; line-height: 1.7; }
+  .bill-to strong { font-size: 12px; color: #1a1a1a; }
+  .quote-meta { text-align: right; font-size: 11px; color: #333; line-height: 1.7; white-space: nowrap; }
+  .quote-meta .qno { font-size: 15px; font-weight: 800; color: #1a1a1a; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  thead tr { background: #1a1a1a; color: #fff; }
+  thead th { padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; text-align: left; }
+  thead th.r { text-align: right; }
+  thead th.c { text-align: center; }
+  tbody tr { border-bottom: 1px solid #e5e5e5; }
+  tbody tr:last-child { border-bottom: none; }
+  td { padding: 10px 10px; font-size: 11.5px; vertical-align: top; color: #1a1a1a; }
+  td.r { text-align: right; font-weight: 600; }
+  td.c { text-align: center; }
+
+  /* Totals */
+  .totals-table { width: 100%; border-collapse: collapse; margin-top: 0; }
+  .totals-table td { padding: 6px 10px; font-size: 11.5px; border-top: 1px solid #e5e5e5; }
+  .totals-table .label { color: #555; }
+  .totals-table .val { text-align: right; font-weight: 600; }
+  .totals-table .total-row td { background: #1a1a1a; color: #fff; font-weight: 800; font-size: 13px; border-top: none; padding: 9px 10px; }
+  .totals-table .total-row .val { color: #f0c040; font-size: 15px; }
+  .in-words { font-size: 10.5px; color: #444; padding: 6px 10px; border-top: 1px solid #e5e5e5; font-style: italic; }
+
+  /* Bank + Notes */
+  .bottom-row { display: flex; gap: 24px; margin-top: 20px; }
+  .bank-box { flex: 1; }
+  .bank-box h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #1a1a1a; border-bottom: 1px solid #1a1a1a; padding-bottom: 4px; margin-bottom: 8px; }
+  .bank-box p { font-size: 10.5px; color: #333; line-height: 1.75; }
+  .notes-box { flex: 1; }
+  .notes-box h4 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #1a1a1a; border-bottom: 1px solid #1a1a1a; padding-bottom: 4px; margin-bottom: 8px; }
+  .notes-box p { font-size: 10.5px; color: #444; line-height: 1.75; }
+  .notes-box p::before { content: "• "; }
+
+  /* Footer */
+  .footer { margin-top: 20px; border-top: 1px solid #ddd; padding-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .footer .thank { font-size: 12px; font-weight: 700; color: #1a1a1a; }
+  .footer p { font-size: 10px; color: #888; margin-top: 3px; }
+
+  /* T&C */
+  .tnc { border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px 14px; margin-top: 20px; background: #fafafa; }
+  .tnc-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; color: #1a1a1a; }
   .tnc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
-  .tnc-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 10.5px; color: #333; line-height: 1.55; }
+  .tnc-item { display: flex; gap: 7px; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid #eee; font-size: 9.5px; color: #333; line-height: 1.5; }
   .tnc-item:last-child { border-bottom: none; }
-  .tnc-n { min-width: 18px; height: 18px; background: #1a1a2e; color: #f0c040; border-radius: 4px; font-size: 9px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-top: 1px; flex-shrink: 0; }
-  .tnc-item strong { font-size: 10.5px; font-weight: 700; color: #1a1a2e; }
-  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 20px; } }
+  .tnc-n { min-width: 16px; height: 16px; background: #1a1a1a; color: #f0c040; border-radius: 3px; font-size: 8px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-top: 1px; flex-shrink: 0; }
+  .tnc-item strong { font-weight: 700; color: #1a1a1a; }
+
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 20px 24px; } }
 </style>
 </head>
 <body>
 <div class="page">
 
+  <!-- Header -->
   <div class="header">
-    <div style="display:flex;align-items:center;gap:14px">
-      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="Topz Cab" style="width:72px;height:72px;object-fit:contain" />` : ''}
+    <div class="brand">
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="Topz Cab" style="width:60px;height:60px;object-fit:contain" />` : ''}
       <div>
         <div class="brand-name">TOPZ CAB</div>
         <div class="brand-tagline">Outstation &middot; Corporate &middot; Luxury Travel</div>
       </div>
     </div>
-    <div class="brand-contact">
+    <div class="header-contact">
       <strong>Topzcab</strong><br/>
       Conwood Paragon, 508/510, Opp. Indian Oil Petrol Pump,<br/>
-      Near Cama Industrial Estate, Goregaon East,<br/>
-      Mumbai, Maharashtra 400063<br/>
+      Near Cama Industrial Estate, Goregaon East, Mumbai 400063<br/>
       📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979<br/>
       ✉ topzonmove@gmail.com
     </div>
   </div>
 
+  <!-- Bill To + Quote Meta -->
   <div class="meta-row">
-    <div class="meta-box">
-      <h3>Bill To</h3>
-      <p><strong>${form.clientName}</strong></p>
-      ${form.clientPhone ? `<p>&#128222; ${form.clientPhone}</p>` : ''}
-      ${form.clientEmail ? `<p>&#9993; ${form.clientEmail}</p>` : ''}
+    <div class="bill-to">
+      <strong>${form.clientName}</strong><br/>
+      ${form.clientPhone ? `📞 ${form.clientPhone}<br/>` : ''}
+      ${form.clientEmail ? `✉ ${form.clientEmail}<br/>` : ''}
     </div>
-    <div class="meta-box quote-no-box">
-      <h3>Quotation</h3>
+    <div class="quote-meta">
       <div class="qno">${quoteNo}</div>
-      <div class="qdate">Date: ${today}</div>
+      Date: ${today}
     </div>
   </div>
 
-  <p class="section-title">Trip Details</p>
-  <div class="trip-grid">
-    ${tripRows}
-  </div>
-
-  <div class="vehicle-bar">
-    <div>
-      <div class="vname">${vehicle.name}</div>
-      <div class="vmeta">${vehicle.category} &middot; ${vehicle.seats} Seats &middot; &#x20B9;${vehicle.ratePerKm}/km</div>
-    </div>
-    <div style="text-align:right">
-      <div class="vrate">${fmt(isLocal ? vehicle.localRate : vehicle.perDayRate)}</div>
-      <div class="vrate-label">${isLocal ? '8hr / 80km package' : 'Per Day (300 km incl.)'}</div>
-    </div>
-  </div>
-
-  <p class="section-title">Price Breakdown</p>
+  <!-- Main Table -->
   <table>
-    <thead><tr><th>Description</th><th>Details</th><th>Amount</th></tr></thead>
-    <tbody>
-      ${pricingRows}
-      <tr class="total-row">
-        <td colspan="2">TOTAL AMOUNT</td>
-        <td>${fmt(totalAmount)}</td>
+    <thead>
+      <tr>
+        <th style="width:32px" class="c">SR.</th>
+        <th>DESCRIPTION</th>
+        <th class="r" style="width:90px">RATE</th>
+        <th class="c" style="width:50px">QTY</th>
+        <th class="r" style="width:90px">AMOUNT</th>
       </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="c">1</td>
+        <td>${descriptionHtml}</td>
+        <td class="r">${fmt(baseRate)}</td>
+        <td class="c">${qty}</td>
+        <td class="r">${fmt(baseCost)}</td>
+      </tr>
+      ${extraRows.join('\n')}
     </tbody>
   </table>
 
-  ${noteLines.length > 0 ? `<p class="section-title">Notes</p>
-  <div class="terms">
-    ${termsText}
-  </div>` : ''}
+  <!-- Totals -->
+  <table class="totals-table">
+    <tbody>
+      <tr><td class="label">Sub Total</td><td class="val">${fmt(totalAmount)}</td></tr>
+    </tbody>
+    <tr class="in-words"><td colspan="2">In words: <em>${numberToWords(totalAmount)}</em></td></tr>
+    <tbody>
+      <tr class="total-row"><td class="label">TOTAL</td><td class="val">${fmt(totalAmount)}</td></tr>
+    </tbody>
+  </table>
 
-  ${includeTnc ? `<p class="section-title" style="margin-top:20px;">Terms &amp; Conditions</p>
-  <div class="tnc">` : '<!--'}
-    <div class="tnc-cols">
-      <div class="tnc-col">
-        <div class="tnc-item"><span class="tnc-n">1</span><div><strong>Booking Confirmation</strong><br/>Booking confirmed only after advance payment. Provide complete trip details including pickup, date, time, destination &amp; passenger count.</div></div>
-        <div class="tnc-item"><span class="tnc-n">2</span><div><strong>Payment Policy</strong><br/>Advance required to confirm. Balance paid before or at journey start. Accepted: UPI, Bank Transfer, Cash.</div></div>
-        <div class="tnc-item"><span class="tnc-n">3</span><div><strong>Toll, Parking &amp; Taxes</strong><br/>Toll, parking, state taxes &amp; entry fees are extra unless marked "Included." Airport &amp; event parking borne by customer.</div></div>
-        <div class="tnc-item"><span class="tnc-n">4</span><div><strong>Extra KM &amp; Hour Charges</strong><br/>Extra km/hour charged per package. Duty starts and ends at agreed time. Garage-to-Garage (Malad to Malad) applicable unless stated.</div></div>
-        <div class="tnc-item"><span class="tnc-n">5</span><div><strong>Night Driver Allowance</strong><br/>DA applicable for late-night travel or multi-day trips as per company policy.</div></div>
-        <div class="tnc-item"><span class="tnc-n">6</span><div><strong>Waiting Charges</strong><br/>Waiting charges apply beyond the complimentary waiting period.</div></div>
-        <div class="tnc-item"><span class="tnc-n">7</span><div><strong>Cancellation Policy</strong><br/>Cancellation charges apply. Advance may be non-refundable during peak seasons, festivals, weekends or special events. Eligible refunds processed per standard policy.</div></div>
-        <div class="tnc-item"><span class="tnc-n">8</span><div><strong>Customer Responsibilities</strong><br/>Maintain cleanliness. Smoking, alcohol, illegal activities &amp; prohibited items are strictly prohibited. Damage caused by passengers will be charged.</div></div>
-      </div>
-      <div class="tnc-col">
-        <div class="tnc-item"><span class="tnc-n">9</span><div><strong>Driver &amp; Vehicle</strong><br/>All vehicles regularly serviced &amp; sanitized. Drivers are experienced, licensed &amp; verified. Customers must treat drivers respectfully.</div></div>
-        <div class="tnc-item"><span class="tnc-n">10</span><div><strong>Delays &amp; Force Majeure</strong><br/>TopzCab is not responsible for delays due to traffic, road closures, weather, strikes, natural disasters or circumstances beyond our control.</div></div>
-        <div class="tnc-item"><span class="tnc-n">11</span><div><strong>Passenger Belongings</strong><br/>Check belongings before leaving the vehicle. TopzCab is not liable for loss, theft or damage to personal belongings left inside.</div></div>
-        <div class="tnc-item"><span class="tnc-n">12</span><div><strong>Route &amp; Itinerary Changes</strong><br/>Changes in route, destination or itinerary after trip start may result in additional charges.</div></div>
-        <div class="tnc-item"><span class="tnc-n">13</span><div><strong>Safety</strong><br/>Seat belts must be worn. Follow all driver safety instructions. Drivers strictly follow all traffic rules &amp; regulations.</div></div>
-        <div class="tnc-item"><span class="tnc-n">14</span><div><strong>Liability</strong><br/>TopzCab's liability is limited to the booked transportation service. Not liable for missed flights, trains, meetings or consequential losses.</div></div>
-        <div class="tnc-item"><span class="tnc-n">15</span><div><strong>Acceptance</strong><br/>By confirming a booking, the customer acknowledges they have read, understood &amp; agreed to these Terms &amp; Conditions.</div></div>
-      </div>
+  <!-- Bank Details + Notes -->
+  <div class="bottom-row">
+    <div class="bank-box">
+      <h4>Bank Details</h4>
+      <p>
+        <strong>Account Holder:</strong> Krish Ketan Shah<br/>
+        <strong>Bank:</strong> Kotak Mahindra Bank<br/>
+        <strong>Account Type:</strong> Saving Account<br/>
+        <strong>Account No.:</strong> 06510120025723<br/>
+        <strong>IFSC:</strong> KKBK0000681<br/>
+        <strong>Branch:</strong> Andheri East
+      </p>
     </div>
+    ${noteLines.length > 0 ? `<div class="notes-box">
+      <h4>Notes</h4>
+      ${noteLines.map(l => `<p>${l}</p>`).join('\n      ')}
+    </div>` : ''}
   </div>
-  ${includeTnc ? '' : '-->'}
 
+  <!-- Footer -->
   <div class="footer">
     <div>
       <div class="thank">Thank you for choosing Topz Cab!</div>
-      <p style="margin-top:4px;">📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979</p>
-      <p style="margin-top:2px;">✉ topzonmove@gmail.com</p>
+      <p>📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979 &nbsp;|&nbsp; ✉ topzonmove@gmail.com</p>
     </div>
   </div>
+
+  <!-- T&C -->
+  ${includeTnc ? `<div class="tnc">
+    <div class="tnc-title">Terms &amp; Conditions</div>
+    <div class="tnc-cols">
+      <div>
+        <div class="tnc-item"><span class="tnc-n">1</span><div><strong>Booking Confirmation</strong><br/>Booking confirmed only after advance payment. Provide complete trip details including pickup, date, time, destination &amp; passenger count.</div></div>
+        <div class="tnc-item"><span class="tnc-n">2</span><div><strong>Payment Policy</strong><br/>Advance required to confirm. Balance paid before or at journey start. Accepted: UPI, Bank Transfer, Cash.</div></div>
+        <div class="tnc-item"><span class="tnc-n">3</span><div><strong>Toll, Parking &amp; Taxes</strong><br/>Toll, parking, state taxes &amp; entry fees are extra unless marked "Included."</div></div>
+        <div class="tnc-item"><span class="tnc-n">4</span><div><strong>Extra KM &amp; Hour Charges</strong><br/>Extra km/hour charged per package. Duty starts and ends at agreed time. Garage-to-Garage (Malad to Malad) applicable unless stated.</div></div>
+        <div class="tnc-item"><span class="tnc-n">5</span><div><strong>Night Driver Allowance</strong><br/>DA applicable for late-night travel or multi-day trips as per company policy.</div></div>
+        <div class="tnc-item"><span class="tnc-n">6</span><div><strong>Waiting Charges</strong><br/>Waiting charges apply beyond the complimentary waiting period.</div></div>
+        <div class="tnc-item"><span class="tnc-n">7</span><div><strong>Cancellation Policy</strong><br/>Cancellation charges apply. Advance may be non-refundable during peak seasons or special events.</div></div>
+        <div class="tnc-item"><span class="tnc-n">8</span><div><strong>Customer Responsibilities</strong><br/>Maintain cleanliness. Smoking, alcohol &amp; illegal activities strictly prohibited. Damage will be charged.</div></div>
+      </div>
+      <div>
+        <div class="tnc-item"><span class="tnc-n">9</span><div><strong>Driver &amp; Vehicle</strong><br/>All vehicles regularly serviced &amp; sanitized. Drivers are experienced, licensed &amp; verified.</div></div>
+        <div class="tnc-item"><span class="tnc-n">10</span><div><strong>Delays &amp; Force Majeure</strong><br/>TopzCab is not responsible for delays due to traffic, weather, strikes, or circumstances beyond our control.</div></div>
+        <div class="tnc-item"><span class="tnc-n">11</span><div><strong>Passenger Belongings</strong><br/>Check belongings before leaving the vehicle. TopzCab is not liable for loss or damage to personal belongings.</div></div>
+        <div class="tnc-item"><span class="tnc-n">12</span><div><strong>Route Changes</strong><br/>Changes in route or destination after trip start may result in additional charges.</div></div>
+        <div class="tnc-item"><span class="tnc-n">13</span><div><strong>Safety</strong><br/>Seat belts must be worn. Follow all driver safety instructions and traffic rules.</div></div>
+        <div class="tnc-item"><span class="tnc-n">14</span><div><strong>Liability</strong><br/>TopzCab's liability is limited to the booked transportation service only.</div></div>
+        <div class="tnc-item"><span class="tnc-n">15</span><div><strong>Acceptance</strong><br/>By confirming a booking, the customer agrees to these Terms &amp; Conditions.</div></div>
+      </div>
+    </div>
+  </div>` : ''}
 
 </div>
 <script>window.onload = () => { document.title = "${form.clientName} - Topz Cab Quotation"; window.print() }</script>
