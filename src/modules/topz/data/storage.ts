@@ -1,4 +1,5 @@
-const BASE = '/api/topz-'
+const Q = '/api/topz-quotations'
+const B = '/api/topz-bookings'
 
 export interface SavedQuotation {
   id: string
@@ -41,11 +42,8 @@ export interface Booking {
   supplier?: string
 }
 
-async function api<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  })
+async function call<T>(url: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts })
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
   return res.json()
 }
@@ -53,29 +51,29 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
 // ─── Quotations ───────────────────────────────────────────────────────────────
 
 export async function getQuotations(): Promise<SavedQuotation[]> {
-  return api<SavedQuotation[]>('/quotations')
+  return call<SavedQuotation[]>(Q)
 }
 
 export async function saveQuotation(q: SavedQuotation): Promise<void> {
-  await api('/quotations', { method: 'POST', body: JSON.stringify(q) })
+  await call(Q, { method: 'POST', body: JSON.stringify(q) })
 }
 
 export async function updateQuotationStatus(id: string, status: SavedQuotation['status']): Promise<void> {
-  await api(`/quotations?id=${encodeURIComponent(id)}&status=${encodeURIComponent(status)}`, { method: 'PUT' })
+  await call(`${Q}?id=${encodeURIComponent(id)}&status=${encodeURIComponent(status)}`, { method: 'PUT' })
 }
 
 export async function deleteQuotation(id: string): Promise<void> {
-  await api(`/quotations?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await call(`${Q}?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────
 
 export async function getBookings(): Promise<Booking[]> {
-  return api<Booking[]>('/bookings')
+  return call<Booking[]>(B)
 }
 
 export async function saveBooking(b: Booking): Promise<void> {
-  await api('/bookings', { method: 'POST', body: JSON.stringify(b) })
+  await call(B, { method: 'POST', body: JSON.stringify(b) })
 }
 
 export async function updateBooking(b: Booking): Promise<void> {
@@ -83,5 +81,5 @@ export async function updateBooking(b: Booking): Promise<void> {
 }
 
 export async function deleteBooking(id: string): Promise<void> {
-  await api(`/bookings?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await call(`${B}?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
