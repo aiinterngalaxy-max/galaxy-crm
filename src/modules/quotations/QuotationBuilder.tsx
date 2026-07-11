@@ -28,6 +28,7 @@ interface QuoteState {
   bhkType: string
   sectionDiscounts: Record<string, number>
   floorPlan: { data: string; mimeType: string; fileName: string } | null
+  extraFloorPlans: Array<{ data: string; mimeType: string; fileName: string }>
   floorPlanZones: FPZone[]
   rooms: QuoteRoom[]
   pdfAttachment: { data: string; fileName: string } | null
@@ -165,93 +166,45 @@ function ClientStep({ quote, onChange, customers, setCustomers }: {
   )
 }
 
-// ── PDF → PNG renderer ────────────────────────────────────────────────────────
-async function loadPdfLib() {
-  const pdfjsLib = await import('pdfjs-dist')
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
-  return pdfjsLib
-}
-
-async function renderPdfPageToPng(pdfDataUrl: string, pageNum: number): Promise<string> {
-  const pdfjsLib = await loadPdfLib()
-  // Strip data URL prefix and decode to binary
-  const base64 = pdfDataUrl.split(',')[1]
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
-  const page = await pdf.getPage(pageNum)
-  const scale = 2
-  const viewport = page.getViewport({ scale })
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  const ctx = canvas.getContext('2d')!
-  await page.render({ canvas, viewport }).promise
-  return canvas.toDataURL('image/png')
-}
-
-async function getPdfPageCount(pdfDataUrl: string): Promise<number> {
-  const pdfjsLib = await loadPdfLib()
-  const base64 = pdfDataUrl.split(',')[1]
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
-  return pdf.numPages
-}
-
 // ── Step: Floor Plan ───────────────────────────────────────────────────────────
 function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
-  const [pdfRendering, setPdfRendering] = useState(false)
-  const [pdfPageCount, setPdfPageCount] = useState(0)
-  const [pdfPage, setPdfPage] = useState(1)
-  // pdfSourceData holds the original PDF data URL so user can switch pages
-  const [pdfSourceData, setPdfSourceData] = useState<string | null>(null)
+  type FPImage = { data: string; mimeType: string; fileName: string }
 
-  const handleFile = (file: File) => {
-    if (!file) return
-    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf']
-    if (!allowed.includes(file.type)) { toast.error('Please upload a JPG, PNG, or PDF file.'); return }
-    if (file.size > 20 * 1024 * 1024) { toast.error('File too large (max 20MB)'); return }
-    const reader = new FileReader()
-    reader.onload = async e => {
-      const dataUrl = e.target!.result as string
-      if (file.type === 'application/pdf') {
-        setPdfRendering(true)
-        setPdfSourceData(dataUrl)
-        setPdfPage(1)
-        try {
-          const count = await getPdfPageCount(dataUrl)
-          setPdfPageCount(count)
-          const png = await renderPdfPageToPng(dataUrl, 1)
-          onChange({ ...quote, floorPlan: { data: png, mimeType: 'image/png', fileName: file.name }, floorPlanZones: [] })
-        } catch {
-          toast.error('Failed to render PDF')
-        } finally {
-          setPdfRendering(false)
+  const allImages: FPImage[] = quote.floorPlan
+    ? [quote.floorPlan, ...(quote.extraFloorPlans || [])]
+    : (quote.extraFloorPlans || [])
+
+  const addFiles = (files: FileList | null) => {
+    if (!files) return
+    const newImages: FPImage[] = []
+    let pending = files.length
+    Array.from(files).forEach(file => {
+      if (file.type !== 'image/png') { toast.error(`${file.name} is not a PNG — only PNG files are accepted`); pending--; return }
+      if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} is too large (max 20 MB)`); pending--; return }
+      const reader = new FileReader()
+      reader.onload = e => {
+        newImages.push({ data: e.target!.result as string, mimeType: 'image/png', fileName: file.name })
+        pending--
+        if (pending === 0) {
+          const combined = [...allImages, ...newImages]
+          onChange({ ...quote, floorPlan: combined[0], extraFloorPlans: combined.slice(1) })
         }
-      } else {
-        setPdfSourceData(null)
-        setPdfPageCount(0)
-        onChange({ ...quote, floorPlan: { data: dataUrl, mimeType: file.type, fileName: file.name }, floorPlanZones: [] })
       }
-    }
-    reader.readAsDataURL(file)
+      reader.readAsDataURL(file)
+    })
   }
 
-  const handlePageChange = async (newPage: number) => {
-    if (!pdfSourceData || newPage < 1 || newPage > pdfPageCount) return
-    setPdfRendering(true)
-    setPdfPage(newPage)
-    try {
-      const png = await renderPdfPageToPng(pdfSourceData, newPage)
-      onChange({ ...quote, floorPlan: { data: png, mimeType: 'image/png', fileName: quote.floorPlan!.fileName }, floorPlanZones: [] })
-    } catch {
-      toast.error('Failed to render page')
-    } finally {
-      setPdfRendering(false)
-    }
+  const switchActive = (idx: number) => {
+    if (idx === 0) return
+    const reordered = [...allImages]
+    const [picked] = reordered.splice(idx, 1)
+    reordered.unshift(picked)
+    onChange({ ...quote, floorPlan: reordered[0], extraFloorPlans: reordered.slice(1), floorPlanZones: [] })
+  }
+
+  const removeImage = (idx: number) => {
+    const updated = allImages.filter((_, i) => i !== idx)
+    onChange({ ...quote, floorPlan: updated[0] ?? null, extraFloorPlans: updated.slice(1), floorPlanZones: idx === 0 ? [] : quote.floorPlanZones })
   }
 
   const handleZonesChange = (zones: FPZone[]) => {
@@ -269,22 +222,22 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
     return (
       <div className="max-w-2xl mx-auto px-6 py-12">
         <div
-          onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+          onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files) }}
           onDragOver={e => e.preventDefault()}
           onClick={() => document.getElementById('fp-file-input')?.click()}
           className="rounded-2xl p-16 text-center cursor-pointer border-2 border-dashed border-gray-800 hover:border-indigo-700/50 transition-colors"
         >
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 bg-indigo-900/20 border border-indigo-800/30">
-            {pdfRendering ? <span className="animate-spin text-indigo-400 text-xl">⟳</span> : <Upload className="w-7 h-7 text-indigo-400" />}
+            <Upload className="w-7 h-7 text-indigo-400" />
           </div>
           <p className="text-lg font-bold text-gray-200 mb-2">Upload Floor Plan</p>
-          <p className="text-sm text-gray-500 mb-6">JPG, PNG, or PDF · Max 20MB</p>
-          <button type="button" className="px-8 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition-colors">Browse File</button>
-          <input id="fp-file-input" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden"
-            onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+          <p className="text-sm text-gray-500 mb-6">PNG only · Max 20 MB · Multiple files supported</p>
+          <button type="button" className="px-8 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition-colors">Browse Files</button>
+          <input id="fp-file-input" type="file" accept=".png" multiple className="hidden"
+            onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
         </div>
         <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-          {[['1', 'Upload floor plan (image or PDF)'], ['2', 'Draw zones around each room'], ['3', 'Drag products from sidebar into zones']].map(([step, text]) => (
+          {[['1', 'Upload PNG floor plan(s)'], ['2', 'Draw zones around each room'], ['3', 'Drag products from sidebar into zones']].map(([step, text]) => (
             <div key={step} className="px-3 py-4 rounded-2xl bg-gray-900 border border-gray-800">
               <div className="w-7 h-7 rounded-full flex items-center justify-center mx-auto mb-2 text-xs font-black bg-indigo-900/30 text-indigo-400 border border-indigo-800/30">{step}</div>
               <p className="text-xs text-gray-500">{text}</p>
@@ -308,36 +261,41 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
             <p className="text-[10px] text-gray-500">
               {(quote.floorPlanZones || []).length} zone{(quote.floorPlanZones || []).length !== 1 ? 's' : ''} drawn
               {(quote.floorPlanZones || []).length > 0 && ' · synced with Rooms tab'}
+              {allImages.length > 1 && ` · ${allImages.length} images`}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {pdfSourceData && pdfPageCount > 1 && (
-            <div className="flex items-center gap-1 text-xs text-gray-400 border border-gray-700 rounded-lg px-2 py-1">
-              <button onClick={() => handlePageChange(pdfPage - 1)} disabled={pdfPage <= 1 || pdfRendering}
-                className="px-1 disabled:opacity-40 hover:text-white transition-colors">‹</button>
-              <span>Page {pdfPage} / {pdfPageCount}</span>
-              <button onClick={() => handlePageChange(pdfPage + 1)} disabled={pdfPage >= pdfPageCount || pdfRendering}
-                className="px-1 disabled:opacity-40 hover:text-white transition-colors">›</button>
-            </div>
-          )}
           <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-400 border border-indigo-800/40 hover:bg-indigo-900/20 cursor-pointer transition-colors">
-            <Upload className="w-3.5 h-3.5" /> Replace
-            <input type="file" accept="image/*,.pdf" className="sr-only"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+            <Plus className="w-3.5 h-3.5" /> Add more
+            <input type="file" accept=".png" multiple className="sr-only"
+              onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </label>
-          <button onClick={() => { onChange({ ...quote, floorPlan: null, floorPlanZones: [] }); setPdfSourceData(null) }}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors" title="Remove floor plan">
+          <button onClick={() => onChange({ ...quote, floorPlan: null, extraFloorPlans: [], floorPlanZones: [] })}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-colors" title="Remove all floor plans">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
+
+      {allImages.length > 1 && (
+        <div className="flex gap-2 px-4 py-2 bg-gray-950 border-b border-gray-800 overflow-x-auto shrink-0">
+          {allImages.map((img, idx) => (
+            <div key={idx} className="relative shrink-0 group">
+              <button onClick={() => switchActive(idx)}
+                className={`block w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${idx === 0 ? 'border-indigo-500' : 'border-gray-700 hover:border-gray-500'}`}>
+                <img src={img.data} alt={img.fileName} className="w-full h-full object-cover" />
+              </button>
+              <button onClick={() => removeImage(idx)}
+                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex-1 overflow-hidden relative">
-        {pdfRendering && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-950/70">
-            <span className="text-indigo-400 text-sm animate-pulse">Rendering page…</span>
-          </div>
-        )}
         <FloorPlanEditor
           floorPlanData={quote.floorPlan.data}
           zones={quote.floorPlanZones || []}
@@ -713,6 +671,7 @@ export function QuotationBuilder() {
     bhkType:         '',
     sectionDiscounts: {},
     floorPlan:       null,
+    extraFloorPlans: [],
     floorPlanZones:  [],
     rooms:           [],
     pdfAttachment:   null,
@@ -743,8 +702,9 @@ export function QuotationBuilder() {
           bhkType:          data.bhkType || '',
           sectionDiscounts: data.sectionDiscounts || {},
           floorPlan:        data.floorPlanUrl
-            ? { data: data.floorPlanUrl, mimeType: 'image/jpeg', fileName: data.floorPlanFileName || 'floor-plan.jpg' }
+            ? { data: data.floorPlanUrl, mimeType: 'image/png', fileName: data.floorPlanFileName || 'floor-plan.png' }
             : null,
+          extraFloorPlans:  [],
           floorPlanZones:   data.floorPlanZones || [],
           rooms:            data.rooms || [],
           pdfAttachment:    null,
