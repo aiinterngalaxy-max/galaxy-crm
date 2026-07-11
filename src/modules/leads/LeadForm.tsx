@@ -28,6 +28,7 @@ const schema = z.object({
   projectType: z.string().optional(),
   propertySize: z.string().optional(),
   estimatedBudget: z.coerce.number().optional(),
+  tier: z.enum(['T1', 'T2', 'T3', 'T4', 'T5']).optional(),
   assignedTo: z.string().min(1, 'Assign to someone'),
   demoGiven: z.boolean().optional(),
   notes: z.string().optional(),
@@ -134,6 +135,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         projectType: data.projectType || null,
         propertySize: data.propertySize || null,
         estimatedBudget: data.estimatedBudget || null,
+        tier: data.tier || null,
         assignedTo: data.assignedTo,
         assignedToName: assignedUser?.name || null,
         partnerId: selectedPartner?.id || null,
@@ -250,7 +252,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Input label="Project Type" placeholder="Full home automation" {...register('projectType')} />
         <Input label="Property Size" placeholder="3BHK / 2000 sqft" {...register('propertySize')} />
         <Input
@@ -260,6 +262,20 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
           error={errors.estimatedBudget?.message}
           {...register('estimatedBudget')}
         />
+        <div>
+          <label className="form-label block mb-1">Tier</label>
+          <select
+            {...register('tier')}
+            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="">— Select —</option>
+            <option value="T1">T1</option>
+            <option value="T2">T2</option>
+            <option value="T3">T3</option>
+            <option value="T4">T4</option>
+            <option value="T5">T5</option>
+          </select>
+        </div>
       </div>
 
       <Input

@@ -198,7 +198,7 @@ function ActivitySubGrid({ leadId, canEdit }: { leadId: string; canEdit: boolean
   if (loading) {
     return (
       <tr>
-        <td colSpan={9} className="px-8 py-3 bg-gray-950">
+        <td colSpan={10} className="px-8 py-3 bg-gray-950">
           <div className="text-xs text-gray-600 animate-pulse">Loading activities…</div>
         </td>
       </tr>
@@ -279,7 +279,7 @@ function ActivitySubGrid({ leadId, canEdit }: { leadId: string; canEdit: boolean
 
       {/* Spacer */}
       <tr className="bg-gray-950">
-        <td colSpan={9} className="py-1" />
+        <td colSpan={10} className="py-1" />
       </tr>
     </>
   )
@@ -390,6 +390,25 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
           </span>
         </td>
 
+        {/* Tier */}
+        <td className="px-2 py-2 w-16 text-center">
+          <EditableCell
+            value={lead.tier ?? ''}
+            onSave={v => saveField('tier', v)}
+            type="select"
+            options={[
+              { value: '', label: '—' },
+              { value: 'T1', label: 'T1' },
+              { value: 'T2', label: 'T2' },
+              { value: 'T3', label: 'T3' },
+              { value: 'T4', label: 'T4' },
+              { value: 'T5', label: 'T5' },
+            ]}
+            readOnly={!canEdit}
+            className="text-xs font-semibold text-gold-400"
+          />
+        </td>
+
         {/* Assigned To */}
         <td className="px-2 py-2 min-w-[110px]">
           <EditableCell
@@ -435,6 +454,7 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
   const [source, setSource] = useState<LeadSource>('cold_call')
   const [status, setStatus] = useState<LeadStatus>('new')
   const [budget, setBudget] = useState('')
+  const [tier, setTier] = useState<'' | 'T1' | 'T2' | 'T3' | 'T4' | 'T5'>('')
   const [assignedToName, setAssignedToName] = useState('')
   const [saving, setSaving] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
@@ -445,7 +465,7 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
 
   const reset = () => {
     setName(''); setPhone(''); setSource('cold_call'); setStatus('new')
-    setBudget(''); setAssignedToName(''); setActive(false)
+    setBudget(''); setTier(''); setAssignedToName(''); setActive(false)
   }
 
   const save = async () => {
@@ -469,6 +489,7 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
         name: name.trim(),
         phone: normalizedPhone,
         estimatedBudget: budget ? Number(budget) : null,
+        tier: tier || null,
         assignedTo: user?.id ?? '',
         assignedToName: assignedToName.trim() || user?.name || null,
         aiScore,
@@ -500,7 +521,7 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
         className="border-t border-dashed border-gray-800 hover:bg-gray-800/20 cursor-pointer transition-colors"
         onClick={() => setActive(true)}
       >
-        <td colSpan={9} className="px-4 py-2.5 text-xs text-gray-600 hover:text-gray-400 transition-colors">
+        <td colSpan={10} className="px-4 py-2.5 text-xs text-gray-600 hover:text-gray-400 transition-colors">
           <span className="flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Add new lead…
           </span>
@@ -551,6 +572,18 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
       {/* Score — auto */}
       <td className="px-2 py-2 text-center text-xs text-gray-600">auto</td>
 
+      {/* Tier */}
+      <td className="px-2 py-2 w-16">
+        <select value={tier} onChange={e => setTier(e.target.value as typeof tier)} className={selectCls}>
+          <option value="">—</option>
+          <option value="T1">T1</option>
+          <option value="T2">T2</option>
+          <option value="T3">T3</option>
+          <option value="T4">T4</option>
+          <option value="T5">T5</option>
+        </select>
+      </td>
+
       {/* Assigned To */}
       <td className="px-2 py-2 min-w-[110px]">
         <input value={assignedToName} onChange={e => setAssignedToName(e.target.value)} onKeyDown={handleKeyDown}
@@ -600,7 +633,7 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
           <thead>
             <tr className="bg-gray-800/60 border-b border-gray-700">
               <th className="w-8 px-3 py-2.5" />
-              {['Name', 'Phone', 'Source', 'Status', 'Budget (₹)', 'Score', 'Assigned To', 'Date Added'].map(h => (
+              {['Name', 'Phone', 'Source', 'Status', 'Budget (₹)', 'Score', 'Tier', 'Assigned To', 'Date Added'].map(h => (
                 <th key={h} className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
@@ -611,7 +644,7 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
             <NewLeadRow canEdit={canEdit} />
             {leads.length === 0 && !loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-xs text-gray-600">
+                <td colSpan={10} className="px-4 py-8 text-center text-xs text-gray-600">
                   No leads match the current filters.
                 </td>
               </tr>

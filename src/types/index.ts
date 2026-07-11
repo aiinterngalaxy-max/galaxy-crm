@@ -92,6 +92,7 @@ export interface Lead {
   partnerName?: string
   convertedToCustomerId?: string
   floorPlanUrl?: string
+  tier?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5'
   demoGiven?: boolean
   notes?: string
   nextFollowUp?: Timestamp
