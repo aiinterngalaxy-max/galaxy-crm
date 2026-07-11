@@ -27,7 +27,7 @@ interface PrintArgs {
   overrideTotalAmount?: number
   includeTnc?: boolean
   selectedNotes?: Set<string>
-  discountPct?: number
+  finalAmount?: number
 }
 
 function fmtTime(t: string): string {
@@ -78,15 +78,15 @@ async function fetchBase64(path: string): Promise<string> {
 
 const getLogoBase64 = () => fetchBase64('/topz-logo.png')
 
-export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, discountPct = 0 }: PrintArgs) {
+export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount }: PrintArgs) {
   const has = (id: string) => !selectedNotes || selectedNotes.has(id)
   const [logoDataUrl, qrDataUrl] = await Promise.all([getLogoBase64(), fetchBase64('/topz-qr.png')])
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
   const beforeDiscount = baseAmount + nightExtra
-  const discountAmount = Math.round(beforeDiscount * discountPct / 100)
-  const totalAmount = beforeDiscount - discountAmount
+  const totalAmount = finalAmount ?? beforeDiscount
+  const discountAmount = beforeDiscount - totalAmount
 
   // Description block for the main table row
   const dutyType = isLocal
@@ -320,7 +320,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   <table class="totals-table">
     <tbody>
       <tr><td class="label">Sub Total</td><td class="val">${fmt(beforeDiscount)}</td></tr>
-      ${discountPct > 0 ? `<tr><td class="label" style="color:#c53030;">Discount (${discountPct}%)</td><td class="val" style="color:#c53030;">− ${fmt(discountAmount)}</td></tr>` : ''}
+      ${discountAmount > 0 ? `<tr><td class="label" style="color:#c53030;">Discount</td><td class="val" style="color:#c53030;">− ${fmt(discountAmount)}</td></tr>` : ''}
     </tbody>
     <tr class="in-words"><td colspan="2">In words: <em>${numberToWords(totalAmount)}</em></td></tr>
     <tbody>

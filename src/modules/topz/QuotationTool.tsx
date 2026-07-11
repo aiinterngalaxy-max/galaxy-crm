@@ -204,7 +204,7 @@ export function QuotationTool() {
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(
     new Set(['min_km', 'toll_extra'])
   )
-  const [discountPct, setDiscountPct] = useState(0)
+  const [finalAmount, setFinalAmount] = useState<number | ''>('')
 
   const vehicles = getVehicles()
 
@@ -229,8 +229,8 @@ export function QuotationTool() {
     ? pickupSurcharge(nightTier, selectedVehicle) + returnSurcharge(retTier, selectedVehicle)
     : 0
   const totalBeforeDiscount = baseTotal + nightExtra
-  const discountAmount = Math.round(totalBeforeDiscount * discountPct / 100)
-  const total = totalBeforeDiscount - discountAmount
+  const total = finalAmount !== '' ? finalAmount : totalBeforeDiscount
+  const discountAmount = totalBeforeDiscount - total
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
   const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
@@ -357,7 +357,7 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, discountPct })
+    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined })
   }
 
   async function handleWhatsApp() {
@@ -724,16 +724,15 @@ export function QuotationTool() {
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </button>
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold"
-                style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
-                <span>Disc.</span>
+                style={{ background: 'var(--glass-bg)', borderColor: finalAmount !== '' ? 'rgba(248,113,113,0.5)' : 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                <span>₹</span>
                 <input
-                  type="number" min={0} max={100} value={discountPct || ''}
-                  onChange={e => setDiscountPct(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                  placeholder="0"
-                  className="w-10 bg-transparent text-center outline-none font-bold"
-                  style={{ color: discountPct > 0 ? '#f87171' : 'var(--text-muted)' }}
+                  type="number" min={0} value={finalAmount}
+                  onChange={e => setFinalAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="Final amt"
+                  className="w-20 bg-transparent outline-none font-bold"
+                  style={{ color: finalAmount !== '' ? '#f87171' : 'var(--text-muted)' }}
                 />
-                <span>%</span>
               </div>
               <div className="flex items-center gap-2 relative">
                 <button onClick={() => setShowNotePicker(p => !p)}
@@ -821,9 +820,9 @@ export function QuotationTool() {
                     {localResult.extraKm > 0 && <Row label={`Extra km: ${localResult.extraKm} km × ₹${selectedVehicle.ratePerKm}/km`} value={fmt(localResult.extraKmCost)} />}
                   </>
                 )}
-                {discountPct > 0 && (
+                {finalAmount !== '' && discountAmount > 0 && (
                   <tr style={{ borderTop: '1px solid var(--glass-border)' }}>
-                    <td className="px-4 py-3 text-sm" style={{ color: '#f87171' }}>Discount ({discountPct}%)</td>
+                    <td className="px-4 py-3 text-sm" style={{ color: '#f87171' }}>Discount</td>
                     <td className="px-4 py-3 text-right font-semibold" style={{ color: '#f87171' }}>− {fmt(discountAmount)}</td>
                   </tr>
                 )}
