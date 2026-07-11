@@ -409,7 +409,10 @@ export function LeadsPage() {
                           <div className="font-medium text-gray-200">{lead.name}</div>
                           {lead.address && <div className="text-xs text-gray-500 truncate max-w-36">{lead.address}</div>}
                         </td>
-                        <td className="px-4 py-3 text-gray-400">{lead.phone}</td>
+                        <td className="px-4 py-3 text-gray-400">
+                          <span>{lead.phone}</span>
+                          {lead.tier && <span className="ml-1.5 text-[10px] font-semibold text-gold-400">({lead.tier})</span>}
+                        </td>
                         <td className="px-4 py-3 text-gray-400 capitalize">{lead.source?.replace('_', ' ')}</td>
                         <td className="px-4 py-3">
                           <Badge color={LEAD_STATUS_CONFIG[lead.status]?.color} bg={LEAD_STATUS_CONFIG[lead.status]?.bg}>
