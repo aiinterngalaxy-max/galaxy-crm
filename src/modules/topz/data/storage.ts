@@ -1,8 +1,4 @@
-import {
-  collection, doc, setDoc, deleteDoc, getDocs,
-  query, orderBy, Timestamp, serverTimestamp,
-} from 'firebase/firestore'
-import { dbTopz } from '../../../lib/firebaseTopz'
+const BASE = '/api/topz'
 
 export interface SavedQuotation {
   id: string
@@ -45,54 +41,41 @@ export interface Booking {
   supplier?: string
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function toISO(val: unknown): string {
-  if (!val) return new Date().toISOString()
-  if (val instanceof Timestamp) return val.toDate().toISOString()
-  return String(val)
+async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  })
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  return res.json()
 }
 
 // ─── Quotations ───────────────────────────────────────────────────────────────
 
-const quotesCol = () => collection(dbTopz, 'quotations')
-
 export async function getQuotations(): Promise<SavedQuotation[]> {
-  const snap = await getDocs(query(quotesCol(), orderBy('createdAt', 'desc')))
-  return snap.docs.map(d => {
-    const data = d.data()
-    return { ...data, id: d.id, createdAt: toISO(data.createdAt) } as SavedQuotation
-  })
+  return api<SavedQuotation[]>('/quotations')
 }
 
 export async function saveQuotation(q: SavedQuotation): Promise<void> {
-  const { id, ...rest } = q
-  await setDoc(doc(quotesCol(), id), { ...rest, createdAt: serverTimestamp() })
+  await api('/quotations', { method: 'POST', body: JSON.stringify(q) })
 }
 
 export async function updateQuotationStatus(id: string, status: SavedQuotation['status']): Promise<void> {
-  await setDoc(doc(quotesCol(), id), { status }, { merge: true })
+  await api(`/quotations?id=${encodeURIComponent(id)}&status=${encodeURIComponent(status)}`, { method: 'PUT' })
 }
 
 export async function deleteQuotation(id: string): Promise<void> {
-  await deleteDoc(doc(quotesCol(), id))
+  await api(`/quotations?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────
 
-const bookingsCol = () => collection(dbTopz, 'bookings')
-
 export async function getBookings(): Promise<Booking[]> {
-  const snap = await getDocs(query(bookingsCol(), orderBy('createdAt', 'desc')))
-  return snap.docs.map(d => {
-    const data = d.data()
-    return { ...data, id: d.id, createdAt: toISO(data.createdAt) } as Booking
-  })
+  return api<Booking[]>('/bookings')
 }
 
 export async function saveBooking(b: Booking): Promise<void> {
-  const { id, ...rest } = b
-  await setDoc(doc(bookingsCol(), id), { ...rest, createdAt: serverTimestamp() })
+  await api('/bookings', { method: 'POST', body: JSON.stringify(b) })
 }
 
 export async function updateBooking(b: Booking): Promise<void> {
@@ -100,5 +83,5 @@ export async function updateBooking(b: Booking): Promise<void> {
 }
 
 export async function deleteBooking(id: string): Promise<void> {
-  await deleteDoc(doc(bookingsCol(), id))
+  await api(`/bookings?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
