@@ -168,11 +168,21 @@ function ClientStep({ quote, onChange, customers, setCustomers }: {
 
 // ── Step: Floor Plan ───────────────────────────────────────────────────────────
 function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onChange: (q: QuoteState) => void; products: CRMProduct[] }) {
-  type FPImage = { data: string; mimeType: string; fileName: string }
+  type FPImage = { data: string; mimeType: string; fileName: string; zones?: FPZone[] }
 
+  // Snapshot of allImages where active image carries the live zones
   const allImages: FPImage[] = quote.floorPlan
-    ? [quote.floorPlan, ...(quote.extraFloorPlans || [])]
+    ? [{ ...quote.floorPlan, zones: quote.floorPlanZones || [] }, ...(quote.extraFloorPlans || [])]
     : (quote.extraFloorPlans || [])
+
+  const commit = (images: FPImage[]) => {
+    onChange({
+      ...quote,
+      floorPlan: images[0] ? { data: images[0].data, mimeType: images[0].mimeType, fileName: images[0].fileName } : null,
+      extraFloorPlans: images.slice(1).map(img => ({ data: img.data, mimeType: img.mimeType, fileName: img.fileName, zones: img.zones })),
+      floorPlanZones: images[0]?.zones || [],
+    })
+  }
 
   const addFiles = (files: FileList | null) => {
     if (!files) return
@@ -183,12 +193,9 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
       if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} is too large (max 20 MB)`); pending--; return }
       const reader = new FileReader()
       reader.onload = e => {
-        newImages.push({ data: e.target!.result as string, mimeType: 'image/png', fileName: file.name })
+        newImages.push({ data: e.target!.result as string, mimeType: 'image/png', fileName: file.name, zones: [] })
         pending--
-        if (pending === 0) {
-          const combined = [...allImages, ...newImages]
-          onChange({ ...quote, floorPlan: combined[0], extraFloorPlans: combined.slice(1) })
-        }
+        if (pending === 0) commit([...allImages, ...newImages])
       }
       reader.readAsDataURL(file)
     })
@@ -199,12 +206,11 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
     const reordered = [...allImages]
     const [picked] = reordered.splice(idx, 1)
     reordered.unshift(picked)
-    onChange({ ...quote, floorPlan: reordered[0], extraFloorPlans: reordered.slice(1), floorPlanZones: [] })
+    commit(reordered)
   }
 
   const removeImage = (idx: number) => {
-    const updated = allImages.filter((_, i) => i !== idx)
-    onChange({ ...quote, floorPlan: updated[0] ?? null, extraFloorPlans: updated.slice(1), floorPlanZones: idx === 0 ? [] : quote.floorPlanZones })
+    commit(allImages.filter((_, i) => i !== idx))
   }
 
   const handleZonesChange = (zones: FPZone[]) => {
