@@ -334,13 +334,18 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
         </td>
 
         {/* Phone */}
-        <td className="px-2 py-2 min-w-[120px]">
-          <EditableCell
-            value={lead.phone}
-            onSave={v => saveField('phone', v)}
-            readOnly={!canEdit}
-            className="text-xs"
-          />
+        <td className="px-2 py-2 min-w-[140px]">
+          <div className="flex items-center gap-1">
+            <EditableCell
+              value={lead.phone}
+              onSave={v => saveField('phone', v)}
+              readOnly={!canEdit}
+              className="text-xs"
+            />
+            {lead.tier && (
+              <span className="text-[10px] font-semibold text-gold-400 shrink-0">({lead.tier})</span>
+            )}
+          </div>
         </td>
 
         {/* Source */}
