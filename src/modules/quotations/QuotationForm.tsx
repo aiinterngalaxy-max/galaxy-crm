@@ -197,7 +197,7 @@ export function QuotationForm({ onSuccess, onCancel, customerId, leadId }: Quota
         customerName: customer?.name || '',
         leadId: leadId || null,
         version: 1,
-        status: total >= 200000 ? 'pending_approval' : 'draft',
+        status: 'draft',
         assignedPM: user?.id,
         assignedPMName: user?.name,
         validUntil,

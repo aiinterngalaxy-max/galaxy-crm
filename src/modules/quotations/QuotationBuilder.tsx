@@ -657,9 +657,6 @@ function SummaryStep({ quote, pricing, saving, onSave, onPdfChange, customers, p
             🗺 Download Floor Plan PDF
           </button>
         )}
-        {pricing.grandSubtotal >= 200000 && (
-          <p className="text-xs text-yellow-400">⚠ Value ≥ ₹2L — will require management approval</p>
-        )}
       </div>
       {!canSave && <p className="text-xs text-yellow-500">Complete the required fields before saving.</p>}
     </div>
@@ -796,7 +793,7 @@ export function QuotationBuilder() {
         lineTotal:   item.amount,
       }))
 
-      const status = pricing.grandSubtotal >= 200000 ? 'pending_approval' : 'draft'
+      const status = 'draft'
 
       const payload = {
         customerId:         quote.customerId,
@@ -846,30 +843,7 @@ export function QuotationBuilder() {
           await upd(d(db, 'customers', quote.customerId), { quotationIds: arrayUnion(quotationRef.id), updatedAt: serverTimestamp() })
         }
 
-        // Notify all super_admin + management users when approval is needed
-        if (status === 'pending_approval') {
-          try {
-            const usersSnap = await getDocs(collection(db, 'users'))
-            const managers = usersSnap.docs.filter(d => ['super_admin', 'management'].includes(d.data().role))
-            await Promise.all(managers.map(m =>
-              addDoc(collection(db, 'notifications'), {
-                recipientId:       m.id,
-                type:              'quotation_approval',
-                title:             'Quotation Needs Approval',
-                body:              `${user?.name || 'Someone'} submitted a quotation for ${quote.customerName} worth ₹${pricing.grandSubtotal.toLocaleString('en-IN')} — needs your approval.`,
-                relatedEntityType: 'quotation',
-                relatedEntityId:   quotationRef.id,
-                isRead:            false,
-                createdAt:         serverTimestamp(),
-              })
-            ))
-          } catch (notifErr) {
-            console.warn('Failed to send approval notification:', notifErr)
-          }
-          toast.success('Quotation sent for management approval (value > ₹2L)')
-        } else {
-          toast.success('Quotation saved as draft')
-        }
+        toast.success('Quotation saved')
       }
 
       navigate('/quotations')

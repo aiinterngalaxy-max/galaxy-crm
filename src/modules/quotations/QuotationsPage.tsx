@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, FolderPlus, CheckCircle2, Eye, Send, ThumbsUp, Trash2 } from 'lucide-react'
+import { Plus, Search, FileText, FolderPlus, Eye, ThumbsUp, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
@@ -24,7 +24,6 @@ export function QuotationsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [creatingProject, setCreatingProject] = useState<string | null>(null)
-  const [notifying, setNotifying] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   async function handleDelete(id: string, e: React.MouseEvent) {
@@ -38,7 +37,6 @@ export function QuotationsPage() {
   }
 
   const canCreate = ['super_admin', 'management', 'dept_head', 'bd_exec', 'project_manager'].includes(role || '')
-  const canApprove = isManagement
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -62,48 +60,6 @@ export function QuotationsPage() {
       toast.success('Marked as client accepted')
     } catch {
       toast.error('Failed to update status')
-    }
-  }
-
-  const approveQuotation = async (q: Quotation, e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      await updateDoc(doc(db, 'quotations', q.id), {
-        status: 'approved',
-        approvedBy: user?.id,
-        approvedByName: user?.name,
-        approvedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-      toast.success('Quotation approved')
-    } catch {
-      toast.error('Approval failed')
-    }
-  }
-
-  const notifyApprovers = async (q: Quotation, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setNotifying(q.id)
-    try {
-      const usersSnap = await getDocs(collection(db, 'users'))
-      const managers = usersSnap.docs.filter(d => ['super_admin', 'management'].includes(d.data().role))
-      await Promise.all(managers.map(m =>
-        addDoc(collection(db, 'notifications'), {
-          recipientId:       m.id,
-          type:              'quotation_approval',
-          title:             'Quotation Needs Approval',
-          body:              `${q.assignedPMName || 'Someone'} is requesting approval for quotation ${q.quotationCode} (${q.customerName}) worth ${formatCurrency(q.total)}.`,
-          relatedEntityType: 'quotation',
-          relatedEntityId:   q.id,
-          isRead:            false,
-          createdAt:         serverTimestamp(),
-        })
-      ))
-      toast.success('Approval request sent to management')
-    } catch {
-      toast.error('Failed to send notification')
-    } finally {
-      setNotifying(null)
     }
   }
 
@@ -206,7 +162,6 @@ export function QuotationsPage() {
 
   const totalSent = quotations.filter(q => q.status === 'sent_to_customer' || q.status === 'customer_approved')
   const totalApproved = quotations.filter(q => q.status === 'approved' || q.status === 'customer_approved')
-  const pendingApproval = quotations.filter(q => q.status === 'pending_approval')
 
   return (
     <div className="space-y-5">
@@ -214,7 +169,7 @@ export function QuotationsPage() {
         <div>
           <h1 className="page-title">Quotations</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {quotations.length} total · {pendingApproval.length} pending approval · {totalApproved.length} approved
+            {quotations.length} total · {totalApproved.length} approved
           </p>
         </div>
         {canCreate && (
@@ -228,8 +183,8 @@ export function QuotationsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total', value: quotations.length },
+          { label: 'Sent', value: totalSent.length },
           { label: 'Approved', value: totalApproved.length },
-          { label: 'Pending Approval', value: pendingApproval.length, highlight: pendingApproval.length > 0 },
           { label: 'Approved Value', value: formatCurrency(totalApproved.reduce((s, q) => s + q.total, 0)) },
         ].map(s => (
           <Card key={s.label} padding="sm" className={s.highlight ? 'border-yellow-800/50' : ''}>
@@ -258,7 +213,6 @@ export function QuotationsPage() {
           {filtered.map((q, idx) => {
             const cfg = QUOTATION_STATUS_CONFIG[q.status]
             const isApproved = q.status === 'approved' || q.status === 'customer_approved'
-            const isPending = q.status === 'pending_approval'
             const isDraft = q.status === 'draft'
             const hasProject = !!q.projectId
             const isCustomerApproved = q.status === 'customer_approved'
@@ -299,22 +253,7 @@ export function QuotationsPage() {
 
                 {/* Action buttons */}
                 <div data-tour="quotation-actions" className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-                  {isPending && !canApprove && (
-                    <Button size="sm" variant="warning"
-                      icon={<Send className="w-3.5 h-3.5" />}
-                      loading={notifying === q.id}
-                      onClick={e => notifyApprovers(q, e)}>
-                      Remind
-                    </Button>
-                  )}
-                  {(isPending || isDraft) && canApprove && (
-                    <Button size="sm" variant="success"
-                      icon={<CheckCircle2 className="w-3.5 h-3.5" />}
-                      onClick={e => approveQuotation(q, e)}>
-                      Approve
-                    </Button>
-                  )}
-                  {!hasProject && isApproved && canCreate && (
+                  {!hasProject && (isApproved || isDraft) && canCreate && (
                     <Button size="sm" variant="success"
                       icon={<FolderPlus className="w-3.5 h-3.5" />}
                       loading={creatingProject === q.id}
