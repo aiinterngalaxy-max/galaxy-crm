@@ -315,10 +315,6 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
       <p style="margin-top:4px;">📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979</p>
       <p style="margin-top:2px;">✉ topzonmove@gmail.com</p>
     </div>
-    <div style="text-align:right">
-      <p>Authorised Signature</p>
-      <div style="margin-top:28px; border-top:1px solid #ccc; padding-top:4px; min-width:120px; font-size:11px; color:#999;">Topzcab</div>
-    </div>
   </div>
 
 </div>
