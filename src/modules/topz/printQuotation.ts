@@ -63,9 +63,9 @@ function numberToWords(n: number): string {
   return helper(n).trim() + ' Rupees Only'
 }
 
-async function getLogoBase64(): Promise<string> {
+async function fetchBase64(path: string): Promise<string> {
   try {
-    const res = await fetch('/topz-logo.png')
+    const res = await fetch(path)
     const blob = await res.blob()
     return await new Promise(resolve => {
       const reader = new FileReader()
@@ -75,9 +75,11 @@ async function getLogoBase64(): Promise<string> {
   } catch { return '' }
 }
 
+const getLogoBase64 = () => fetchBase64('/topz-logo.png')
+
 export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes }: PrintArgs) {
   const has = (id: string) => !selectedNotes || selectedNotes.has(id)
-  const logoDataUrl = await getLogoBase64()
+  const [logoDataUrl, qrDataUrl] = await Promise.all([getLogoBase64(), fetchBase64('/topz-qr.png')])
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
   const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
@@ -324,14 +326,21 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   <div class="bottom-row">
     <div class="bank-box">
       <h4>Bank Details</h4>
-      <p>
-        <strong>Account Holder:</strong> Krish Ketan Shah<br/>
-        <strong>Bank:</strong> Kotak Mahindra Bank<br/>
-        <strong>Account Type:</strong> Saving Account<br/>
-        <strong>Account No.:</strong> 06510120025723<br/>
-        <strong>IFSC:</strong> KKBK0000681<br/>
-        <strong>Branch:</strong> Andheri East
-      </p>
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <p>
+          <strong>Account Holder:</strong> Krish Ketan Shah<br/>
+          <strong>Bank:</strong> Kotak Mahindra Bank<br/>
+          <strong>Account Type:</strong> Saving Account<br/>
+          <strong>Account No.:</strong> 06510120025723<br/>
+          <strong>IFSC:</strong> KKBK0000681<br/>
+          <strong>Branch:</strong> Andheri East<br/>
+          <strong>UPI:</strong> shahkrish2003@oksbi
+        </p>
+        ${qrDataUrl ? `<div style="text-align:center;flex-shrink:0">
+          <img src="${qrDataUrl}" style="width:90px;height:90px;object-fit:contain;display:block" />
+          <span style="font-size:8.5px;color:#777">Scan to pay</span>
+        </div>` : ''}
+      </div>
     </div>
     ${noteLines.length > 0 ? `<div class="notes-box">
       <h4>Notes</h4>
