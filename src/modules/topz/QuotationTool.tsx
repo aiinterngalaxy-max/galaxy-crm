@@ -202,7 +202,7 @@ export function QuotationTool() {
   const [includeTnc, setIncludeTnc] = useState(false)
   const [showNotePicker, setShowNotePicker] = useState(false)
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(
-    new Set(['min_km', 'extra_km', 'valid', 'advance', 'toll', 'one_way'])
+    new Set(['min_km', 'toll_extra'])
   )
 
   const vehicles = getVehicles()
@@ -741,13 +741,16 @@ export function QuotationTool() {
                     style={{ background: 'var(--sidebar-bg)', border: '1px solid var(--glass-border)' }}>
                     <p className="text-xs font-bold mb-2" style={{ color: 'var(--text-base)' }}>Notes in PDF</p>
                     {[
-                      { id: 'min_km',    label: 'Minimum km per day + extra km rate' },
-                      { id: 'one_way',   label: 'One-way / Round trip fare note' },
-                      { id: 'toll',      label: 'Tolls, parking & taxes extra' },
-                      { id: 'valid',     label: 'Quotation valid for 7 days' },
-                      { id: 'advance',   label: '50% advance to confirm booking' },
-                      { id: 'waiting',   label: 'Waiting charges apply' },
-                      { id: 'inclusive', label: 'All-inclusive — no extras' },
+                      { id: 'min_km',      label: 'Minimum km per day + extra km rate' },
+                      { id: 'toll_extra',  label: 'Toll, parking & taxes extra' },
+                      { id: 'toll_incl',   label: 'Toll included, only parking extra' },
+                      { id: 'atal_setu',   label: 'Atal Setu toll extra' },
+                      { id: 'border_tax',  label: 'Border / interstate tax extra' },
+                      { id: 'valid',       label: 'Quotation valid for 3 days' },
+                      { id: 'advance',     label: '25% advance to confirm booking' },
+                      { id: 'ref_image',   label: 'Vehicle images for reference only' },
+                      { id: 'inclusive',   label: 'All-inclusive — no extras' },
+                      { id: 'cancel',      label: 'Cancellation policy applies' },
                     ].map(n => (
                       <label key={n.id} className="flex items-center gap-2.5 cursor-pointer group">
                         <input type="checkbox"

@@ -170,16 +170,18 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   const noteLines: string[] = []
   if (isLocal) {
     if (has('min_km')) noteLines.push(`Local package includes 8 hours and 80 km. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
-    if (has('waiting')) noteLines.push('Waiting charges apply beyond 8 hours at actuals.')
   } else {
     if (has('min_km')) noteLines.push(`Minimum ${vehicle.minKmPerDay} km per day applies. Extra km charged at &#x20B9;${vehicle.ratePerKm}/km.`)
-    if (has('one_way')) noteLines.push('One-way fare only.')
   }
-  if (has('toll')) noteLines.push('Tolls, parking charges, and state taxes are extra unless specified.')
-  if (has('inclusive')) noteLines.push('All-inclusive fare — no additional charges.')
-  if (has('valid')) noteLines.push('This quotation is valid for 7 days from the date of issue.')
-  if (has('advance')) noteLines.push('50% advance required to confirm booking. Balance to be paid before departure.')
-  if (has('waiting') && !isLocal) noteLines.push('Waiting charges apply beyond the complimentary waiting period.')
+  if (has('toll_extra')) noteLines.push('Toll charges, parking fees, and state taxes are extra and will be charged at actuals.')
+  if (has('toll_incl')) noteLines.push('Toll charges are included in the fare. Parking fees are extra and will be charged at actuals.')
+  if (has('atal_setu')) noteLines.push('Atal Setu (Sea Link) toll charges are extra and will be borne by the client.')
+  if (has('border_tax')) noteLines.push('Interstate border / entry tax is extra and will be charged at actuals.')
+  if (has('valid')) noteLines.push('This quotation is valid for 3 days from the date of issue.')
+  if (has('advance')) noteLines.push('25% advance payment required to confirm the booking. Balance to be paid before departure.')
+  if (has('ref_image')) noteLines.push('Vehicle images shown are for reference only. Actual vehicle may vary subject to availability.')
+  if (has('inclusive')) noteLines.push('All-inclusive fare — no additional charges applicable.')
+  if (has('cancel')) noteLines.push('Cancellation policy applies. Advance paid may be non-refundable upon cancellation.')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
