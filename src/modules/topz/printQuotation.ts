@@ -227,10 +227,12 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
       </div>
     </div>
     <div class="brand-contact">
-      <strong>Topz Cab Services</strong><br/>
-      Pune, Maharashtra<br/>
-      Contact details coming soon<br/>
-      GST: Applied as per norms
+      <strong>Topzcab</strong><br/>
+      Conwood Paragon, 508/510, Opp. Indian Oil Petrol Pump,<br/>
+      Near Cama Industrial Estate, Goregaon East,<br/>
+      Mumbai, Maharashtra 400063<br/>
+      📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979<br/>
+      ✉ topzonmove@gmail.com
     </div>
   </div>
 
@@ -310,11 +312,12 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   <div class="footer">
     <div>
       <div class="thank">Thank you for choosing Topz Cab!</div>
-      <p style="margin-top:4px;">For queries: Contact your booking agent</p>
+      <p style="margin-top:4px;">📞 +91 77188 82898 &nbsp;|&nbsp; +91 98192 68979</p>
+      <p style="margin-top:2px;">✉ topzonmove@gmail.com</p>
     </div>
     <div style="text-align:right">
       <p>Authorised Signature</p>
-      <div style="margin-top:28px; border-top:1px solid #ccc; padding-top:4px; min-width:120px; font-size:11px; color:#999;">Topz Cab Services</div>
+      <div style="margin-top:28px; border-top:1px solid #ccc; padding-top:4px; min-width:120px; font-size:11px; color:#999;">Topzcab</div>
     </div>
   </div>
 
