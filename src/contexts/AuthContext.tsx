@@ -3,6 +3,8 @@ import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore'
 import { auth, db, isFirebaseConfigured } from '../lib/firebase'
 import type { User, UserRole } from '../types'
+import type { RolePermissionsMap } from '../modules/settings/RolePermissionsTab'
+import { loadRolePermissions } from '../modules/settings/RolePermissionsTab'
 
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null
@@ -11,6 +13,7 @@ interface AuthContextValue {
   loading: boolean
   isManagement: boolean
   isAdmin: boolean
+  rolePermissions: RolePermissionsMap | null
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -20,12 +23,18 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   isManagement: false,
   isAdmin: false,
+  rolePermissions: null,
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [rolePermissions, setRolePermissions] = useState<RolePermissionsMap | null>(null)
+
+  useEffect(() => {
+    loadRolePermissions().then(setRolePermissions).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
@@ -96,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'super_admin'
 
   return (
-    <AuthContext.Provider value={{ firebaseUser, user, role, loading, isManagement, isAdmin }}>
+    <AuthContext.Provider value={{ firebaseUser, user, role, loading, isManagement, isAdmin, rolePermissions }}>
       {children}
     </AuthContext.Provider>
   )

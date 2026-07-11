@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Palette } from 'lucide-react'
 import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
+import { RolePermissionsTab } from './RolePermissionsTab'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -36,7 +37,7 @@ const DEPT_OPTIONS: { value: Department; label: string }[] = [
   { value: 'ai_department', label: 'AI Department' },
 ]
 
-type Tab = 'users' | 'products' | 'system'
+type Tab = 'users' | 'products' | 'permissions' | 'system'
 
 const THEMES: { id: AppTheme; label: string; desc: string; preview: { bg: string; card: string; border: string; orb1?: string; orb2?: string; text: string; textMuted: string } }[] = [
   {
@@ -238,7 +239,8 @@ export function SettingsPage() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'users', label: 'Team Members', icon: <Users className="w-4 h-4" /> },
     { id: 'products', label: 'Product Catalog', icon: <Package className="w-4 h-4" /> },
-    { id: 'system', label: 'System', icon: <Shield className="w-4 h-4" /> },
+    { id: 'permissions', label: 'Permissions', icon: <Shield className="w-4 h-4" /> },
+    { id: 'system', label: 'System', icon: <Zap className="w-4 h-4" /> },
   ]
 
   return (
@@ -445,6 +447,9 @@ export function SettingsPage() {
 
       {/* Products Tab */}
       {tab === 'products' && <ProductCatalogTab />}
+
+      {/* Permissions Tab */}
+      {tab === 'permissions' && <RolePermissionsTab />}
 
       {/* System Tab */}
       {tab === 'system' && (

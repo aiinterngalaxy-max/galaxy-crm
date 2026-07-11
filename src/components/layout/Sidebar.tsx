@@ -65,9 +65,16 @@ export function Sidebar({ collapsed = false, onNavClick }: SidebarProps) {
     return location.pathname.startsWith('/inventory') ? ['/inventory'] : []
   })
 
+  const { rolePermissions } = useAuth()
+
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!role) return false
+    if (role === 'super_admin') return true
     if (item.module === 'dashboard') return true
+    // Use custom permissions from Firestore if available, else fall back to hardcoded
+    if (rolePermissions && rolePermissions[role]) {
+      return rolePermissions[role].includes(item.module)
+    }
     return canAccess(role, item.module)
   })
 
