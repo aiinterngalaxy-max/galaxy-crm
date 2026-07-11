@@ -193,9 +193,21 @@ function FloorPlanStep({ quote, onChange, products }: { quote: QuoteState; onCha
       if (file.size > 20 * 1024 * 1024) { toast.error(`${file.name} is too large (max 20 MB)`); pending--; return }
       const reader = new FileReader()
       reader.onload = e => {
-        newImages.push({ data: e.target!.result as string, mimeType: 'image/png', fileName: file.name, zones: [] })
-        pending--
-        if (pending === 0) commit([...allImages, ...newImages])
+        const raw = e.target!.result as string
+        // Resize to max 1500px so base64 stays under Firestore's 1MB limit
+        const img = new Image()
+        img.onload = () => {
+          const MAX = 1500
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.round(img.width * scale)
+          canvas.height = Math.round(img.height * scale)
+          canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+          newImages.push({ data: canvas.toDataURL('image/png'), mimeType: 'image/png', fileName: file.name, zones: [] })
+          pending--
+          if (pending === 0) commit([...allImages, ...newImages])
+        }
+        img.src = raw
       }
       reader.readAsDataURL(file)
     })
