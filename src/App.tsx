@@ -82,9 +82,16 @@ function RequireRole({
   children: React.ReactNode
   module: string
 }) {
-  const { role } = useAuth()
+  const { role, rolePermissions } = useAuth()
   if (!role) return <PageLoader />
-  const allowed = ['super_admin', 'management', 'ai_team'].includes(role) || canAccess(role as UserRole, module)
+  // Mirror the Sidebar's visibility logic so the guard and the nav can never
+  // disagree: prefer the custom Firestore role permissions, fall back to the
+  // hardcoded defaults only when no custom permissions are configured.
+  const allowed =
+    role === 'super_admin' ||
+    (rolePermissions && rolePermissions[role]
+      ? rolePermissions[role].includes(module)
+      : canAccess(role as UserRole, module))
   if (!allowed) return <Navigate to="/" replace />
   return <>{children}</>
 }
