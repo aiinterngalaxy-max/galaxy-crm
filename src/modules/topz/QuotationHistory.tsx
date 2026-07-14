@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil } from 'lucide-react'
-import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, type SavedQuotation } from './data/storage'
+import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, TOPZ_TEAM, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { printQuotation } from './printQuotation'
 import toast from 'react-hot-toast'
@@ -35,6 +35,7 @@ export function QuotationHistory() {
   const [filter, setFilter] = useState<'all' | SavedQuotation['status']>('all')
   const [convertTarget, setConvertTarget] = useState<SavedQuotation | null>(null)
   const [supplierName, setSupplierName] = useState('')
+  const [takenBy, setTakenBy] = useState('')
   const [converting, setConverting] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -113,12 +114,14 @@ export function QuotationHistory() {
         tripType: convertTarget.tripType,
         supplier: supplierName.trim(),
         commission: 0,
+        takenBy,
       })
       await updateQuotationStatus(convertTarget.id, 'converted')
       refresh()
       toast.success('Booking created!')
       setConvertTarget(null)
       setSupplierName('')
+      setTakenBy('')
     } catch { toast.error('Failed to convert') }
     finally { setConverting(false) }
   }
@@ -232,7 +235,7 @@ export function QuotationHistory() {
                                     </button>
                                   )}
                                   {q.status !== 'converted' && (
-                                    <button onClick={() => { setConvertTarget(q); setSupplierName('') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
+                                    <button onClick={() => { setConvertTarget(q); setSupplierName(''); setTakenBy('') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
                                       <CheckCircle className="w-3.5 h-3.5" />
                                     </button>
                                   )}
@@ -288,6 +291,18 @@ export function QuotationHistory() {
                 onKeyDown={e => e.key === 'Enter' && doConvert()}
                 autoFocus
               />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>Taken By</label>
+              <select
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', color: 'var(--text-base)' }}
+                value={takenBy}
+                onChange={e => setTakenBy(e.target.value)}
+              >
+                <option value="">—</option>
+                {TOPZ_TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
             </div>
             <div className="flex gap-2 pt-1">
               <button onClick={() => setConvertTarget(null)}

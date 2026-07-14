@@ -1,6 +1,8 @@
 const Q = '/api/topz-quotations'
 const B = '/api/topz-bookings'
 
+export const TOPZ_TEAM = ['Smita', 'Amisha', 'Bharti'] as const
+
 export interface SavedQuotation {
   id: string
   quoteNo: string
@@ -42,6 +44,8 @@ export interface Booking {
   supplier?: string
   /** Profit/loss on this booking in ₹. Positive = profit, negative = loss. */
   commission: number
+  /** Which team member took/handled this booking. */
+  takenBy?: string
 }
 
 async function call<T>(url: string, opts?: RequestInit): Promise<T> {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trash2, CalendarCheck, Loader2, Banknote, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { getBookings, saveBooking, deleteBooking, type Booking } from './data/storage'
+import { getBookings, saveBooking, deleteBooking, TOPZ_TEAM, type Booking } from './data/storage'
 import toast from 'react-hot-toast'
 
 const STATUS_CONFIG: Record<Booking['status'], { label: string; color: string; bg: string }> = {
@@ -32,6 +32,7 @@ export function Bookings() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | Booking['status']>('all')
+  const [takenByFilter, setTakenByFilter] = useState<'all' | typeof TOPZ_TEAM[number]>('all')
   const [paymentModal, setPaymentModal] = useState<{ booking: Booking; amount: string } | null>(null)
   const [commissionModal, setCommissionModal] = useState<{ booking: Booking; value: string } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -49,6 +50,13 @@ export function Bookings() {
     const b = bookings.find(x => x.id === id)
     if (!b) return
     try { await saveBooking({ ...b, status }); refresh() }
+    catch { toast.error('Failed to update') }
+  }
+
+  async function handleTakenBy(id: string, takenBy: string) {
+    const b = bookings.find(x => x.id === id)
+    if (!b) return
+    try { await saveBooking({ ...b, takenBy }); refresh() }
     catch { toast.error('Failed to update') }
   }
 
@@ -83,7 +91,9 @@ export function Bookings() {
     } catch { toast.error('Failed to update') }
   }
 
-  const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
+  const filtered = bookings
+    .filter(b => filter === 'all' || b.status === filter)
+    .filter(b => takenByFilter === 'all' || b.takenBy === takenByFilter)
   const groups = groupByMonth(filtered)
   const counts = (Object.keys(STATUS_CONFIG) as Booking['status'][]).reduce(
     (a, k) => ({ ...a, [k]: bookings.filter(b => b.status === k).length }), {} as Record<string, number>
@@ -125,6 +135,20 @@ export function Bookings() {
             style={{ background: cfg.bg, border: `1.5px solid ${filter === status ? cfg.color : cfg.color + '30'}` }}>
             <p className="text-lg font-bold" style={{ color: cfg.color }}>{counts[status] ?? 0}</p>
             <p className="text-xs mt-0.5" style={{ color: cfg.color }}>{cfg.label}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Taken by filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Taken by:</span>
+        {(['all', ...TOPZ_TEAM] as const).map(name => (
+          <button key={name} onClick={() => setTakenByFilter(name)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+            style={takenByFilter === name
+              ? { background: 'rgba(240,192,64,0.15)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }
+              : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+            {name === 'all' ? 'All' : name}
           </button>
         ))}
       </div>
@@ -281,7 +305,7 @@ export function Bookings() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                          {['Client', 'Supplier', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'P&L', 'Status', ''].map(h => (
+                          {['Client', 'Supplier', 'Taken By', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'P&L', 'Status', ''].map(h => (
                             <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                           ))}
                         </tr>
@@ -301,6 +325,14 @@ export function Bookings() {
                                   {b.quoteNo && <p className="text-xs font-mono" style={{ color: '#f0c04060' }}>{b.quoteNo}</p>}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{b.supplier || <span className="opacity-30">—</span>}</td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <select value={b.takenBy || ''} onChange={e => handleTakenBy(b.id, e.target.value)}
+                                    className="text-xs rounded-lg px-2 py-1.5 border focus:outline-none"
+                                    style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: b.takenBy ? 'var(--text-base)' : 'var(--text-muted)' }}>
+                                    <option value="">—</option>
+                                    {TOPZ_TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+                                  </select>
+                                </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{b.vehicleName}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>
                                   {fmtDate(b.pickupDate)}
@@ -366,7 +398,7 @@ export function Bookings() {
                               </tr>
                               {isExpanded && (
                                 <tr key={b.id + '-exp'} style={{ borderBottom: '1px solid var(--glass-border)' }}>
-                                  <td colSpan={11} className="px-6 py-3" style={{ background: 'rgba(240,192,64,0.03)' }}>
+                                  <td colSpan={12} className="px-6 py-3" style={{ background: 'rgba(240,192,64,0.03)' }}>
                                     <div className="flex items-center gap-8 text-xs flex-wrap">
                                       <div>
                                         <span style={{ color: 'var(--text-muted)' }}>Total Amount </span>
@@ -384,6 +416,10 @@ export function Bookings() {
                                         <span style={{ color: 'var(--text-muted)' }}>Profit/Loss </span>
                                         <span className="font-bold" style={{ color: plColor(b.commission || 0) }}>{b.commission ? fmtPL(b.commission) : 'Not set'}</span>
                                       </div>
+                                      <div>
+                                        <span style={{ color: 'var(--text-muted)' }}>Taken By </span>
+                                        <span className="font-bold" style={{ color: 'var(--text-base)' }}>{b.takenBy || 'Unassigned'}</span>
+                                      </div>
                                       {b.notes && (
                                         <div>
                                           <span style={{ color: 'var(--text-muted)' }}>Notes: </span>
@@ -400,7 +436,7 @@ export function Bookings() {
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
-                          <td colSpan={5} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
+                          <td colSpan={6} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
                           <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthRevenue)}</td>
                           <td className="px-4 py-2 text-xs font-semibold" style={{ color: '#34d399' }}>{fmt(monthAdvance)}</td>
                           <td className="px-4 py-2 text-xs font-semibold text-red-400">{monthDue > 0 ? fmt(monthDue) : '—'}</td>
