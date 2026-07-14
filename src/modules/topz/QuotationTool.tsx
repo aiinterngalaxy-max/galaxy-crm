@@ -4,7 +4,7 @@ const RouteMap = lazy(() => import('./RouteMap').then(m => ({ default: m.RouteMa
 import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
-import { saveQuotation } from './data/storage'
+import { saveQuotation, TOPZ_TEAM, TOPZ_BUSINESS_NAME } from './data/storage'
 import toast from 'react-hot-toast'
 
 type TripType = 'outstation' | 'local'
@@ -198,6 +198,7 @@ export function QuotationTool() {
   const [distLoading, setDistLoading] = useState(false)
   const [mapData, setMapData] = useState<{ from: [number,number]; to: [number,number]; route: [number,number][] } | null>(null)
   const [savedQuoteNo, setSavedQuoteNo] = useState(editQuote?.quoteNo ?? '')
+  const [sentBy, setSentBy] = useState(editQuote?.sentBy ?? '')
   const [saved, setSaved] = useState(false)
   const [includeTnc, setIncludeTnc] = useState(false)
   const [showNotePicker, setShowNotePicker] = useState(false)
@@ -340,7 +341,7 @@ export function QuotationTool() {
       dropDate: form.dropDate, dropLocation: form.dropLocation,
       passengers: form.passengers, estimatedKm: form.estimatedKm,
       vehicleName: selectedVehicle.name, vehicleCategory: selectedVehicle.category,
-      days, totalAmount: total,
+      days, totalAmount: total, sentBy,
     })
   }
 
@@ -416,7 +417,7 @@ export function QuotationTool() {
       '',
       sep,
       `🙏 Thanks & Regards`,
-      `*Topz Cab*`,
+      `*${sentBy && TOPZ_BUSINESS_NAME[sentBy as typeof TOPZ_TEAM[number]] ? TOPZ_BUSINESS_NAME[sentBy as typeof TOPZ_TEAM[number]] : 'Topz Cab'}*`,
     ].filter(Boolean).join('\n')
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(lines)}`, '_blank')
@@ -709,6 +710,13 @@ export function QuotationTool() {
               {savedQuoteNo && <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{savedQuoteNo}</p>}
             </div>
             <div className="flex items-center gap-2">
+              <select value={sentBy} onChange={e => setSentBy(e.target.value)}
+                title="Sent by — sets the business-name signature on WhatsApp"
+                className="px-3 py-2 rounded-xl text-sm font-semibold border focus:outline-none"
+                style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: sentBy ? 'var(--text-base)' : 'var(--text-muted)' }}>
+                <option value="">Sent by…</option>
+                {TOPZ_TEAM.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
               <button onClick={handleSave}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all hover:scale-105"
                 style={saved

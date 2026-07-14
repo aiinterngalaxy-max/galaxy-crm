@@ -235,7 +235,7 @@ export function QuotationHistory() {
                                     </button>
                                   )}
                                   {q.status !== 'converted' && (
-                                    <button onClick={() => { setConvertTarget(q); setSupplierName(''); setTakenBy('') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
+                                    <button onClick={() => { setConvertTarget(q); setSupplierName(''); setTakenBy(q.sentBy ?? '') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
                                       <CheckCircle className="w-3.5 h-3.5" />
                                     </button>
                                   )}

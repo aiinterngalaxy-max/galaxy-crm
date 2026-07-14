@@ -3,6 +3,13 @@ const B = '/api/topz-bookings'
 
 export const TOPZ_TEAM = ['Smita', 'Amisha', 'Bharti'] as const
 
+/** Business alias each team member signs quotes with — the client sees this name, not the real one. */
+export const TOPZ_BUSINESS_NAME: Record<typeof TOPZ_TEAM[number], string> = {
+  Smita: 'Soniya',
+  Amisha: 'Bhumika',
+  Bharti: 'Nisha',
+}
+
 export interface SavedQuotation {
   id: string
   quoteNo: string
@@ -23,6 +30,8 @@ export interface SavedQuotation {
   vehicleCategory: string
   days: number
   totalAmount: number
+  /** Which team member sent this quote (real name — used to look up their business alias). */
+  sentBy?: string
 }
 
 export interface Booking {

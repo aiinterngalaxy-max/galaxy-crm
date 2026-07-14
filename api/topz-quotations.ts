@@ -35,7 +35,9 @@ async function init() {
     headers: { Authorization: `Bearer ${TURSO_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       requests: [
-        { type: 'execute', stmt: { sql: `CREATE TABLE IF NOT EXISTS topz_quotations (id TEXT PRIMARY KEY, quoteNo TEXT NOT NULL, createdAt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', tripType TEXT NOT NULL DEFAULT 'outstation', isRoundTrip INTEGER NOT NULL DEFAULT 0, clientName TEXT NOT NULL DEFAULT '', clientPhone TEXT NOT NULL DEFAULT '', clientEmail TEXT NOT NULL DEFAULT '', pickupDate TEXT NOT NULL DEFAULT '', pickupLocation TEXT NOT NULL DEFAULT '', dropDate TEXT NOT NULL DEFAULT '', dropLocation TEXT NOT NULL DEFAULT '', passengers TEXT NOT NULL DEFAULT '', estimatedKm TEXT NOT NULL DEFAULT '', vehicleName TEXT NOT NULL DEFAULT '', vehicleCategory TEXT NOT NULL DEFAULT '', days INTEGER NOT NULL DEFAULT 1, totalAmount REAL NOT NULL DEFAULT 0)`, args: [] } },
+        { type: 'execute', stmt: { sql: `CREATE TABLE IF NOT EXISTS topz_quotations (id TEXT PRIMARY KEY, quoteNo TEXT NOT NULL, createdAt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', tripType TEXT NOT NULL DEFAULT 'outstation', isRoundTrip INTEGER NOT NULL DEFAULT 0, clientName TEXT NOT NULL DEFAULT '', clientPhone TEXT NOT NULL DEFAULT '', clientEmail TEXT NOT NULL DEFAULT '', pickupDate TEXT NOT NULL DEFAULT '', pickupLocation TEXT NOT NULL DEFAULT '', dropDate TEXT NOT NULL DEFAULT '', dropLocation TEXT NOT NULL DEFAULT '', passengers TEXT NOT NULL DEFAULT '', estimatedKm TEXT NOT NULL DEFAULT '', vehicleName TEXT NOT NULL DEFAULT '', vehicleCategory TEXT NOT NULL DEFAULT '', days INTEGER NOT NULL DEFAULT 1, totalAmount REAL NOT NULL DEFAULT 0, sentBy TEXT)`, args: [] } },
+        // Migration for pre-existing tables: fails silently (duplicate column) once the column exists — this handler ignores response errors.
+        { type: 'execute', stmt: { sql: `ALTER TABLE topz_quotations ADD COLUMN sentBy TEXT`, args: [] } },
         { type: 'close' },
       ],
     }),
@@ -52,16 +54,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const rows = await sql('SELECT * FROM topz_quotations ORDER BY createdAt DESC')
-    return res.status(200).json(rows.map(r => ({ ...r, isRoundTrip: r.isRoundTrip === '1' || r.isRoundTrip === 1, days: Number(r.days), totalAmount: Number(r.totalAmount) })))
+    return res.status(200).json(rows.map(r => ({ ...r, isRoundTrip: r.isRoundTrip === '1' || r.isRoundTrip === 1, days: Number(r.days), totalAmount: Number(r.totalAmount), sentBy: r.sentBy ?? undefined })))
   }
 
   if (req.method === 'POST') {
     const q = req.body
     await sql(
-      `INSERT INTO topz_quotations (id,quoteNo,createdAt,status,tripType,isRoundTrip,clientName,clientPhone,clientEmail,pickupDate,pickupLocation,dropDate,dropLocation,passengers,estimatedKm,vehicleName,vehicleCategory,days,totalAmount)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET quoteNo=excluded.quoteNo,status=excluded.status,tripType=excluded.tripType,isRoundTrip=excluded.isRoundTrip,clientName=excluded.clientName,clientPhone=excluded.clientPhone,clientEmail=excluded.clientEmail,pickupDate=excluded.pickupDate,pickupLocation=excluded.pickupLocation,dropDate=excluded.dropDate,dropLocation=excluded.dropLocation,passengers=excluded.passengers,estimatedKm=excluded.estimatedKm,vehicleName=excluded.vehicleName,vehicleCategory=excluded.vehicleCategory,days=excluded.days,totalAmount=excluded.totalAmount`,
-      [q.id, q.quoteNo, new Date().toISOString(), q.status ?? 'draft', q.tripType ?? 'outstation', q.isRoundTrip ? 1 : 0, q.clientName ?? '', q.clientPhone ?? '', q.clientEmail ?? '', q.pickupDate ?? '', q.pickupLocation ?? '', q.dropDate ?? '', q.dropLocation ?? '', q.passengers ?? '', q.estimatedKm ?? '', q.vehicleName ?? '', q.vehicleCategory ?? '', q.days ?? 1, q.totalAmount ?? 0]
+      `INSERT INTO topz_quotations (id,quoteNo,createdAt,status,tripType,isRoundTrip,clientName,clientPhone,clientEmail,pickupDate,pickupLocation,dropDate,dropLocation,passengers,estimatedKm,vehicleName,vehicleCategory,days,totalAmount,sentBy)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET quoteNo=excluded.quoteNo,status=excluded.status,tripType=excluded.tripType,isRoundTrip=excluded.isRoundTrip,clientName=excluded.clientName,clientPhone=excluded.clientPhone,clientEmail=excluded.clientEmail,pickupDate=excluded.pickupDate,pickupLocation=excluded.pickupLocation,dropDate=excluded.dropDate,dropLocation=excluded.dropLocation,passengers=excluded.passengers,estimatedKm=excluded.estimatedKm,vehicleName=excluded.vehicleName,vehicleCategory=excluded.vehicleCategory,days=excluded.days,totalAmount=excluded.totalAmount,sentBy=excluded.sentBy`,
+      [q.id, q.quoteNo, new Date().toISOString(), q.status ?? 'draft', q.tripType ?? 'outstation', q.isRoundTrip ? 1 : 0, q.clientName ?? '', q.clientPhone ?? '', q.clientEmail ?? '', q.pickupDate ?? '', q.pickupLocation ?? '', q.dropDate ?? '', q.dropLocation ?? '', q.passengers ?? '', q.estimatedKm ?? '', q.vehicleName ?? '', q.vehicleCategory ?? '', q.days ?? 1, q.totalAmount ?? 0, q.sentBy ?? null]
     )
     return res.status(200).json({ ok: true })
   }
