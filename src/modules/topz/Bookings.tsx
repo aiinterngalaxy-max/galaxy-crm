@@ -11,6 +11,8 @@ const STATUS_CONFIG: Record<Booking['status'], { label: string; color: string; b
 }
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
+const fmtPL = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}₹${Math.abs(n).toLocaleString('en-IN')}`
+const plColor = (n: number) => n > 0 ? '#34d399' : n < 0 ? '#f87171' : 'var(--text-muted)'
 const fmtDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 const monthKey = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 const monthLabel = (key: string) => { const [y, m] = key.split('-'); return new Date(+y, +m - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' }) }
@@ -31,6 +33,7 @@ export function Bookings() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | Booking['status']>('all')
   const [paymentModal, setPaymentModal] = useState<{ booking: Booking; amount: string } | null>(null)
+  const [commissionModal, setCommissionModal] = useState<{ booking: Booking; value: string } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -68,12 +71,25 @@ export function Bookings() {
     } catch { toast.error('Failed to record payment') }
   }
 
+  async function handleSaveCommission() {
+    if (!commissionModal) return
+    const value = parseInt(commissionModal.value, 10)
+    if (isNaN(value)) { toast.error('Enter a valid number'); return }
+    const b = commissionModal.booking
+    try {
+      await saveBooking({ ...b, commission: value })
+      setCommissionModal(null); refresh()
+      toast.success(value >= 0 ? `Profit of ₹${value.toLocaleString('en-IN')} recorded` : `Loss of ₹${Math.abs(value).toLocaleString('en-IN')} recorded`)
+    } catch { toast.error('Failed to update') }
+  }
+
   const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
   const groups = groupByMonth(filtered)
   const counts = (Object.keys(STATUS_CONFIG) as Booking['status'][]).reduce(
     (a, k) => ({ ...a, [k]: bookings.filter(b => b.status === k).length }), {} as Record<string, number>
   )
   const totalPending = bookings.reduce((s, b) => s + Math.max(0, b.totalAmount - b.advancePaid), 0)
+  const totalCommission = bookings.reduce((s, b) => s + (b.commission || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -85,12 +101,20 @@ export function Bookings() {
             {bookings.length} booking{bookings.length !== 1 ? 's' : ''} · Convert a quotation to add
           </p>
         </div>
-        {totalPending > 0 && (
-          <div className="px-4 py-2 rounded-xl text-sm font-semibold"
-            style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>
-            Total Pending: {fmt(totalPending)}
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {totalPending > 0 && (
+            <div className="px-4 py-2 rounded-xl text-sm font-semibold"
+              style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }}>
+              Total Pending: {fmt(totalPending)}
+            </div>
+          )}
+          {bookings.length > 0 && (
+            <div className="px-4 py-2 rounded-xl text-sm font-semibold"
+              style={{ background: totalCommission >= 0 ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)', border: `1px solid ${totalCommission >= 0 ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)'}`, color: plColor(totalCommission) }}>
+              Total P&L: {fmtPL(totalCommission)}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Status cards */}
@@ -156,6 +180,47 @@ export function Bookings() {
         </div>
       )}
 
+      {/* Commission (profit/loss) modal */}
+      {commissionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="glass-card rounded-2xl p-6 w-full max-w-sm space-y-4" style={{ border: '1px solid rgba(240,192,64,0.3)' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm" style={{ color: 'var(--text-base)' }}>Profit / Loss</h3>
+              <button onClick={() => setCommissionModal(null)}><X className="w-4 h-4 text-gray-500" /></button>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {commissionModal.booking.clientName} · {commissionModal.booking.vehicleName}
+            </p>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                Amount (₹) — enter positive for profit, negative for loss
+              </label>
+              <input
+                type="number" autoFocus
+                value={commissionModal.value}
+                onChange={e => setCommissionModal(m => m ? { ...m, value: e.target.value } : null)}
+                onKeyDown={e => e.key === 'Enter' && handleSaveCommission()}
+                placeholder="e.g. 10 for +₹10 profit, -10 for -₹10 loss"
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'rgba(240,192,64,0.4)', color: 'var(--text-base)' }}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSaveCommission}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold"
+                style={{ background: 'linear-gradient(135deg,#f0c040,#c8960a)', color: '#1a1a2e' }}>
+                Save
+              </button>
+              <button onClick={() => setCommissionModal(null)}
+                className="px-4 py-2 rounded-xl text-sm border"
+                style={{ borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bookings list */}
       {loading ? (
         <div className="glass-card rounded-2xl p-12 flex items-center justify-center gap-3">
@@ -175,6 +240,7 @@ export function Bookings() {
             const monthRevenue = group.items.reduce((s, b) => s + b.totalAmount, 0)
             const monthAdvance = group.items.reduce((s, b) => s + b.advancePaid, 0)
             const monthDue = monthRevenue - monthAdvance
+            const monthCommission = group.items.reduce((s, b) => s + (b.commission || 0), 0)
             const completed = group.items.filter(b => b.status === 'completed').length
             return (
               <div key={group.key}>
@@ -201,6 +267,12 @@ export function Bookings() {
                         <p className="text-sm font-bold text-red-400">{fmt(monthDue)}</p>
                       </div>
                     )}
+                    {monthCommission !== 0 && (
+                      <div className="text-right">
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>P&L</p>
+                        <p className="text-sm font-bold" style={{ color: plColor(monthCommission) }}>{fmtPL(monthCommission)}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -209,7 +281,7 @@ export function Bookings() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                          {['Client', 'Supplier', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'Status', ''].map(h => (
+                          {['Client', 'Supplier', 'Vehicle', 'Pickup → Return', 'Route', 'Total', 'Paid', 'Pending', 'P&L', 'Status', ''].map(h => (
                             <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                           ))}
                         </tr>
@@ -251,6 +323,14 @@ export function Bookings() {
                                     <span className="text-xs font-semibold text-red-400">{fmt(balance)}</span>
                                   )}
                                 </td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <button onClick={() => setCommissionModal({ booking: b, value: b.commission ? String(b.commission) : '' })}
+                                    title="Set profit/loss"
+                                    className="flex items-center gap-1 text-xs font-semibold hover:opacity-70 transition-opacity"
+                                    style={{ color: plColor(b.commission || 0) }}>
+                                    {b.commission ? fmtPL(b.commission) : <span style={{ color: 'var(--text-muted)' }}>Set</span>}
+                                  </button>
+                                </td>
                                 <td className="px-4 py-3">
                                   <select value={b.status} onChange={e => handleStatus(b.id, e.target.value as Booking['status'])}
                                     className="text-xs rounded-lg px-2 py-1.5 border focus:outline-none font-semibold"
@@ -286,7 +366,7 @@ export function Bookings() {
                               </tr>
                               {isExpanded && (
                                 <tr key={b.id + '-exp'} style={{ borderBottom: '1px solid var(--glass-border)' }}>
-                                  <td colSpan={9} className="px-6 py-3" style={{ background: 'rgba(240,192,64,0.03)' }}>
+                                  <td colSpan={11} className="px-6 py-3" style={{ background: 'rgba(240,192,64,0.03)' }}>
                                     <div className="flex items-center gap-8 text-xs flex-wrap">
                                       <div>
                                         <span style={{ color: 'var(--text-muted)' }}>Total Amount </span>
@@ -299,6 +379,10 @@ export function Bookings() {
                                       <div>
                                         <span style={{ color: 'var(--text-muted)' }}>Balance Due </span>
                                         <span className={`font-bold ${balance > 0 ? 'text-red-400' : 'text-green-400'}`}>{balance > 0 ? fmt(balance) : 'Fully Paid'}</span>
+                                      </div>
+                                      <div>
+                                        <span style={{ color: 'var(--text-muted)' }}>Profit/Loss </span>
+                                        <span className="font-bold" style={{ color: plColor(b.commission || 0) }}>{b.commission ? fmtPL(b.commission) : 'Not set'}</span>
                                       </div>
                                       {b.notes && (
                                         <div>
@@ -316,10 +400,11 @@ export function Bookings() {
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
-                          <td colSpan={4} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
+                          <td colSpan={5} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
                           <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthRevenue)}</td>
                           <td className="px-4 py-2 text-xs font-semibold" style={{ color: '#34d399' }}>{fmt(monthAdvance)}</td>
                           <td className="px-4 py-2 text-xs font-semibold text-red-400">{monthDue > 0 ? fmt(monthDue) : '—'}</td>
+                          <td className="px-4 py-2 text-xs font-semibold" style={{ color: plColor(monthCommission) }}>{monthCommission !== 0 ? fmtPL(monthCommission) : '—'}</td>
                           <td colSpan={2} />
                         </tr>
                       </tfoot>

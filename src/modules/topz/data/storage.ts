@@ -40,6 +40,8 @@ export interface Booking {
   notes: string
   tripType: 'outstation' | 'local'
   supplier?: string
+  /** Profit/loss on this booking in ₹. Positive = profit, negative = loss. */
+  commission: number
 }
 
 async function call<T>(url: string, opts?: RequestInit): Promise<T> {

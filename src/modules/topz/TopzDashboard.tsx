@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
+const fmtPL = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}₹${Math.abs(n).toLocaleString('en-IN')}`
 const monthKey = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 const monthLabel = (key: string) => { const [y, m] = key.split('-'); return new Date(+y, +m - 1).toLocaleString('en-IN', { month: 'short', year: '2-digit' }) }
 
@@ -44,6 +45,8 @@ export function TopzDashboard() {
   const collectionRate = thisRevenue > 0 ? Math.round((thisCollected / thisRevenue) * 100) : 0
   const avgBookingValue = bookings.length > 0 ? Math.round(bookings.reduce((s, b) => s + b.totalAmount, 0) / bookings.length) : 0
   const bestMonth = last6.reduce((best, m) => m.revenue > best.revenue ? m : best, last6[0])
+  const thisMonthPL = thisMonthBookings.reduce((s, b) => s + (b.commission || 0), 0)
+  const totalPL = bookings.reduce((s, b) => s + (b.commission || 0), 0)
 
   // ── Supplier leaderboard ──────────────────────────────────────────────────
   const supplierMap = new Map<string, { trips: number; revenue: number; pending: number }>()
@@ -106,12 +109,13 @@ export function TopzDashboard() {
       </div>
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {[
           { label: 'This Month Revenue', value: fmt(thisRevenue), sub: `${thisMonthBookings.length} bookings`, color: '#f0c040' },
           { label: 'Collected', value: fmt(thisCollected), sub: `${collectionRate}% collection rate`, color: '#34d399' },
           { label: 'Pending Dues', value: fmt(thisPending), sub: `across ${pendingBalance.length} bookings`, color: thisPending > 0 ? '#f87171' : '#34d399' },
           { label: 'Avg Booking Value', value: fmt(avgBookingValue), sub: `across all time`, color: '#60a5fa' },
+          { label: 'Profit / Loss', value: fmtPL(thisMonthPL), sub: `${fmtPL(totalPL)} all time`, color: thisMonthPL >= 0 ? '#34d399' : '#f87171' },
         ].map(tile => (
           <div key={tile.label} className="glass-card rounded-2xl p-4 space-y-1">
             <p className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{tile.label}</p>

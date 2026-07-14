@@ -112,6 +112,7 @@ export function QuotationHistory() {
         notes: '',
         tripType: convertTarget.tripType,
         supplier: supplierName.trim(),
+        commission: 0,
       })
       await updateQuotationStatus(convertTarget.id, 'converted')
       refresh()
