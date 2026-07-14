@@ -187,9 +187,9 @@ export function QuotationsPage() {
           { label: 'Approved', value: totalApproved.length },
           { label: 'Approved Value', value: formatCurrency(totalApproved.reduce((s, q) => s + q.total, 0)) },
         ].map(s => (
-          <Card key={s.label} padding="sm" className={s.highlight ? 'border-yellow-800/50' : ''}>
+          <Card key={s.label} padding="sm">
             <p className="text-xs text-gray-500">{s.label}</p>
-            <p className={`text-xl font-bold mt-1 ${s.highlight ? 'text-yellow-400' : 'text-gray-100'}`}>{s.value}</p>
+            <p className="text-xl font-bold mt-1 text-gray-100">{s.value}</p>
           </Card>
         ))}
       </div>
