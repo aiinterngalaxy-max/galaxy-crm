@@ -3,7 +3,7 @@ import { FileText, LayoutDashboard, ArrowLeft, CalendarCheck, ScrollText, Users,
 import { useAuth } from '../../contexts/AuthContext'
 
 export function TopzLayout() {
-  const { user } = useAuth()
+  const { user, role } = useAuth()
   const navigate = useNavigate()
   const sidebarBg = '#13131f'
   const sidebarBorder = 'rgba(255,255,255,0.07)'
@@ -36,13 +36,15 @@ export function TopzLayout() {
 
         {/* Switch back */}
         <div className="p-3 border-t border-gray-800">
-          <button
-            onClick={() => navigate('/')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Galaxy CRM
-          </button>
+          {role === 'super_admin' && (
+            <button
+              onClick={() => navigate('/')}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to Galaxy CRM
+            </button>
+          )}
           <p className="text-xs text-gray-600 mt-2 px-1 truncate">{user?.name}</p>
         </div>
       </aside>

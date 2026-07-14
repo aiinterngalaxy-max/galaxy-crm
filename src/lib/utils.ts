@@ -135,6 +135,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   marketing:       'Marketing',
   ai_team:         'AI Team',
   hr:              'HR',
+  galaxy:          'Galaxy CRM',
   topz:            'Topz Cab',
   pending:         'Pending Approval',
 }
@@ -142,7 +143,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ─── Permissions ───────────────────────────────────────────────────────────────
 
 export function canAccess(role: UserRole, module: string): boolean {
-  const fullAccess: UserRole[] = ['super_admin', 'management', 'ai_team']
+  const fullAccess: UserRole[] = ['super_admin', 'management', 'ai_team', 'galaxy']
   if (fullAccess.includes(role)) return true
 
   const moduleAccess: Record<string, UserRole[]> = {

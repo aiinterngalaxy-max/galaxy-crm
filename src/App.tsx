@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { Layout } from './components/layout/Layout'
 import { LoginPage } from './modules/auth/LoginPage'
 import { PendingApprovalPage } from './modules/auth/PendingApprovalPage'
+import { ChooseAppPage } from './modules/auth/ChooseAppPage'
 import { PageLoader } from './components/ui/LoadingSpinner'
 import { canAccess } from './lib/utils'
 import type { UserRole } from './types'
@@ -75,6 +76,17 @@ function RequireTopz({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Only super_admin has both Galaxy and Topz access, so only super_admin gets
+// the picker — everyone else is bounced to the one app their role grants.
+function RequireChoose() {
+  const { firebaseUser, role, loading } = useAuth()
+  if (loading) return <PageLoader />
+  if (!firebaseUser) return <Navigate to="/login" replace />
+  if (role === 'pending') return <PendingApprovalPage />
+  if (role !== 'super_admin') return <Navigate to={role === 'topz' ? '/topz' : '/'} replace />
+  return <ChooseAppPage />
+}
+
 function RequireRole({
   children,
   module,
@@ -97,7 +109,7 @@ function RequireRole({
 }
 
 function AppRoutes() {
-  const { firebaseUser, loading } = useAuth()
+  const { firebaseUser, role, loading } = useAuth()
 
   if (loading) return <PageLoader />
 
@@ -107,8 +119,11 @@ function AppRoutes() {
         {/* Public */}
         <Route
           path="/login"
-          element={firebaseUser ? <Navigate to="/" replace /> : <LoginPage />}
+          element={firebaseUser ? <Navigate to={role === 'super_admin' ? '/choose' : '/'} replace /> : <LoginPage />}
         />
+
+        {/* App picker — super_admin only (the one role with both accesses) */}
+        <Route path="/choose" element={<RequireChoose />} />
 
         {/* Protected app shell */}
         <Route

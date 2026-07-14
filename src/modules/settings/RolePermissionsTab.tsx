@@ -27,7 +27,7 @@ const MODULES = [
 // Roles that can be configured (super_admin always has everything)
 const CONFIGURABLE_ROLES: UserRole[] = [
   'management', 'dept_head', 'bd_exec', 'project_manager',
-  'marketing', 'ai_team', 'hr', 'topz',
+  'marketing', 'ai_team', 'hr', 'galaxy', 'topz',
 ]
 
 export type RolePermissionsMap = Record<string, string[]>
@@ -56,6 +56,7 @@ export function RolePermissionsTab() {
           marketing:       ['dashboard','content-studio','daily-reports','notifications'],
           ai_team:         MODULES.map(m => m.id),
           hr:              ['dashboard','hr','daily-reports','notifications'],
+          galaxy:          MODULES.map(m => m.id),
           topz:            ['dashboard'],
         }
         setPerms(defaults)
