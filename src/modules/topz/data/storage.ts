@@ -10,6 +10,12 @@ export const TOPZ_BUSINESS_NAME: Record<typeof TOPZ_TEAM[number], string> = {
   Bharti: 'Nisha',
 }
 
+/** An extra add-on line on a quote (toll, parking, border tax, or any custom charge). */
+export interface ExtraCharge {
+  label: string
+  amount: number
+}
+
 export interface SavedQuotation {
   id: string
   quoteNo: string
@@ -32,6 +38,8 @@ export interface SavedQuotation {
   totalAmount: number
   /** Which team member sent this quote (real name — used to look up their business alias). */
   sentBy?: string
+  /** Optional add-on charges (toll, parking, border tax, custom) included in totalAmount. */
+  extraCharges?: ExtraCharge[]
 }
 
 export interface Booking {

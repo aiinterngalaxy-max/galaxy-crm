@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil } from 'lucide-react'
-import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, TOPZ_TEAM, type SavedQuotation } from './data/storage'
+import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil, MessageCircle } from 'lucide-react'
+import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { printQuotation } from './printQuotation'
 import toast from 'react-hot-toast'
@@ -75,7 +75,52 @@ export function QuotationHistory() {
       days: q.days,
       quoteNo: q.quoteNo,
       overrideTotalAmount: q.totalAmount,
+      extraCharges: q.extraCharges,
     })
+  }
+
+  function handleWhatsApp(q: SavedQuotation) {
+    if (!q.clientPhone) { toast.error('No phone number on this quote'); return }
+    const vehicle = getVehicles().find(v => v.name === q.vehicleName)
+    const phone = q.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
+    const isLocal = q.tripType === 'local'
+    const sep = '─────────────────────'
+    const tripLabel = isLocal
+      ? 'Local Package (8hr / 80km)'
+      : `${q.pickupLocation} to ${q.dropLocation}${q.isRoundTrip ? ' Return' : ''}`
+    const charges = q.extraCharges ?? []
+    const chargeLines = charges.filter(c => c.amount > 0).map(c => `➕ ${c.label.padEnd(14)}:  ${fmt(c.amount)}`)
+    const businessName = q.sentBy && TOPZ_BUSINESS_NAME[q.sentBy as typeof TOPZ_TEAM[number]]
+      ? TOPZ_BUSINESS_NAME[q.sentBy as typeof TOPZ_TEAM[number]]
+      : 'Topz Cab'
+
+    const lines = [
+      `🚗 *TOPZ CAB — QUOTATION*`,
+      sep,
+      vehicle ? `*${vehicle.seats} Seater ${vehicle.name}*` : `*${q.vehicleName}*`,
+      `📍 ${tripLabel}`,
+      isLocal ? '' : `🗓 ${q.days} Day${q.days > 1 ? 's' : ''}`,
+      '',
+      sep,
+      `*RATE DETAILS*`,
+      sep,
+      vehicle && !isLocal ? `🔹 Min KM/Day     :  ${vehicle.minKmPerDay} km` : '',
+      vehicle ? `🔹 Rate per KM    :  ₹${vehicle.ratePerKm}` : '',
+      vehicle && vehicle.permitPerDay > 0 ? `🔹 Permit/Day     :  ₹${vehicle.permitPerDay}` : '',
+      vehicle && vehicle.driverAllowancePerDay > 0 ? `🔹 Driver Allow.  :  ${vehicle.driverAllowancePerDay} DA per day` : '',
+      '',
+      ...(chargeLines.length ? [sep, `*ADD-ONS*`, sep, ...chargeLines, ''] : []),
+      sep,
+      `*TOTAL  :  ${fmt(q.totalAmount)}*`,
+      chargeLines.length ? '' : `_(+ Toll · Parking · Entry Tax extra)_`,
+      '',
+      sep,
+      `🙏 Thanks & Regards`,
+      `*${businessName}*`,
+    ].filter(Boolean).join('\n')
+
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(lines)}`, '_blank')
+    toast.success('Opening WhatsApp...')
   }
 
   async function handleDelete(id: string) {
@@ -244,6 +289,9 @@ export function QuotationHistory() {
                                       <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  <button onClick={() => handleWhatsApp(q)} title="Send on WhatsApp" className="p-1.5 rounded-lg hover:bg-green-900/20 transition-colors" style={{ color: '#25d366' }}>
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                  </button>
                                   <button onClick={() => handlePrint(q)} title="Download PDF" className="p-1.5 rounded-lg hover:bg-yellow-900/20 transition-colors" style={{ color: '#f0c040' }}>
                                     <Download className="w-3.5 h-3.5" />
                                   </button>

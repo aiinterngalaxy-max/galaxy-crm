@@ -1,4 +1,5 @@
 import type { Vehicle, QuotationResult, LocalQuotationResult } from './data/rateCard'
+import type { ExtraCharge } from './data/storage'
 
 interface PrintArgs {
   form: {
@@ -28,6 +29,16 @@ interface PrintArgs {
   includeTnc?: boolean
   selectedNotes?: Set<string>
   finalAmount?: number
+  /** Add-on charges (toll, parking, border tax, custom) shown as their own line items. */
+  extraCharges?: ExtraCharge[]
+  /** When true, the PDF hides the rate breakdown and shows a single consolidated fare line. */
+  hideBreakdown?: boolean
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, ch => (
+    ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '"' ? '&quot;' : '&#39;'
+  ))
 }
 
 function fmtTime(t: string): string {
@@ -78,13 +89,20 @@ async function fetchBase64(path: string): Promise<string> {
 
 const getLogoBase64 = () => fetchBase64('/topz-logo.png')
 
-export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount }: PrintArgs) {
+export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount, extraCharges, hideBreakdown = false }: PrintArgs) {
   const has = (id: string) => !selectedNotes || selectedNotes.has(id)
   const [logoDataUrl, qrDataUrl] = await Promise.all([getLogoBase64(), fetchBase64('/topz-qr.png')])
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
-  const baseAmount = overrideTotalAmount ?? result?.total ?? localResult?.total ?? 0
-  const beforeDiscount = baseAmount + nightExtra
+  const extraList = (extraCharges ?? []).filter(c => c.amount > 0)
+  const extrasTotal = extraList.reduce((s, c) => s + c.amount, 0)
+  // A saved (override) total already includes the add-ons, so back them out to get the base fare;
+  // a fresh print starts from the computed vehicle total and adds them on.
+  const baseAmount = overrideTotalAmount != null
+    ? overrideTotalAmount - extrasTotal
+    : (result?.total ?? localResult?.total ?? 0)
+  const vehiclePortion = baseAmount + nightExtra
+  const beforeDiscount = vehiclePortion + extrasTotal
   const totalAmount = finalAmount ?? beforeDiscount
   const discountAmount = beforeDiscount - totalAmount
 
@@ -206,6 +224,26 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
       }
     }
   }
+
+  // Add-on charge rows (toll, parking, border tax, custom) — shown even when the breakdown is hidden.
+  const extraRows = extraList.map(c => `<tr>
+    <td style="text-align:center"></td>
+    <td>${escapeHtml(c.label)}</td>
+    <td></td>
+    <td style="text-align:center">1</td>
+    <td style="text-align:right">${fmt(c.amount)}</td>
+  </tr>`)
+
+  // When hiding the breakdown, collapse the fare into a single consolidated line.
+  const summaryRow = `<tr>
+    <td style="text-align:center">1</td>
+    <td>${descriptionHtml}</td>
+    <td></td>
+    <td style="text-align:center">1</td>
+    <td style="text-align:right">${fmt(vehiclePortion)}</td>
+  </tr>`
+
+  const bodyRows = hideBreakdown ? [summaryRow, ...extraRows] : [...dataRows, ...extraRows]
 
   // Notes
   const noteLines: string[] = []
@@ -343,7 +381,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
       </tr>
     </thead>
     <tbody>
-      ${dataRows.join('\n')}
+      ${bodyRows.join('\n')}
     </tbody>
   </table>
 

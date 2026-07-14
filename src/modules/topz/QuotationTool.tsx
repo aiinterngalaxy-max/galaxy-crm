@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useLocation } from 'react-router-dom'
 const RouteMap = lazy(() => import('./RouteMap').then(m => ({ default: m.RouteMap })))
-import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
-import { saveQuotation, TOPZ_TEAM, TOPZ_BUSINESS_NAME } from './data/storage'
+import { saveQuotation, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type ExtraCharge } from './data/storage'
 import toast from 'react-hot-toast'
 
 type TripType = 'outstation' | 'local'
+
+// Editable add-on row — amount may be '' while the user is typing.
+interface EditCharge { id: string; label: string; amount: number | '' }
+const QUICK_CHARGES = ['Toll', 'Parking', 'Border Tax'] as const
 
 interface FormState {
   tripType: TripType
@@ -206,8 +210,24 @@ export function QuotationTool() {
     new Set(['min_km', 'toll_extra'])
   )
   const [finalAmount, setFinalAmount] = useState<number | ''>('')
+  const [hideBreakdown, setHideBreakdown] = useState(false)
+  const [extraCharges, setExtraCharges] = useState<EditCharge[]>(
+    Array.isArray(editQuote?.extraCharges)
+      ? editQuote.extraCharges.map((c: ExtraCharge) => ({ id: uid(), label: c.label, amount: c.amount }))
+      : []
+  )
 
   const vehicles = getVehicles()
+
+  // Add-on charge helpers
+  const cleanCharges = (): ExtraCharge[] =>
+    extraCharges
+      .filter(c => c.label.trim() && typeof c.amount === 'number' && c.amount > 0)
+      .map(c => ({ label: c.label.trim(), amount: c.amount as number }))
+  const addCharge = (label = '') => setExtraCharges(cs => [...cs, { id: uid(), label, amount: '' }])
+  const updateCharge = (id: string, patch: Partial<EditCharge>) =>
+    setExtraCharges(cs => cs.map(c => (c.id === id ? { ...c, ...patch } : c)))
+  const removeCharge = (id: string) => setExtraCharges(cs => cs.filter(c => c.id !== id))
 
   // Pre-select vehicle when editing a saved quote
   useEffect(() => {
@@ -229,7 +249,8 @@ export function QuotationTool() {
   const nightExtra = selectedVehicle
     ? pickupSurcharge(nightTier, selectedVehicle) + returnSurcharge(retTier, selectedVehicle)
     : 0
-  const totalBeforeDiscount = baseTotal + nightExtra
+  const extrasTotal = extraCharges.reduce((s, c) => s + (typeof c.amount === 'number' ? c.amount : 0), 0)
+  const totalBeforeDiscount = baseTotal + nightExtra + extrasTotal
   const total = finalAmount !== '' ? finalAmount : totalBeforeDiscount
   const discountAmount = totalBeforeDiscount - total
 
@@ -341,7 +362,7 @@ export function QuotationTool() {
       dropDate: form.dropDate, dropLocation: form.dropLocation,
       passengers: form.passengers, estimatedKm: form.estimatedKm,
       vehicleName: selectedVehicle.name, vehicleCategory: selectedVehicle.category,
-      days, totalAmount: total, sentBy,
+      days, totalAmount: total, sentBy, extraCharges: cleanCharges(),
     })
   }
 
@@ -358,7 +379,7 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined })
+    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined, extraCharges: cleanCharges(), hideBreakdown })
   }
 
   async function handleWhatsApp() {
@@ -382,6 +403,9 @@ export function QuotationTool() {
       ? 'Local Package (8hr / 80km)'
       : `${form.pickupLocation} to ${form.dropLocation}${form.isRoundTrip ? ' Return' : ''}`
 
+    const charges = cleanCharges()
+    const chargeLines = charges.map(c => `➕ ${c.label.padEnd(14)}:  ${fmt(c.amount)}`)
+
     const sep = '─────────────────────'
     const lines = [
       `🚗 *TOPZ CAB — QUOTATION*`,
@@ -400,9 +424,10 @@ export function QuotationTool() {
       rTier === 'night_da_permit' && permit > 0 ? `🌙 Night Permit    :  ₹${permit} _(Return after 1AM)_` : '',
       rTier === 'full_day' ? `🌙 Late Night      :  ₹${fmt(selectedVehicle.perDayRate)} _(Extra Day — Return)_` : '',
       '',
+      ...(chargeLines.length ? [sep, `*ADD-ONS*`, sep, ...chargeLines, ''] : []),
       sep,
       `*TOTAL  :  ${fmt(total)}*`,
-      `_(+ Toll · Parking · Entry Tax extra)_`,
+      charges.length ? '' : `_(+ Toll · Parking · Entry Tax extra)_`,
       '',
       approxKm > 0 ? `🔹 Approx KMs     :  ~${approxKm} km` : '',
       `🔹 Extra KM rate  :  ₹${selectedVehicle.ratePerKm}/km`,
@@ -427,6 +452,7 @@ export function QuotationTool() {
   function reset() {
     setForm(EMPTY); setSelectedVehicle(null); setResult(null); setLocalResult(null)
     setSavedQuoteNo(''); setSaved(false); setVehicleOpen(false); setMapData(null)
+    setExtraCharges([]); setFinalAmount(''); setHideBreakdown(false)
   }
 
   const showSummary = selectedVehicle && (result || localResult)
@@ -755,6 +781,12 @@ export function QuotationTool() {
                     className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer" />
                   T&amp;C
                 </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs" title="Hide the rate breakdown in the PDF — show only the final total"
+                  style={{ color: 'var(--text-muted)' }}>
+                  <input type="checkbox" checked={hideBreakdown} onChange={e => setHideBreakdown(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer" />
+                  Hide calc
+                </label>
                 <button onClick={handlePrint} className="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
                   <Printer className="w-4 h-4" /> Print PDF
                 </button>
@@ -903,6 +935,16 @@ export function QuotationTool() {
                     muted
                   />
                 )}
+                {extraCharges.filter(c => c.label.trim() && typeof c.amount === 'number' && c.amount > 0).map(c => (
+                  <Row4
+                    key={c.id}
+                    label={c.label.trim()}
+                    rate=""
+                    qty="1"
+                    value={fmt(c.amount as number)}
+                    muted
+                  />
+                ))}
                 {finalAmount !== '' && discountAmount > 0 && (
                   <tr style={{ borderTop: '1px solid var(--glass-border)' }}>
                     <td className="px-4 py-2.5 text-sm" style={{ color: '#f87171' }}>Negotiated discount</td>
@@ -917,6 +959,57 @@ export function QuotationTool() {
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          {/* ── Add-on charges (toll, parking, border tax, custom) ── */}
+          <div className="rounded-xl border p-3 space-y-2.5" style={{ borderColor: 'var(--glass-border)', background: 'var(--glass-bg)' }}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-base)' }}>Add-on charges</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {QUICK_CHARGES.map(label => (
+                  <button key={label} onClick={() => addCharge(label)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors"
+                    style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                    <Plus className="w-3 h-3" /> {label}
+                  </button>
+                ))}
+                <button onClick={() => addCharge('')}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors"
+                  style={{ background: 'rgba(240,192,64,0.12)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }}>
+                  <Plus className="w-3 h-3" /> Custom
+                </button>
+              </div>
+            </div>
+            {extraCharges.length === 0 ? (
+              <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                No add-ons. Use the buttons above to add toll, parking, border tax, or a custom charge.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {extraCharges.map(c => (
+                  <div key={c.id} className="flex items-center gap-2">
+                    <input type="text" value={c.label}
+                      onChange={e => updateCharge(c.id, { label: e.target.value })}
+                      placeholder="Charge name"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-xs bg-transparent border focus:outline-none"
+                      style={{ borderColor: 'var(--glass-border)', color: 'var(--text-base)' }} />
+                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border shrink-0"
+                      style={{ borderColor: 'var(--glass-border)' }}>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>&#8377;</span>
+                      <input type="number" min={0} value={c.amount}
+                        onChange={e => updateCharge(c.id, { amount: e.target.value === '' ? '' : Number(e.target.value) })}
+                        placeholder="0"
+                        className="w-20 bg-transparent text-xs font-semibold focus:outline-none"
+                        style={{ color: 'var(--text-base)' }} />
+                    </div>
+                    <button onClick={() => removeCharge(c.id)} title="Remove charge"
+                      className="p-1.5 rounded-lg shrink-0 transition-colors" style={{ color: '#f87171' }}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="text-xs space-y-1 px-1" style={{ color: 'var(--text-muted)' }}>
