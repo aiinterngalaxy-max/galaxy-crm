@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock, Table2 } from 'lucide-react'
+import { Plus, LayoutGrid, List, Phone, MessageSquare, Calendar, Trash2, Clock, Table2, Search, X } from 'lucide-react'
 import { LeadsSpreadsheetView } from './LeadsSpreadsheetView'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
@@ -91,6 +91,7 @@ export function LeadsPage() {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [showForm, setShowForm] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [filterStage, setFilterStage] = useState<LeadStatus | 'all'>('all')
   const [filterPlatform, setFilterPlatform] = useState<string>('all')
   const [filterEmployee, setFilterEmployee] = useState<string>('all')
@@ -171,6 +172,7 @@ export function LeadsPage() {
   }
 
   const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
     let list = leads.filter(l => {
       const matchStage = filterStage === 'all' || l.status === filterStage
       const matchPlatform = filterPlatform === 'all' || l.source === filterPlatform
@@ -181,12 +183,14 @@ export function LeadsPage() {
         return d.toISOString().slice(0, 10) === filterDate
       })()
       const matchMonth = filterMonth === 'all' || getLeadMonth(l) === filterMonth
-      return matchStage && matchPlatform && matchEmployee && matchDate && matchMonth
+      const matchSearch = !q || [l.name, l.phone, l.email, l.whatsapp, l.address, l.assignedToName, l.source]
+        .some(field => field?.toLowerCase().includes(q))
+      return matchStage && matchPlatform && matchEmployee && matchDate && matchMonth && matchSearch
     })
     if (sortScore === 'high') list = [...list].sort((a, b) => b.aiScore - a.aiScore)
     else if (sortScore === 'low') list = [...list].sort((a, b) => a.aiScore - b.aiScore)
     return list
-  }, [leads, filterStage, filterPlatform, filterEmployee, filterDate, filterMonth, sortScore])
+  }, [leads, searchQuery, filterStage, filterPlatform, filterEmployee, filterDate, filterMonth, sortScore])
 
   // Group filtered leads by month for list view (skip in kanban — not rendered)
   const groupedByMonth = useMemo(() => {
@@ -233,6 +237,27 @@ export function LeadsPage() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* Search */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search leads…"
+            className="bg-gray-800 border border-gray-700 text-sm text-gray-300 rounded-lg pl-9 pr-8 py-2 w-56 focus:outline-none focus:border-indigo-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
         {/* Stage dropdown */}
         <select
           value={filterStage}
@@ -378,7 +403,7 @@ export function LeadsPage() {
           {!loading && filtered.length === 0 && (
             <EmptyState
               title="No leads found"
-              description={filterStage !== 'all' || filterPlatform !== 'all' || filterEmployee !== 'all' || filterDate || filterMonth !== 'all' ? 'Try adjusting the filters.' : 'Add your first lead to get started.'}
+              description={searchQuery || filterStage !== 'all' || filterPlatform !== 'all' || filterEmployee !== 'all' || filterDate || filterMonth !== 'all' ? 'Try adjusting the filters.' : 'Add your first lead to get started.'}
               action={canCreate ? { label: 'Add Lead', onClick: () => setShowForm(true), icon: <Plus className="w-4 h-4" /> } : undefined}
             />
           )}
