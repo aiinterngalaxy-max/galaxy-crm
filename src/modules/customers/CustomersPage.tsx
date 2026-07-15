@@ -1,15 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, UserSquare2, ChevronRight, Phone, MapPin, Trash2 } from 'lucide-react'
+import { Search, UserSquare2, ChevronRight, Phone, MapPin, Trash2, CheckCircle2, Clock } from 'lucide-react'
 import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { db, collection, query, orderBy, onSnapshot, limit } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, limit, where, getDocs } from '../../lib/firebase'
 import { trashItem } from '../../lib/trash'
-import { formatCurrency, formatDate } from '../../lib/utils'
+import { formatCurrency } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Customer } from '../../types'
+
+// Per-customer roll-up of workflow progress across all their projects, loaded lazily on hover.
+interface CustomerProgress {
+  projectCount: number
+  totalStages: number
+  doneStages: number
+  done: string[]
+  pending: string[]
+}
 
 const TAG_STYLES = {
   vip:             { color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
@@ -25,6 +34,45 @@ export function CustomersPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [progress, setProgress] = useState<Record<string, CustomerProgress | 'loading'>>({})
+  const requested = useRef<Set<string>>(new Set())
+
+  // Lazily fetch a customer's projects and their workflow stages the first time
+  // the row is hovered, then cache the result so we never re-fetch it.
+  async function loadProgress(custId: string) {
+    if (requested.current.has(custId)) return
+    requested.current.add(custId)
+    setProgress(prev => ({ ...prev, [custId]: 'loading' }))
+    try {
+      const projSnap = await getDocs(query(collection(db, 'projects'), where('customerId', '==', custId)))
+      let totalStages = 0
+      let doneStages = 0
+      const done: string[] = []
+      const pending: string[] = []
+      await Promise.all(projSnap.docs.map(async pd => {
+        const wSnap = await getDocs(collection(db, 'projects', pd.id, 'workflow'))
+        wSnap.docs.forEach(w => {
+          const s = w.data() as { title?: string; status?: string }
+          const title = s.title || 'Untitled stage'
+          totalStages++
+          if (s.status === 'completed') { doneStages++; done.push(title) }
+          else pending.push(title)
+        })
+      }))
+      setProgress(prev => ({
+        ...prev,
+        [custId]: { projectCount: projSnap.size, totalStages, doneStages, done, pending },
+      }))
+    } catch (err) {
+      console.error(err)
+      requested.current.delete(custId) // allow a retry on the next hover
+      setProgress(prev => {
+        const next = { ...prev }
+        delete next[custId]
+        return next
+      })
+    }
+  }
 
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation()
@@ -109,7 +157,8 @@ export function CustomersPage() {
               key={customer.id}
               data-tour={idx === 0 ? 'customer-row' : undefined}
               onClick={() => navigate(`/customers/${customer.id}`)}
-              className="flex items-center gap-4 px-5 py-4 hover:bg-gray-800/50 cursor-pointer transition-colors"
+              onMouseEnter={() => loadProgress(customer.id)}
+              className="group relative flex items-center gap-4 px-5 py-4 hover:bg-gray-800/50 cursor-pointer transition-colors"
             >
               {/* Avatar */}
               <div className="w-10 h-10 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
@@ -164,10 +213,84 @@ export function CustomersPage() {
                 )}
                 <ChevronRight className="w-4 h-4 text-gray-700" />
               </div>
+
+              <ProgressPopover state={progress[customer.id]} />
             </div>
           ))}
         </div>
       </Card>
+    </div>
+  )
+}
+
+// Hover card summarising a customer's completed vs. pending workflow stages.
+function ProgressPopover({ state }: { state: CustomerProgress | 'loading' | undefined }) {
+  return (
+    <div className="pointer-events-none absolute left-14 right-4 top-full z-30 -mt-1 hidden group-hover:block">
+      <div className="rounded-lg border border-gray-700 bg-gray-950/95 p-3 shadow-xl backdrop-blur">
+        {state === undefined || state === 'loading' ? (
+          <p className="text-xs text-gray-500">Loading progress…</p>
+        ) : state.projectCount === 0 ? (
+          <p className="text-xs text-gray-500">No projects yet.</p>
+        ) : state.totalStages === 0 ? (
+          <p className="text-xs text-gray-500">
+            {state.projectCount} project{state.projectCount > 1 ? 's' : ''} · no workflow stages yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-gray-200">
+                {state.doneStages}/{state.totalStages} stages complete
+              </span>
+              <span className="text-xs text-gray-500">
+                {state.projectCount} project{state.projectCount > 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+              <div
+                className="h-full rounded-full bg-green-500 transition-all"
+                style={{ width: `${Math.round((state.doneStages / state.totalStages) * 100)}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-green-400">
+                  <CheckCircle2 className="h-3 w-3" /> Completed ({state.done.length})
+                </p>
+                {state.done.length === 0 ? (
+                  <p className="text-[11px] text-gray-600">None yet</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {state.done.slice(0, 5).map((t, i) => (
+                      <li key={i} className="truncate text-[11px] text-gray-400">{t}</li>
+                    ))}
+                    {state.done.length > 5 && (
+                      <li className="text-[11px] text-gray-600">+{state.done.length - 5} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-yellow-400">
+                  <Clock className="h-3 w-3" /> Pending ({state.pending.length})
+                </p>
+                {state.pending.length === 0 ? (
+                  <p className="text-[11px] text-gray-600">All done 🎉</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {state.pending.slice(0, 5).map((t, i) => (
+                      <li key={i} className="truncate text-[11px] text-gray-400">{t}</li>
+                    ))}
+                    {state.pending.length > 5 && (
+                      <li className="text-[11px] text-gray-600">+{state.pending.length - 5} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

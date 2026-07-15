@@ -210,6 +210,7 @@ export function ProjectDetail() {
   const [showAddStage, setShowAddStage] = useState(false)
   const [newStageTitle, setNewStageTitle] = useState('')
   const [newStagePayAmt, setNewStagePayAmt] = useState(0)
+  const [seedingStages, setSeedingStages] = useState(false)
 
   const canManage = role ? canManageProjects(role) : false
 
@@ -396,6 +397,58 @@ export function ProjectDetail() {
     }
   }
 
+  // ── Seed default Galaxy stages (non-destructive) ───────────────────────────────
+  // Adds any of the standard Galaxy workflow stages that this project is missing,
+  // matched by title. Existing stages are never modified or removed — this is used
+  // to repair projects that were created before default-stage seeding existed.
+
+  async function seedDefaultStages() {
+    if (!id || seedingStages) return
+    const existingTitles = new Set(workflowStages.map(s => s.title.trim().toLowerCase()))
+    const missing = DEFAULT_WORKFLOW_STAGES.filter(d => !existingTitles.has(d.title.toLowerCase()))
+    if (missing.length === 0) {
+      toast('All default stages are already present')
+      return
+    }
+    const totalValue = project?.totalValue || project?.projectValue || 0
+    const baseOrder = workflowStages.length
+      ? Math.max(...workflowStages.map(s => s.orderIndex ?? 0)) + 1
+      : 0
+    setSeedingStages(true)
+    try {
+      const created: WorkflowStage[] = []
+      for (let i = 0; i < missing.length; i++) {
+        const stage = missing[i]
+        const orderIndex = baseOrder + i
+        const status: WorkflowStage['status'] =
+          workflowStages.length === 0 && i === 0 ? 'in_progress' : 'locked'
+        const payload = {
+          ...stage,
+          orderIndex,
+          paymentAmount: Math.round((totalValue * (stage.paymentPercent || 0)) / 100),
+          status,
+        }
+        const ref = await addDoc(collection(db, 'projects', id, 'workflow'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        })
+        created.push({ ...payload, id: ref.id } as WorkflowStage)
+      }
+      const merged = [...workflowStages, ...created].sort((a, b) => a.orderIndex - b.orderIndex)
+      setWorkflowStages(merged)
+      // Keep the project's headline completion figure in sync with the new stage count.
+      const done = merged.filter(s => s.status === 'completed').length
+      const pct = merged.length ? Math.round((done / merged.length) * 100) : 0
+      await updateDoc(doc(db, 'projects', id), { completionPercent: pct, updatedAt: serverTimestamp() })
+      toast.success(`Added ${created.length} Galaxy stage${created.length > 1 ? 's' : ''}`)
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to load default stages')
+    } finally {
+      setSeedingStages(false)
+    }
+  }
+
   // ── Site details save ────────────────────────────────────────────────────────
 
   async function saveSiteDetails() {
@@ -578,6 +631,10 @@ export function ProjectDetail() {
 
   const statusCfg = PROJECT_STATUS_CONFIG[project.status]
   const totalValue = p.totalValue || p.projectValue || 0
+  const existingStageTitles = new Set(workflowStages.map(s => s.title.trim().toLowerCase()))
+  const missingDefaultCount = DEFAULT_WORKFLOW_STAGES.filter(
+    d => !existingStageTitles.has(d.title.toLowerCase())
+  ).length
   const accessCode = p.accessCode || ''
   const clientLink = `${window.location.origin}/client/${accessCode}`
 
@@ -904,17 +961,35 @@ export function ProjectDetail() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="section-header">Workflow</h2>
           {canManage && (
-            <Button size="sm" variant="secondary" icon={<Plus className="w-3.5 h-3.5" />}
-              onClick={() => setShowAddStage(true)}>
-              Add Stage
-            </Button>
+            <div className="flex items-center gap-2">
+              {missingDefaultCount > 0 && (
+                <Button size="sm" variant="secondary" loading={seedingStages}
+                  icon={<RefreshCw className="w-3.5 h-3.5" />}
+                  onClick={seedDefaultStages}>
+                  Load Galaxy stages
+                </Button>
+              )}
+              <Button size="sm" variant="secondary" icon={<Plus className="w-3.5 h-3.5" />}
+                onClick={() => setShowAddStage(true)}>
+                Add Stage
+              </Button>
+            </div>
           )}
         </div>
 
         {workflowStages.length === 0 && (
           <Card className="py-8 text-center">
             <p className="text-sm text-gray-600">No workflow stages yet.</p>
-            <p className="text-xs text-gray-700 mt-1">Create a project from a quotation to auto-generate Galaxy stages.</p>
+            <p className="text-xs text-gray-700 mt-1">
+              Load the standard Galaxy stages to get started, or add your own.
+            </p>
+            {canManage && (
+              <Button size="sm" variant="secondary" className="mt-3" loading={seedingStages}
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                onClick={seedDefaultStages}>
+                Load Galaxy stages
+              </Button>
+            )}
           </Card>
         )}
 

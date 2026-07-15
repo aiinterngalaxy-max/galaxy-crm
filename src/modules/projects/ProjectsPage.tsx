@@ -14,6 +14,7 @@ import {
 import { trashItem } from '../../lib/trash'
 import { nextProjectCode } from '../../lib/counters'
 import { formatDate, canManageProjects } from '../../lib/utils'
+import { DEFAULT_WORKFLOW_STAGES } from './ProjectDetail'
 import type { Project, ProjectStatus } from '../../types'
 import { cn } from '../../lib/utils'
 import toast from 'react-hot-toast'
@@ -112,11 +113,25 @@ export function ProjectsPage() {
       if (form.startDate) projectData.startDate = new Date(form.startDate)
       if (form.expectedEndDate) projectData.expectedEndDate = new Date(form.expectedEndDate)
 
-      await addDoc(collection(db, 'projects'), {
+      const projRef = await addDoc(collection(db, 'projects'), {
         ...projectData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
+
+      // Seed the default Galaxy workflow stages, same as the quotation → project flow,
+      // so directly-created projects don't start with an empty workflow.
+      const totalValue = Number(form.projectValue) || 0
+      await Promise.all(
+        DEFAULT_WORKFLOW_STAGES.map(stage =>
+          addDoc(collection(db, 'projects', projRef.id, 'workflow'), {
+            ...stage,
+            paymentAmount: Math.round((totalValue * stage.paymentPercent) / 100),
+            status: stage.orderIndex === 0 ? 'in_progress' : 'locked',
+            createdAt: serverTimestamp(),
+          })
+        )
+      )
 
       toast.success(`Project ${code} created`)
       setShowNewProject(false)
