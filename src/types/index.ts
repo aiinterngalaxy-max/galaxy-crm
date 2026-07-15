@@ -1,5 +1,15 @@
 import { Timestamp } from 'firebase/firestore'
 
+// ─── Shared ────────────────────────────────────────────────────────────────────
+
+// An uploaded quote/document (PDF etc.) attached to a lead or partner.
+export interface QuoteDoc {
+  name: string
+  url: string
+  uploadedAt: number      // epoch ms (stored as a plain number so it works inside arrays)
+  uploadedByName?: string
+}
+
 // ─── Role System ───────────────────────────────────────────────────────────────
 
 export type UserRole =
@@ -93,6 +103,7 @@ export interface Lead {
   partnerName?: string
   convertedToCustomerId?: string
   floorPlanUrl?: string
+  quoteDocuments?: QuoteDoc[]
   tier?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5'
   demoGiven?: boolean
   notes?: string
@@ -551,6 +562,9 @@ export interface Partner {
   status: PartnerStatus
   totalLeads: number
   totalRevenue: number
+  nextFollowUp?: Timestamp
+  followUpNote?: string
+  quoteDocuments?: QuoteDoc[]
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp

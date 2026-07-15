@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Phone, Mail, MapPin, MessageCircle, Building2,
-  TrendingUp, Users, CheckCircle2, XCircle, Clock, Edit2, Save, X,
+  TrendingUp, Users, CheckCircle2, XCircle, Clock, Edit2, Save, X, CalendarClock,
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -12,8 +12,10 @@ import { Badge } from '../../components/ui/Badge'
 import { StatCard } from '../../components/ui/Card'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { db, collection, doc, onSnapshot, updateDoc, serverTimestamp, query, where } from '../../lib/firebase'
-import { formatCurrency, formatCurrencyShort, formatDate, LEAD_STATUS_CONFIG } from '../../lib/utils'
+import { QuoteDocuments } from '../../components/QuoteDocuments'
+import { useAuth } from '../../contexts/AuthContext'
+import { db, collection, doc, onSnapshot, updateDoc, serverTimestamp, query, where, Timestamp } from '../../lib/firebase'
+import { formatCurrency, formatCurrencyShort, formatDate, toDate, canManageLeads, LEAD_STATUS_CONFIG } from '../../lib/utils'
 import type { Partner, Lead, PartnerType } from '../../types'
 import toast from 'react-hot-toast'
 
@@ -38,12 +40,17 @@ const PARTNER_TYPE_LABELS: Record<PartnerType, string> = {
 export function PartnerDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user, role } = useAuth()
+  const canEdit = role ? canManageLeads(role) : false
   const [partner, setPartner] = useState<Partner | null>(null)
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editData, setEditData] = useState<Partial<Partner>>({})
+  const [followUpDate, setFollowUpDate] = useState('')
+  const [followUpNote, setFollowUpNote] = useState('')
+  const [savingFollowUp, setSavingFollowUp] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -81,6 +88,42 @@ export function PartnerDetail() {
       toast.error('Failed to update')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const saveFollowUp = async () => {
+    if (!id || !followUpDate) return
+    setSavingFollowUp(true)
+    try {
+      await updateDoc(doc(db, 'partners', id), {
+        nextFollowUp: Timestamp.fromDate(new Date(followUpDate)),
+        followUpNote: followUpNote.trim(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Follow-up scheduled')
+      setFollowUpDate('')
+      setFollowUpNote('')
+    } catch {
+      toast.error('Failed to schedule follow-up')
+    } finally {
+      setSavingFollowUp(false)
+    }
+  }
+
+  const clearFollowUp = async () => {
+    if (!id) return
+    setSavingFollowUp(true)
+    try {
+      await updateDoc(doc(db, 'partners', id), {
+        nextFollowUp: null,
+        followUpNote: '',
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Follow-up cleared')
+    } catch {
+      toast.error('Failed to clear follow-up')
+    } finally {
+      setSavingFollowUp(false)
     }
   }
 
@@ -215,6 +258,67 @@ export function PartnerDetail() {
               </div>
             )}
           </div>
+
+          {/* Follow-up */}
+          <div className="glass-card p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gold-400" />
+              <h3 className="text-sm font-semibold text-gray-200">Follow-up</h3>
+            </div>
+
+            {partner.nextFollowUp ? (
+              <div className="mb-3">
+                {(() => {
+                  const followMs = toDate(partner.nextFollowUp)?.getTime() ?? 0
+                  const overdue = followMs > 0 && followMs < Date.now()
+                  return (
+                    <span className={`inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-lg ${overdue ? 'bg-red-900/30 text-red-400' : 'bg-green-900/30 text-green-400'}`}>
+                      <CalendarClock className="w-3.5 h-3.5" />
+                      {formatDate(partner.nextFollowUp, 'dd MMM yyyy, hh:mm a')}{overdue ? ' · Overdue' : ''}
+                    </span>
+                  )
+                })()}
+                {partner.followUpNote && <p className="text-sm text-gray-400 mt-2">{partner.followUpNote}</p>}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-600 mb-3">No follow-up scheduled.</p>
+            )}
+
+            {canEdit && (
+              <div className="space-y-2">
+                <input
+                  type="datetime-local"
+                  value={followUpDate}
+                  onChange={e => setFollowUpDate(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                />
+                <input
+                  type="text"
+                  value={followUpNote}
+                  onChange={e => setFollowUpNote(e.target.value)}
+                  placeholder="Note (optional)"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" icon={<Save className="w-3.5 h-3.5" />} loading={savingFollowUp} disabled={!followUpDate} onClick={saveFollowUp}>
+                    {partner.nextFollowUp ? 'Update' : 'Schedule'}
+                  </Button>
+                  {partner.nextFollowUp && (
+                    <Button size="sm" variant="secondary" disabled={savingFollowUp} onClick={clearFollowUp}>Clear</Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quote PDFs */}
+          <QuoteDocuments
+            collectionName="partners"
+            docId={id!}
+            documents={partner.quoteDocuments ?? []}
+            canEdit={canEdit}
+            uploadedByName={user?.name}
+          />
         </div>
 
         {/* Right: stats + leads */}

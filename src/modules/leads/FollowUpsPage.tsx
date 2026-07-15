@@ -232,6 +232,7 @@ export function FollowUpsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [lastActivities, setLastActivities] = useState<Map<string, LastActivity>>(new Map())
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [now, setNow] = useState(new Date())
   const [tab, setTab] = useState<'today' | 'tomorrow' | 'upcoming'>('today')
   const [doneModal, setDoneModal] = useState<Lead | null>(null)
@@ -245,6 +246,7 @@ export function FollowUpsPage() {
   useEffect(() => {
     if (!user) return
 
+    setLoadError(null)
     getDocs(query(collection(db, 'leads'), where('nextFollowUp', '!=', null), orderBy('nextFollowUp')))
       .then(async snap => {
         const fetchedLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
@@ -269,7 +271,19 @@ export function FollowUpsPage() {
         entries.forEach(e => { if (e) map.set(e[0], e[1]) })
         setLastActivities(map)
       })
-      .catch(err => console.error('[FollowUps] fetch error:', err))
+      .catch(err => {
+        console.error('[FollowUps] fetch error:', err)
+        // Surface the real reason instead of silently showing an empty page —
+        // e.g. a permissions error tells an admin the Firestore rules need attention.
+        const code = (err as { code?: string })?.code
+        setLoadError(
+          code === 'permission-denied'
+            ? "You don't have permission to load follow-ups. Ask an admin to check the Firestore rules for your role."
+            : code === 'failed-precondition'
+              ? 'Follow-ups need a Firestore index that is still building or missing. Try again shortly.'
+              : 'Could not load follow-ups. Check your connection and try again.'
+        )
+      })
       .finally(() => setLoading(false))
   }, [user, role])
 
@@ -336,6 +350,12 @@ export function FollowUpsPage() {
           {overdue.length > 0 && ` · ${overdue.length} overdue`}
         </p>
       </div>
+
+      {loadError && (
+        <div className="rounded-lg border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+          {loadError}
+        </div>
+      )}
 
       <div className="flex gap-1 p-1 bg-gray-800/60 rounded-xl w-fit">
         {TABS.map(t => (

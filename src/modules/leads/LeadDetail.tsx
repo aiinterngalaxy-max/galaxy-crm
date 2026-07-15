@@ -14,6 +14,7 @@ import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
 import { Input } from '../../components/ui/Input'
 import { ActivityLog } from './ActivityLog'
+import { QuoteDocuments } from '../../components/QuoteDocuments'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, doc, getDoc, updateDoc, addDoc, collection, getDocs, query, where,
@@ -665,6 +666,16 @@ export function LeadDetail() {
               </div>
             )}
           </Card>
+
+          {/* Quote PDFs */}
+          <QuoteDocuments
+            collectionName="leads"
+            docId={id!}
+            documents={lead.quoteDocuments ?? []}
+            canEdit={canEdit}
+            uploadedByName={user?.name}
+            onChange={docs => setLead(prev => prev ? { ...prev, quoteDocuments: docs } : prev)}
+          />
         </div>
 
         {/* Right: Activity Timeline */}
