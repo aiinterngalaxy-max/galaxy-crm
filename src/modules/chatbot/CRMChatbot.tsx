@@ -34,15 +34,23 @@ const fmtI = (n?: number) => n ? `₹${(n / 100000).toFixed(1)}L` : '₹0'
 const fmtFull = (n?: number) => n ? `₹${n.toLocaleString('en-IN')}` : '₹0'
 
 async function fetchCRMContext(): Promise<string> {
+  // Fetch each collection independently and tolerate a permission-denied on any
+  // one of them — a user who can't read (say) invoices or candidates should
+  // still get a working assistant over the data they CAN see, rather than a
+  // hard failure that breaks the whole chatbot.
+  // Preserve each snapshot's real type (so downstream .docs typing still works)
+  // while falling back to an empty stand-in if a collection read is denied.
+  const safe = <T,>(p: Promise<T>): Promise<T> =>
+    p.catch(() => ({ docs: [], size: 0 } as unknown as T))
   const [projects, leads, customers, quotations, invoices, candidates, workflowStages] =
     await Promise.all([
-      getDocs(collection(db, 'projects')),
-      getDocs(collection(db, 'leads')),
-      getDocs(collection(db, 'customers')),
-      getDocs(collection(db, 'quotations')),
-      getDocs(collection(db, 'invoices')),
-      getDocs(collection(db, 'candidates')),
-      getDocs(collectionGroup(db, 'workflow')),
+      safe(getDocs(collection(db, 'projects'))),
+      safe(getDocs(collection(db, 'leads'))),
+      safe(getDocs(collection(db, 'customers'))),
+      safe(getDocs(collection(db, 'quotations'))),
+      safe(getDocs(collection(db, 'invoices'))),
+      safe(getDocs(collection(db, 'candidates'))),
+      safe(getDocs(collectionGroup(db, 'workflow'))),
     ])
 
   // Build map: projectId → { paid, stages[] } from actual workflow stage data

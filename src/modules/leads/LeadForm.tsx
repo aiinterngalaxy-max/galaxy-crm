@@ -78,7 +78,12 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     getDocs(collection(db, 'users')).then(snap => {
       const users = snap.docs.map(d => ({ id: d.id, ...d.data() }) as User)
       setBdUsers(users.filter(u => ['bd_exec', 'dept_head', 'management', 'super_admin'].includes(u.role)))
-    }).catch(console.error)
+    }).catch(err => {
+      // Surface the failure instead of leaving the "Assign To" picker mysteriously
+      // empty — an empty required dropdown otherwise looks like "no team members".
+      console.error(err)
+      toast.error("Couldn't load team members to assign. Please refresh or contact an admin.")
+    })
 
     getDocs(collection(db, 'partners')).then(snap => {
       setPartners(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Partner))

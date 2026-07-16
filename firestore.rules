@@ -24,7 +24,12 @@ service cloud.firestore {
 
     // Users collection
     match /users/{userId} {
-      allow read: if isAuth() && (request.auth.uid == userId || isManagement());
+      // Any approved (non-pending) team member can read the user directory —
+      // the app needs it to populate "Assign To" / "Performed by" pickers, list
+      // project workers, and route notifications. Pending users can still read
+      // their own doc (needed at login, before approval). Only management can
+      // change roles/status (enforced on update below).
+      allow read: if isAuth() && (request.auth.uid == userId || isNotPending());
 
       // First login: user creates their own doc with role=pending only
       allow create: if isAuth() && request.auth.uid == userId && request.resource.data.role == 'pending';
@@ -203,6 +208,40 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read: if isAuth() && isManagement();
       allow write: if false;
+    }
+
+    // App settings — e.g. the custom role→module permissions map.
+    // Every approved user reads this at startup to resolve their nav/route
+    // access (AuthContext); only management can change it.
+    match /settings/{docId} {
+      allow read: if isAuth() && isNotPending();
+      allow write: if isAuth() && isManagement();
+    }
+
+    // HR — job descriptions and candidates (candidates hold resume/PII data),
+    // so access is limited to HR and management.
+    match /jobDescriptions/{jdId} {
+      allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'hr'];
+    }
+    match /candidates/{candidateId} {
+      allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'hr'];
+    }
+
+    // Non-working inventory — operational log managed from the Inventory module
+    // by dept heads / project managers, who also remove entries (soft-delete to
+    // the recycle bin), so delete matches the create/update role set.
+    match /nonWorkingInventory/{itemId} {
+      allow read: if isAuth() && isNotPending();
+      allow create, update, delete: if isAuth() && getRole() in ['super_admin', 'management', 'dept_head', 'project_manager'];
+    }
+
+    // Recycle bin — soft-deleted items from across the app. Anyone who can
+    // delete something records a trash entry; only management can view, restore,
+    // or permanently remove them.
+    match /deletedItems/{itemId} {
+      allow read: if isAuth() && isManagement();
+      allow create: if isAuth() && isNotPending();
+      allow update, delete: if isAuth() && isManagement();
     }
   }
 }
