@@ -92,6 +92,7 @@ export function QuotationsPage() {
         completionPercent: 0,
         workflowTotal: DEFAULT_WORKFLOW_STAGES.length,
         workflowDone: 0,
+        stagesPaidAmount: 0,
         milestones: [],
         assignedPM: user?.id,
         assignedPMName: user?.name,

@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageCircle, X, Send, RefreshCw, Sparkles, Bot, Trash2 } from 'lucide-react'
-import { db, collection, getDocs } from '../../lib/firebase'
-import { collectionGroup } from 'firebase/firestore'
+import { db, collection, getDocs, query, orderBy, limit } from '../../lib/firebase'
 import toast from 'react-hot-toast'
 
 interface Message {
@@ -42,48 +41,36 @@ async function fetchCRMContext(): Promise<string> {
   // while falling back to an empty stand-in if a collection read is denied.
   const safe = <T,>(p: Promise<T>): Promise<T> =>
     p.catch(() => ({ docs: [], size: 0 } as unknown as T))
-  const [projects, leads, customers, quotations, invoices, candidates, workflowStages] =
+  // Bound every fetch so cost stays flat as the CRM grows (the context is
+  // truncated to ~5k tokens before it reaches the model anyway, so unbounded
+  // reads were pure waste). Limits sit above current collection sizes, so
+  // nothing is dropped today. Per-project collected amounts come from the
+  // denormalized `stagesPaidAmount` field, replacing a collectionGroup scan
+  // over every project's workflow stages (previously the single biggest read).
+  const [projects, leads, customers, quotations, invoices, candidates] =
     await Promise.all([
-      safe(getDocs(collection(db, 'projects'))),
-      safe(getDocs(collection(db, 'leads'))),
-      safe(getDocs(collection(db, 'customers'))),
-      safe(getDocs(collection(db, 'quotations'))),
-      safe(getDocs(collection(db, 'invoices'))),
-      safe(getDocs(collection(db, 'candidates'))),
-      safe(getDocs(collectionGroup(db, 'workflow'))),
+      safe(getDocs(query(collection(db, 'projects'), limit(200)))),
+      safe(getDocs(query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(250)))),
+      safe(getDocs(query(collection(db, 'customers'), limit(200)))),
+      safe(getDocs(query(collection(db, 'quotations'), limit(40)))),
+      safe(getDocs(query(collection(db, 'invoices'), limit(40)))),
+      safe(getDocs(query(collection(db, 'candidates'), limit(60)))),
     ])
-
-  // Build map: projectId → { paid, stages[] } from actual workflow stage data
-  const workflowByProject = new Map<string, { paid: number; stages: string[] }>()
-  workflowStages.docs.forEach(d => {
-    const stage = d.data()
-    const projectId = d.ref.parent.parent?.id
-    if (!projectId) return
-    const entry = workflowByProject.get(projectId) ?? { paid: 0, stages: [] }
-    const amt = stage.paymentAmount ?? 0
-    if (stage.status === 'completed' && amt > 0) {
-      entry.paid += amt
-      entry.stages.push(`${stage.title ?? 'Stage'}:${fmtFull(amt)}`)
-    }
-    workflowByProject.set(projectId, entry)
-  })
 
   const L: string[] = []
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   L.push(`GALAXY CRM ${today}`)
 
-  // Projects — with real paid amounts from workflow stages
+  // Projects — paid amount from the denormalized per-project stage total
   L.push(`\nPROJECTS(${projects.size}):`)
   projects.docs.forEach(d => {
     const p = d.data()
     const val = p.projectValue ?? p.totalValue ?? 0
-    const wf = workflowByProject.get(d.id)
-    const paid = wf?.paid ?? p.collectedAmount ?? p.totalPaid ?? 0
-    const stagesStr = wf?.stages.length ? `|payments:${wf.stages.join(',')}` : ''
-    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}${stagesStr}`)
+    const paid = p.stagesPaidAmount ?? p.collectedAmount ?? p.totalPaid ?? 0
+    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}`)
   })
 
-  // Leads — all, ultra-compact (name|status|assignee only to stay within TPM)
+  // Leads — most-recent first, capped (see fetch limit above)
   L.push(`\nLEADS(${leads.size}):`)
   leads.docs.forEach(d => {
     const l = d.data()

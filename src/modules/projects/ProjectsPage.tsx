@@ -99,6 +99,7 @@ export function ProjectsPage() {
         completionPercent: 0,
         workflowTotal: DEFAULT_WORKFLOW_STAGES.length,
         workflowDone: 0,
+        stagesPaidAmount: 0,
         riskLevel: 'low',
         riskFlags: [],
         city: form.city,

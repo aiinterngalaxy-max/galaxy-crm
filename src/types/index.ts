@@ -282,6 +282,10 @@ export interface Project {
   // subcollection of every project.
   workflowTotal?: number
   workflowDone?: number
+  // Denormalized sum of paymentAmount across completed stages, so aggregate
+  // views (e.g. the CRM assistant) get per-project collected amounts without a
+  // collectionGroup scan over every project's workflow stages.
+  stagesPaidAmount?: number
   // Site info
   city?: string
   siteAddress?: string

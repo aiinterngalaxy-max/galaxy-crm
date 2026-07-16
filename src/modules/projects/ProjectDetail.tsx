@@ -48,6 +48,13 @@ interface WorkflowStage {
   status: 'locked' | 'in_progress' | 'completed'
 }
 
+// Sum of paymentAmount across completed stages — the project's collected-so-far
+// figure. Denormalized onto the project doc so aggregate consumers don't have to
+// scan every project's workflow subcollection.
+function stagesPaidAmount(stages: WorkflowStage[]): number {
+  return stages.reduce((sum, s) => s.status === 'completed' ? sum + (s.paymentAmount || 0) : sum, 0)
+}
+
 // ─── Default Galaxy Stages ─────────────────────────────────────────────────────
 
 export const DEFAULT_WORKFLOW_STAGES: Omit<WorkflowStage, 'id' | 'paymentAmount' | 'status'>[] = [
@@ -260,10 +267,12 @@ export function ProjectDetail() {
         if (projSnap.exists()) {
           const data = projSnap.data() as Project
           const done = stages.filter(s => s.status === 'completed').length
-          if (data.workflowTotal !== stages.length || data.workflowDone !== done) {
+          const paid = stagesPaidAmount(stages)
+          if (data.workflowTotal !== stages.length || data.workflowDone !== done || data.stagesPaidAmount !== paid) {
             updateDoc(doc(db, 'projects', id!), {
               workflowTotal: stages.length,
               workflowDone: done,
+              stagesPaidAmount: paid,
             }).catch(() => { /* best-effort; not worth surfacing to the user */ })
           }
         }
@@ -349,6 +358,7 @@ export function ProjectDetail() {
         completionPercent: pct,
         workflowTotal: updated.length,
         workflowDone: newCompleted,
+        stagesPaidAmount: stagesPaidAmount(updated),
         updatedAt: serverTimestamp(),
       })
     } catch {
@@ -366,7 +376,16 @@ export function ProjectDetail() {
         ...fields,
         updatedAt: serverTimestamp(),
       })
-      setWorkflowStages(prev => prev.map(s => s.id === stage.id ? { ...s, ...fields } : s))
+      const updated = workflowStages.map(s => s.id === stage.id ? { ...s, ...fields } : s)
+      setWorkflowStages(updated)
+      // Editing a completed stage's payment amount changes the collected total,
+      // so keep the denormalized figure in sync.
+      if ('paymentAmount' in fields) {
+        await updateDoc(doc(db, 'projects', id), {
+          stagesPaidAmount: stagesPaidAmount(updated),
+          updatedAt: serverTimestamp(),
+        })
+      }
     } catch {
       toast.error('Failed to save')
     } finally {
@@ -388,6 +407,7 @@ export function ProjectDetail() {
         completionPercent: pct,
         workflowTotal: remaining.length,
         workflowDone: done,
+        stagesPaidAmount: stagesPaidAmount(remaining),
         updatedAt: serverTimestamp(),
       })
       toast.success('Stage deleted')
@@ -480,6 +500,7 @@ export function ProjectDetail() {
         completionPercent: pct,
         workflowTotal: merged.length,
         workflowDone: done,
+        stagesPaidAmount: stagesPaidAmount(merged),
         updatedAt: serverTimestamp(),
       })
       toast.success(`Added ${created.length} Galaxy stage${created.length > 1 ? 's' : ''}`)
