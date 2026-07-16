@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card'
 import { Modal } from '../../components/ui/Modal'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuotationForm } from './QuotationForm'
-import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, limit, arrayUnion } from '../../lib/firebase'
+import { db, collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp, limit, arrayUnion } from '../../lib/firebase'
 import { trashItem } from '../../lib/trash'
 import { QUOTATION_STATUS_CONFIG, formatCurrency, formatDate } from '../../lib/utils'
 import { nextProjectCode } from '../../lib/counters'
@@ -71,12 +71,12 @@ export function QuotationsPage() {
     }
     setCreatingProject(q.id)
     try {
-      // Fetch customer details to pre-fill site info
+      // Fetch customer details to pre-fill site info — a direct doc lookup by
+      // ID instead of scanning the whole customers collection for one match.
       let customerData: Record<string, unknown> = {}
       if (q.customerId) {
-        const custSnap = await getDocs(collection(db, 'customers'))
-        const custDoc = custSnap.docs.find(d => d.id === q.customerId)
-        if (custDoc) customerData = custDoc.data()
+        const custSnap = await getDoc(doc(db, 'customers', q.customerId))
+        if (custSnap.exists()) customerData = custSnap.data()
       }
 
       const projectRef = await addDoc(collection(db, 'projects'), {

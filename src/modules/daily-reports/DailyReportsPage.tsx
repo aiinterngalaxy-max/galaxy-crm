@@ -128,16 +128,20 @@ export function DailyReportsPage() {
     const inToday = (ts: any) => { const d = toDate(ts); return d >= todayStart && d <= todayEnd }
 
     async function fetchBD() {
-      const allLeadsSnap = await getDocs(collection(db, 'leads'))
-      const allLeadsData = allLeadsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Lead)
-      const myLeads = allLeadsData.filter(
-        l => l.createdBy === user!.id || l.assignedTo === user!.id
-      )
+      // Scope to this user's leads instead of scanning the whole collection —
+      // two cheap indexed queries, merged and de-duped, instead of reading
+      // every lead in the system on every Daily Reports page load.
+      const [createdSnap, assignedSnap] = await Promise.all([
+        getDocs(query(collection(db, 'leads'), where('createdBy', '==', user!.id))),
+        getDocs(query(collection(db, 'leads'), where('assignedTo', '==', user!.id))),
+      ])
+      const byId = new Map<string, Lead>()
+      for (const d of [...createdSnap.docs, ...assignedSnap.docs]) {
+        byId.set(d.id, { id: d.id, ...d.data() } as Lead)
+      }
+      const myLeads = Array.from(byId.values())
 
-      const leadsCreated = allLeadsData.filter(l => {
-        if (l.createdBy !== user!.id && l.assignedTo !== user!.id) return false
-        return inToday(l.createdAt) || inToday(l.updatedAt)
-      })
+      const leadsCreated = myLeads.filter(l => inToday(l.createdAt) || inToday(l.updatedAt))
       const leadsProgressed = myLeads.filter(l => inToday(l.updatedAt) && !inToday(l.createdAt))
 
       const activityResults = await Promise.all(
@@ -156,19 +160,15 @@ export function DailyReportsPage() {
     }
 
     async function fetchPM() {
+      // Scope quotations to this user, and projects to just the status we
+      // actually count, instead of reading every quotation and every project.
       const [quotSnap, projSnap] = await Promise.all([
-        getDocs(collection(db, 'quotations')),
-        getDocs(collection(db, 'projects')),
+        getDocs(query(collection(db, 'quotations'), where('createdBy', '==', user!.id))),
+        getDocs(query(collection(db, 'projects'), where('status', '==', 'in_progress'))),
       ])
-      const quotationsCreated = quotSnap.docs.filter(d => {
-        const data = d.data()
-        return data.createdBy === user!.id && inToday(data.createdAt)
-      }).length
-      const quotationsSentToCustomer = quotSnap.docs.filter(d => {
-        const data = d.data()
-        return data.createdBy === user!.id && inToday(data.sentAt)
-      }).length
-      const activeProjects = projSnap.docs.filter(d => d.data().status === 'in_progress').length
+      const quotationsCreated = quotSnap.docs.filter(d => inToday(d.data().createdAt)).length
+      const quotationsSentToCustomer = quotSnap.docs.filter(d => inToday(d.data().sentAt)).length
+      const activeProjects = projSnap.size
 
       setTodayStats(prev => ({ ...prev, quotationsCreated, quotationsSentToCustomer, activeProjects }))
     }
