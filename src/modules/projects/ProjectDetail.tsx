@@ -247,10 +247,26 @@ export function ProjectDetail() {
             electricianContact: p.electricianContact || '',
           })
         }
-        setWorkflowStages(stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage))
+        const stages = stagesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as WorkflowStage)
+        setWorkflowStages(stages)
         setReports(repSnap.docs.map(d => ({ id: d.id, ...d.data() }) as SiteReport))
         const allUsers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }) as AppUser)
         setWorkers(allUsers.filter(u => u.role === 'project_manager'))
+
+        // Self-heal: this page already paid for the workflow subcollection read,
+        // so use it to fix stale/missing denormalized counts on the project doc —
+        // the Projects list relies on these instead of re-reading every project's
+        // stages, which used to burn a read per project on every page load.
+        if (projSnap.exists()) {
+          const data = projSnap.data() as Project
+          const done = stages.filter(s => s.status === 'completed').length
+          if (data.workflowTotal !== stages.length || data.workflowDone !== done) {
+            updateDoc(doc(db, 'projects', id!), {
+              workflowTotal: stages.length,
+              workflowDone: done,
+            }).catch(() => { /* best-effort; not worth surfacing to the user */ })
+          }
+        }
       } catch (err) {
         console.error(err)
         toast.error('Failed to load project')
@@ -329,7 +345,12 @@ export function ProjectDetail() {
       // Update project completion
       const newCompleted = updated.filter(s => s.status === 'completed').length
       const pct = updated.length ? Math.round((newCompleted / updated.length) * 100) : 0
-      await updateDoc(doc(db, 'projects', id), { completionPercent: pct, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, 'projects', id), {
+        completionPercent: pct,
+        workflowTotal: updated.length,
+        workflowDone: newCompleted,
+        updatedAt: serverTimestamp(),
+      })
     } catch {
       toast.error('Failed to update task')
     }
@@ -359,7 +380,16 @@ export function ProjectDetail() {
     if (!id || !window.confirm('Delete this stage?')) return
     try {
       await deleteDoc(doc(db, 'projects', id, 'workflow', stageId))
-      setWorkflowStages(prev => prev.filter(s => s.id !== stageId))
+      const remaining = workflowStages.filter(s => s.id !== stageId)
+      setWorkflowStages(remaining)
+      const done = remaining.filter(s => s.status === 'completed').length
+      const pct = remaining.length ? Math.round((done / remaining.length) * 100) : 0
+      await updateDoc(doc(db, 'projects', id), {
+        completionPercent: pct,
+        workflowTotal: remaining.length,
+        workflowDone: done,
+        updatedAt: serverTimestamp(),
+      })
       toast.success('Stage deleted')
     } catch {
       toast.error('Failed to delete stage')
@@ -387,7 +417,14 @@ export function ProjectDetail() {
         ...newStage,
         createdAt: serverTimestamp(),
       })
-      setWorkflowStages(prev => [...prev, { ...newStage, id: ref.id }])
+      const updatedStages = [...workflowStages, { ...newStage, id: ref.id }]
+      setWorkflowStages(updatedStages)
+      // A new stage always starts locked, so the completed count is unchanged —
+      // only the total grows.
+      await updateDoc(doc(db, 'projects', id), {
+        workflowTotal: updatedStages.length,
+        updatedAt: serverTimestamp(),
+      })
       setNewStageTitle('')
       setNewStagePayAmt(0)
       setShowAddStage(false)
@@ -439,7 +476,12 @@ export function ProjectDetail() {
       // Keep the project's headline completion figure in sync with the new stage count.
       const done = merged.filter(s => s.status === 'completed').length
       const pct = merged.length ? Math.round((done / merged.length) * 100) : 0
-      await updateDoc(doc(db, 'projects', id), { completionPercent: pct, updatedAt: serverTimestamp() })
+      await updateDoc(doc(db, 'projects', id), {
+        completionPercent: pct,
+        workflowTotal: merged.length,
+        workflowDone: done,
+        updatedAt: serverTimestamp(),
+      })
       toast.success(`Added ${created.length} Galaxy stage${created.length > 1 ? 's' : ''}`)
     } catch (e) {
       console.error(e)

@@ -277,6 +277,11 @@ export interface Project {
   riskLevel: RiskLevel
   riskFlags?: string[]
   completionPercent: number
+  // Denormalized workflow stage counts, kept in sync wherever stages are
+  // written — lets list views show progress without reading the `workflow`
+  // subcollection of every project.
+  workflowTotal?: number
+  workflowDone?: number
   // Site info
   city?: string
   siteAddress?: string

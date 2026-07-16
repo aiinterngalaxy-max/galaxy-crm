@@ -9,7 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, query, orderBy, onSnapshot,
-  addDoc, getDocs, serverTimestamp, limit
+  addDoc, serverTimestamp, limit
 } from '../../lib/firebase'
 import { trashItem } from '../../lib/trash'
 import { nextProjectCode } from '../../lib/counters'
@@ -47,7 +47,6 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const { user, role, isAdmin } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
-  const [workflowCounts, setWorkflowCounts] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
@@ -98,6 +97,8 @@ export function ProjectsPage() {
         assignedPMName: user?.name || '',
         status: form.status,
         completionPercent: 0,
+        workflowTotal: DEFAULT_WORKFLOW_STAGES.length,
+        workflowDone: 0,
         riskLevel: 'low',
         riskFlags: [],
         city: form.city,
@@ -156,23 +157,14 @@ export function ProjectsPage() {
 
   useEffect(() => {
     if (!user || !role) return
+    // Stage counts (workflowTotal/workflowDone) come straight off each project
+    // doc — they're kept in sync by ProjectDetail wherever stages change, so
+    // this list never has to read every project's workflow subcollection.
     const unsub = onSnapshot(
       query(collection(db, 'projects'), orderBy('createdAt', 'desc'), limit(100)),
-      async snap => {
-        const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project)
-        setProjects(loaded)
+      snap => {
+        setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Project))
         setLoading(false)
-        // Fetch workflow stage counts for all projects
-        const counts: Record<string, { total: number; done: number }> = {}
-        await Promise.all(loaded.map(async p => {
-          try {
-            const wSnap = await getDocs(collection(db, 'projects', p.id, 'workflow'))
-            const total = wSnap.size
-            const done = wSnap.docs.filter(d => d.data().status === 'completed').length
-            counts[p.id] = { total, done }
-          } catch { counts[p.id] = { total: 0, done: 0 } }
-        }))
-        setWorkflowCounts(counts)
       },
       err => { console.error(err); setLoading(false) }
     )
@@ -290,15 +282,15 @@ export function ProjectsPage() {
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((project, idx) => {
-          const wf = workflowCounts[project.id]
-          const pct = wf && wf.total > 0
-            ? Math.round((wf.done / wf.total) * 100)
+          const wfTotal = project.workflowTotal
+          const wfDone = project.workflowDone ?? 0
+          const pct = wfTotal && wfTotal > 0
+            ? Math.round((wfDone / wfTotal) * 100)
             : (project.completionPercent ?? 0)
           const sd = startDate(project)
           const city = project.city || ''
           const phone = project.clientContact || ''
           const overdue = isOverdue(project)
-          const stageCount = wf?.total
 
           return (
             <div
@@ -352,8 +344,8 @@ export function ProjectsPage() {
                 {project.assignedPMName && <p>Site Manager: <span className="text-gray-300 font-medium">{project.assignedPMName}</span></p>}
                 <div className="flex items-center justify-between">
                   <p>{project.expectedEndDate ? `Deadline ${formatDate(project.expectedEndDate)}` : 'No deadline'}{overdue ? <span className="text-red-400 ml-1">· Overdue</span> : null}</p>
-                  {wf !== undefined && wf.total > 0 && (
-                    <p className="text-gray-600">{wf.done}/{wf.total} stages</p>
+                  {wfTotal !== undefined && wfTotal > 0 && (
+                    <p className="text-gray-600">{wfDone}/{wfTotal} stages</p>
                   )}
                 </div>
               </div>

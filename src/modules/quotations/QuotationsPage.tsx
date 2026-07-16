@@ -90,6 +90,8 @@ export function QuotationsPage() {
         status: 'planning',
         riskLevel: 'low',
         completionPercent: 0,
+        workflowTotal: DEFAULT_WORKFLOW_STAGES.length,
+        workflowDone: 0,
         milestones: [],
         assignedPM: user?.id,
         assignedPMName: user?.name,
