@@ -455,6 +455,7 @@ export function SettingsPage() {
       {tab === 'system' && (
         <div className="space-y-4">
           <ThemePicker />
+          {isAdmin && <ProjectStatsMaintenance />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />
@@ -497,5 +498,79 @@ export function SettingsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// One-time (re-runnable) backfill: recompute each project's denormalized
+// workflowTotal/workflowDone/stagesPaidAmount from its actual workflow stages,
+// so list views and the CRM assistant are exact immediately instead of healing
+// project-by-project as each is opened. Reads every project's workflow
+// subcollection once — fine as a manual maintenance action, unlike the
+// per-page-load scans this denormalization removed.
+function ProjectStatsMaintenance() {
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [result, setResult] = useState<{ scanned: number; updated: number } | null>(null)
+
+  async function recompute() {
+    setRunning(true)
+    setResult(null)
+    setProgress(null)
+    try {
+      const projSnap = await getDocs(collection(db, 'projects'))
+      const total = projSnap.size
+      let updated = 0
+      for (let i = 0; i < projSnap.docs.length; i++) {
+        const p = projSnap.docs[i]
+        const wf = await getDocs(collection(db, 'projects', p.id, 'workflow'))
+        const wfTotal = wf.size
+        const wfDone = wf.docs.filter(d => d.data().status === 'completed').length
+        const paid = wf.docs.reduce((sum, d) => {
+          const s = d.data()
+          return s.status === 'completed' ? sum + (s.paymentAmount || 0) : sum
+        }, 0)
+        const cur = p.data()
+        if (cur.workflowTotal !== wfTotal || cur.workflowDone !== wfDone || cur.stagesPaidAmount !== paid) {
+          await updateDoc(doc(db, 'projects', p.id), {
+            workflowTotal: wfTotal,
+            workflowDone: wfDone,
+            stagesPaidAmount: paid,
+          })
+          updated++
+        }
+        setProgress({ done: i + 1, total })
+      }
+      setResult({ scanned: total, updated })
+      toast.success(`Recomputed ${total} projects — ${updated} updated`)
+    } catch (e) {
+      console.error(e)
+      toast.error('Recompute failed — see console')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-2">
+        <Zap className="w-5 h-5 text-indigo-400" />
+        <h3 className="text-sm font-semibold text-gray-200">Maintenance</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Recompute every project's stage counts and collected amount from its workflow stages.
+        Run once after a denormalization change, or any time the figures look off.
+      </p>
+      <Button onClick={recompute} loading={running} size="sm">
+        Recompute project stats
+      </Button>
+      {running && progress && (
+        <p className="text-xs text-gray-500 mt-3">Processing {progress.done}/{progress.total}…</p>
+      )}
+      {result && (
+        <p className="text-xs text-green-400 mt-3 flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Done — scanned {result.scanned}, updated {result.updated}.
+        </p>
+      )}
+    </Card>
   )
 }
