@@ -73,6 +73,7 @@ export function QuotationHistory() {
       result: null,
       localResult: null,
       days: q.days,
+      units: q.units ?? 1,
       quoteNo: q.quoteNo,
       overrideTotalAmount: q.totalAmount,
       extraCharges: q.extraCharges,
@@ -97,7 +98,7 @@ export function QuotationHistory() {
     const lines = [
       `🚗 *TOPZ CAB — QUOTATION*`,
       sep,
-      vehicle ? `*${vehicle.seats} Seater ${vehicle.name}*` : `*${q.vehicleName}*`,
+      vehicle ? `*${(q.units ?? 1) > 1 ? `${q.units} × ` : ''}${vehicle.seats} Seater ${vehicle.name}*` : `*${(q.units ?? 1) > 1 ? `${q.units} × ` : ''}${q.vehicleName}*`,
       `📍 ${tripLabel}`,
       isLocal ? '' : `🗓 ${q.days} Day${q.days > 1 ? 's' : ''}`,
       '',
@@ -256,7 +257,7 @@ export function QuotationHistory() {
                                 <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{q.clientName}</p>
                                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.clientPhone}</p>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{q.vehicleName}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-base)' }}>{q.vehicleName}{(q.units ?? 1) > 1 ? <span className="font-semibold" style={{ color: '#f0c040' }}> × {q.units}</span> : ''}</td>
                               <td className="px-4 py-3">
                                 <span className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>{q.tripType}</span>
                                 {q.isRoundTrip && <span className="ml-1 text-xs font-semibold" style={{ color: '#f0c040' }}>RT</span>}

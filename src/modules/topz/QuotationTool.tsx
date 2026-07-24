@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useLocation } from 'react-router-dom'
 const RouteMap = lazy(() => import('./RouteMap').then(m => ({ default: m.RouteMap })))
 import { MapPin, Calendar, Users, Car, Printer, RotateCcw, Navigation, MessageCircle, ArrowLeftRight, Package, Save, Check, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
-import { getVehicles, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
+import { getVehicles, fetchRateOverrides, calculateQuotation, calculateLocalQuotation, getSuggestedVehicles, daysBetween, type Vehicle, type QuotationResult, type LocalQuotationResult } from './data/rateCard'
 import { printQuotation } from './printQuotation'
 import { saveQuotation, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type ExtraCharge } from './data/storage'
 import toast from 'react-hot-toast'
@@ -12,6 +12,9 @@ type TripType = 'outstation' | 'local'
 // Editable add-on row — amount may be '' while the user is typing.
 interface EditCharge { id: string; label: string; amount: number | '' }
 const QUICK_CHARGES = ['Toll', 'Parking', 'Border Tax'] as const
+
+// One-tap km presets for a single-day drop trip (e.g. "one-day 400 km"). Editable after.
+const KM_PRESETS = [250, 300, 400, 500] as const
 
 interface FormState {
   tripType: TripType
@@ -27,13 +30,14 @@ interface FormState {
   dropLocation: string
   passengers: string
   estimatedKm: string
+  units: string
 }
 
 const EMPTY: FormState = {
   tripType: 'outstation', isRoundTrip: false,
   clientName: '', clientPhone: '', clientEmail: '',
   pickupDate: '', pickupTime: '', pickupLocation: '', dropDate: '', returnTime: '', dropLocation: '',
-  passengers: '', estimatedKm: '',
+  passengers: '', estimatedKm: '', units: '1',
 }
 
 // Tiers apply to both pickup and return times independently.
@@ -194,6 +198,7 @@ export function QuotationTool() {
     dropLocation: editQuote.dropLocation ?? '',
     passengers: editQuote.passengers ?? '',
     estimatedKm: editQuote.estimatedKm ?? '',
+    units: editQuote.units ? String(editQuote.units) : '1',
   } : EMPTY)
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [vehicleOpen, setVehicleOpen] = useState(false)
@@ -217,7 +222,20 @@ export function QuotationTool() {
       : []
   )
 
-  const vehicles = getVehicles()
+  const [vehicles, setVehicles] = useState<Vehicle[]>(getVehicles)
+
+  // Pull team-shared seasonal rates (Rate/km, Permit, DA) on mount, then refresh the list
+  // and the currently-selected vehicle so the quote uses the latest rates.
+  useEffect(() => {
+    let alive = true
+    fetchRateOverrides().then(() => {
+      if (!alive) return
+      const fresh = getVehicles()
+      setVehicles(fresh)
+      setSelectedVehicle(sel => sel ? (fresh.find(v => v.name === sel.name) ?? sel) : sel)
+    })
+    return () => { alive = false }
+  }, [])
 
   // Add-on charge helpers
   const cleanCharges = (): ExtraCharge[] =>
@@ -249,8 +267,12 @@ export function QuotationTool() {
   const nightExtra = selectedVehicle
     ? pickupSurcharge(nightTier, selectedVehicle) + returnSurcharge(retTier, selectedVehicle)
     : 0
+  // Number of identical vehicles (e.g. 2 × 17-Seater). The whole per-vehicle fare —
+  // base + night surcharge — multiplies by this; typed add-ons (toll/parking) do not.
+  const units = Math.max(1, parseInt(form.units) || 1)
+  const vehiclePortion = (baseTotal + nightExtra) * units
   const extrasTotal = extraCharges.reduce((s, c) => s + (typeof c.amount === 'number' ? c.amount : 0), 0)
-  const totalBeforeDiscount = baseTotal + nightExtra + extrasTotal
+  const totalBeforeDiscount = vehiclePortion + extrasTotal
   const total = finalAmount !== '' ? finalAmount : totalBeforeDiscount
   const discountAmount = totalBeforeDiscount - total
 
@@ -303,6 +325,13 @@ export function QuotationTool() {
   function handleKmChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm(f => ({ ...f, estimatedKm: e.target.value }))
     if (selectedVehicle) recalc(selectedVehicle, parseInt(e.target.value) || 0)
+  }
+
+  // One-tap km for a single-day drop trip (e.g. "one-day 400 km"). Sets the km only;
+  // the trip stays single-day while the return date is left empty (days defaults to 1).
+  function applyKmPreset(km: number) {
+    setForm(f => ({ ...f, estimatedKm: String(km) }))
+    if (selectedVehicle) recalc(selectedVehicle, km)
   }
 
   const autoFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -362,7 +391,7 @@ export function QuotationTool() {
       dropDate: form.dropDate, dropLocation: form.dropLocation,
       passengers: form.passengers, estimatedKm: form.estimatedKm,
       vehicleName: selectedVehicle.name, vehicleCategory: selectedVehicle.category,
-      days, totalAmount: total, sentBy, extraCharges: cleanCharges(),
+      units, days, totalAmount: total, sentBy, extraCharges: cleanCharges(),
     })
   }
 
@@ -379,7 +408,7 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined, extraCharges: cleanCharges(), hideBreakdown })
+    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, units, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined, extraCharges: cleanCharges(), hideBreakdown })
   }
 
   async function handleWhatsApp() {
@@ -410,7 +439,7 @@ export function QuotationTool() {
     const lines = [
       `🚗 *TOPZ CAB — QUOTATION*`,
       sep,
-      `*${selectedVehicle.seats} Seater ${selectedVehicle.name}*`,
+      `*${units > 1 ? `${units} × ` : ''}${selectedVehicle.seats} Seater ${selectedVehicle.name}*`,
       `📍 ${tripLabel}`,
       isLocal ? '' : `🗓 ${days} Day${days > 1 ? 's' : ''}`,
       '',
@@ -597,6 +626,11 @@ export function QuotationTool() {
               onBlur={e => { if (parseInt(e.target.value) < 1 || e.target.value === '0') setForm(f => ({ ...f, passengers: '1' })) }}
               className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
           </InputBox>
+          <InputBox label="No. of Vehicles" icon={<Car className="w-3.5 h-3.5" />}>
+            <input type="number" min="1" value={form.units} onChange={set('units')} placeholder="1"
+              onBlur={e => { if (parseInt(e.target.value) < 1 || e.target.value === '') setForm(f => ({ ...f, units: '1' })) }}
+              className="w-full bg-transparent text-sm focus:outline-none" style={{ color: 'var(--text-base)' }} />
+          </InputBox>
           <InputBox label={isLocal ? 'Est. KM (default 80)' : 'Est. Total KM'} icon={<Navigation className="w-3.5 h-3.5" />}>
             <div className="flex items-center gap-1">
               <input type="number" min="0" value={form.estimatedKm} onChange={handleKmChange}
@@ -612,6 +646,26 @@ export function QuotationTool() {
             </div>
           </InputBox>
         </div>
+
+        {/* ── One-day km presets (outstation) ── */}
+        {!isLocal && (
+          <div className="mx-5 mb-5 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--text-muted)' }}>One-day trip:</span>
+            {KM_PRESETS.map(km => {
+              const active = parseInt(form.estimatedKm) === km
+              return (
+                <button key={km} onClick={() => applyKmPreset(km)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors"
+                  style={active
+                    ? { background: 'rgba(240,192,64,0.15)', borderColor: 'rgba(240,192,64,0.5)', color: '#f0c040' }
+                    : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+                  {km} km
+                </button>
+              )
+            })}
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>— sets a 1-day km; edit the box or Final Amount to fine-tune</span>
+          </div>
+        )}
 
         {/* ── Row 4: Client details ── */}
         <div className="mx-5 mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -758,13 +812,14 @@ export function QuotationTool() {
                 <MessageCircle className="w-4 h-4" /> WhatsApp
               </button>
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold"
+                title="All-inclusive amount — type one lump-sum total to give the client. Tick 'Hide calc' to print only this figure with no rate breakdown."
                 style={{ background: 'var(--glass-bg)', borderColor: finalAmount !== '' ? 'rgba(248,113,113,0.5)' : 'var(--glass-border)', color: 'var(--text-muted)' }}>
                 <span>₹</span>
                 <input
                   type="number" min={0} value={finalAmount}
                   onChange={e => setFinalAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="Final amt"
-                  className="w-20 bg-transparent outline-none font-bold"
+                  placeholder="All-inclusive"
+                  className="w-24 bg-transparent outline-none font-bold"
                   style={{ color: finalAmount !== '' ? '#f87171' : 'var(--text-muted)' }}
                 />
               </div>
@@ -826,7 +881,7 @@ export function QuotationTool() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Vehicle', value: selectedVehicle.name },
+              { label: 'Vehicle', value: `${selectedVehicle.name}${units > 1 ? ` × ${units}` : ''}` },
               isLocal ? { label: 'Package', value: '8hr / 80km' } : { label: 'Days', value: `${days} day${days > 1 ? 's' : ''}` },
               { label: 'Total KM', value: `${result?.totalKm ?? localResult?.actualKm ?? 0} km` },
               { label: 'Passengers', value: form.passengers || '—' },
@@ -934,6 +989,16 @@ export function QuotationTool() {
                     value={fmt(selectedVehicle.permitPerDay)}
                     muted
                   />
+                )}
+                {units > 1 && (
+                  <tr style={{ borderTop: '1px dashed var(--glass-border)', borderBottom: '1px solid var(--glass-border)' }}>
+                    <td className="px-4 py-2.5 text-sm font-semibold" style={{ color: 'var(--text-base)' }}>
+                      × {units} vehicles ({selectedVehicle.name})
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-xs" style={{ color: 'var(--text-muted)' }}>{fmt(baseTotal + nightExtra)}/vehicle</td>
+                    <td className="px-4 py-2.5 text-right text-xs" style={{ color: 'var(--text-muted)' }}>× {units}</td>
+                    <td className="px-4 py-2.5 text-right text-sm font-semibold" style={{ color: 'var(--text-base)' }}>{fmt(vehiclePortion)}</td>
+                  </tr>
                 )}
                 {extraCharges.filter(c => c.label.trim() && typeof c.amount === 'number' && c.amount > 0).map(c => (
                   <Row4
