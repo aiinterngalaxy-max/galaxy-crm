@@ -21,6 +21,8 @@ interface PrintArgs {
   result: QuotationResult | null
   localResult: LocalQuotationResult | null
   days: number
+  /** Number of identical vehicles quoted (e.g. 2 × 17-Seater). Defaults to 1. */
+  units?: number
   quoteNo: string
   nightTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
   retTier?: 'normal' | 'night_da' | 'night_da_permit' | 'full_day'
@@ -89,19 +91,22 @@ async function fetchBase64(path: string): Promise<string> {
 
 const getLogoBase64 = () => fetchBase64('/topz-logo.png')
 
-export async function printQuotation({ form, vehicle, result, localResult, days, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount, extraCharges, hideBreakdown = false }: PrintArgs) {
+export async function printQuotation({ form, vehicle, result, localResult, days, units = 1, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount, extraCharges, hideBreakdown = false }: PrintArgs) {
   const has = (id: string) => !selectedNotes || selectedNotes.has(id)
   const [logoDataUrl, qrDataUrl] = await Promise.all([getLogoBase64(), fetchBase64('/topz-qr.png')])
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
   const isLocal = form.tripType === 'local'
+  const u = Number(units) > 1 ? Math.floor(Number(units)) : 1
   const extraList = (extraCharges ?? []).filter(c => c.amount > 0)
   const extrasTotal = extraList.reduce((s, c) => s + c.amount, 0)
-  // A saved (override) total already includes the add-ons, so back them out to get the base fare;
-  // a fresh print starts from the computed vehicle total and adds them on.
+  // A saved (override) total already includes the add-ons AND the vehicle multiplier, so back
+  // them out to a single-vehicle fare; a fresh print starts from the per-vehicle computed total.
   const baseAmount = overrideTotalAmount != null
-    ? overrideTotalAmount - extrasTotal
+    ? (overrideTotalAmount - extrasTotal) / u
     : (result?.total ?? localResult?.total ?? 0)
-  const vehiclePortion = baseAmount + nightExtra
+  // Per-vehicle fare, then scaled by the number of vehicles.
+  const unitVehiclePortion = baseAmount + nightExtra
+  const vehiclePortion = unitVehiclePortion * u
   const beforeDiscount = vehiclePortion + extrasTotal
   const totalAmount = finalAmount ?? beforeDiscount
   const discountAmount = beforeDiscount - totalAmount
@@ -123,7 +128,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     : ''
 
   const descriptionHtml = `
-    <strong>Vehicle:</strong> ${vehicle.name} | ${vehicle.category} | ${vehicle.seats} Seater<br/>
+    <strong>Vehicle:</strong> ${u > 1 ? `${u} &times; ` : ''}${vehicle.name} | ${vehicle.category} | ${vehicle.seats} Seater<br/>
     <strong>Duty Type:</strong> ${dutyType}<br/>
     <strong>Date:</strong> ${dateRange}<br/>
     <strong>Passengers:</strong> ${form.passengers}
@@ -225,6 +230,18 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     }
   }
 
+  // When more than one identical vehicle is quoted, the rows above are for a single vehicle;
+  // this line scales the per-vehicle fare up to the number of vehicles.
+  if (u > 1) {
+    dataRows.push(`<tr>
+      <td style="text-align:center"></td>
+      <td style="font-weight:700">&times; ${u} vehicles (${vehicle.name})</td>
+      <td style="text-align:right;color:#555">${fmt(unitVehiclePortion)}/vehicle</td>
+      <td style="text-align:center">&times; ${u}</td>
+      <td style="text-align:right">${fmt(vehiclePortion)}</td>
+    </tr>`)
+  }
+
   // Add-on charge rows (toll, parking, border tax, custom) — shown even when the breakdown is hidden.
   const extraRows = extraList.map(c => `<tr>
     <td style="text-align:center"></td>
@@ -238,8 +255,8 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   const summaryRow = `<tr>
     <td style="text-align:center">1</td>
     <td>${descriptionHtml}</td>
-    <td></td>
-    <td style="text-align:center">1</td>
+    <td style="text-align:right">${u > 1 ? `${fmt(unitVehiclePortion)}/veh` : ''}</td>
+    <td style="text-align:center">${u > 1 ? `&times; ${u}` : '1'}</td>
     <td style="text-align:right">${fmt(vehiclePortion)}</td>
   </tr>`
 

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Car, Bus, Users, Pencil, Check, X, RotateCcw, TrendingUp, IndianRupee, CalendarClock, AlertCircle } from 'lucide-react'
-import { VEHICLES, getVehicles, setPriceOverride, getPriceOverrides, type VehicleType, type Vehicle } from './data/rateCard'
+import { VEHICLES, getVehicles, setPriceOverride, getPriceOverrides, resetRateOverrides, fetchRateOverrides, type VehicleType, type Vehicle } from './data/rateCard'
 import { getBookings, getQuotations, type Booking, type SavedQuotation } from './data/storage'
 import toast from 'react-hot-toast'
 
@@ -276,6 +276,13 @@ export function TopzRateChart() {
   const [editCell, setEditCell] = useState<{ name: string; field: EditField } | null>(null)
   const [editVal, setEditVal] = useState('')
 
+  // Load the team-shared rates on mount so seasonal edits made on any device show up here.
+  useEffect(() => {
+    let alive = true
+    fetchRateOverrides().then(() => { if (alive) setVehicles(getVehicles()) })
+    return () => { alive = false }
+  }, [])
+
   const filtered = vehicles.filter(v => v.type === activeType)
   const activeCat = CATEGORIES.find(c => c.type === activeType)!
   const hasOverrides = Object.keys(getPriceOverrides()).length > 0
@@ -292,15 +299,15 @@ export function TopzRateChart() {
     setPriceOverride(editCell.name, editCell.field, val)
     setVehicles(getVehicles())
     setEditCell(null)
-    toast.success('Price updated')
+    toast.success('Rate updated for the whole team')
   }
 
   function cancelEdit() { setEditCell(null) }
 
   function resetAll() {
-    localStorage.removeItem('topz-price-overrides')
+    resetRateOverrides()
     setVehicles(getVehicles())
-    toast.success('All prices reset to defaults')
+    toast.success('All prices reset to defaults for the whole team')
   }
 
   const PriceCell = useCallback(({ v, field }: { v: Vehicle; field: EditField }) => {
@@ -346,7 +353,7 @@ export function TopzRateChart() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold" style={{ color: 'var(--text-base)' }}>Rate Chart</h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>Vehicle pricing &middot; Edit rates below</p>
+          <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>Click <strong>Edit Prices</strong> to update Rate/km, Permit &amp; Driver Allowance &middot; changes sync to the whole team</p>
         </div>
         <button onClick={() => navigate('/topz/quotation')}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-105"
@@ -401,7 +408,7 @@ export function TopzRateChart() {
           <div className="mb-3 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2"
             style={{ background: 'rgba(240,192,64,0.08)', border: '1px solid rgba(240,192,64,0.2)', color: '#f0c040' }}>
             <Pencil className="w-3.5 h-3.5 shrink-0" />
-            Click any price cell to edit. Changes save immediately. Press Enter to confirm, Esc to cancel.
+            Click any Rate/km, Permit or Driver Allowance cell to edit for the season. Changes save &amp; sync to the whole team immediately. Press Enter to confirm, Esc to cancel.
           </div>
         )}
 

@@ -90,17 +90,70 @@ export function daysBetween(from: string, to: string): number {
 }
 
 const PRICE_KEY = 'topz-price-overrides'
+const RATES_API = '/api/topz-rates'
 
 type PriceField = 'ratePerKm' | 'permitPerDay' | 'driverAllowancePerDay' | 'localRate'
+type Overrides = Record<string, Partial<Pick<Vehicle, PriceField>>>
 
-export function getPriceOverrides(): Record<string, Partial<Pick<Vehicle, PriceField>>> {
+// Team-shared vehicle rate overrides. Source of truth is the server (/api/topz-rates);
+// localStorage is a synchronous fallback so getVehicles() can render immediately (and
+// still work offline). `overridesCache` is seeded from localStorage, then refreshed from
+// the server by fetchRateOverrides() on page load.
+let overridesCache: Overrides | null = null
+
+function readLocal(): Overrides {
   try { return JSON.parse(localStorage.getItem(PRICE_KEY) ?? '{}') } catch { return {} }
 }
 
+function writeLocal(o: Overrides) {
+  try { localStorage.setItem(PRICE_KEY, JSON.stringify(o)) } catch { /* ignore quota / private mode */ }
+}
+
+export function getPriceOverrides(): Overrides {
+  if (!overridesCache) overridesCache = readLocal()
+  return overridesCache
+}
+
+/** Pull the team-shared overrides from the server and refresh the local cache. */
+export async function fetchRateOverrides(): Promise<Overrides> {
+  try {
+    const res = await fetch(RATES_API)
+    if (!res.ok) throw new Error(`rates ${res.status}`)
+    const body = await res.json()
+    const overrides: Overrides = (body && typeof body.overrides === 'object' && body.overrides) || {}
+    overridesCache = overrides
+    writeLocal(overrides)
+    return overrides
+  } catch {
+    // Offline / API error — keep whatever we already have cached locally.
+    return getPriceOverrides()
+  }
+}
+
+async function pushRateOverrides(o: Overrides): Promise<void> {
+  try {
+    await fetch(RATES_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overrides: o }),
+    })
+  } catch { /* stays in local cache; will re-sync on next successful save */ }
+}
+
+/** Set one price override, update the local cache immediately, and sync to the team server. */
 export function setPriceOverride(name: string, field: PriceField, value: number) {
-  const overrides = getPriceOverrides()
+  const overrides = { ...getPriceOverrides() }
   overrides[name] = { ...overrides[name], [field]: value }
-  localStorage.setItem(PRICE_KEY, JSON.stringify(overrides))
+  overridesCache = overrides
+  writeLocal(overrides)
+  void pushRateOverrides(overrides)
+}
+
+/** Clear every override for the whole team back to the built-in defaults. */
+export function resetRateOverrides() {
+  overridesCache = {}
+  writeLocal({})
+  void pushRateOverrides({})
 }
 
 export function getVehicles(): Vehicle[] {

@@ -30,3 +30,6 @@ Thumbs.db
 logs/
 *.log
 npm-debug.log*
+
+# Serena MCP
+.serena/

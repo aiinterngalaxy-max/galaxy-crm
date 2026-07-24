@@ -34,6 +34,8 @@ export interface SavedQuotation {
   estimatedKm: string
   vehicleName: string
   vehicleCategory: string
+  /** Number of identical vehicles quoted (e.g. 2 × 17-Seater). Defaults to 1. */
+  units?: number
   days: number
   totalAmount: number
   /** Which team member sent this quote (real name — used to look up their business alias). */
