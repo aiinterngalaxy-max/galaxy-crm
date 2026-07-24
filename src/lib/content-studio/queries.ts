@@ -950,17 +950,17 @@ export async function maybeCreateIdeaForContent(contentId: number, brandId: numb
 
 // ---------- sync / connections ----------
 export async function getSyncStatus(): Promise<{ ok: boolean; anyConnected: boolean; status: SyncStatusEntry[]; log: SyncLogEntry[] }> {
-  const [status, log] = await Promise.all([Promise.resolve(connectionStatus()), lastSync()])
+  const [status, log] = await Promise.all([connectionStatus(), lastSync()])
   const anyConnected = status.some((s) => s.connected)
   return { ok: true, anyConnected, status, log: log as unknown as SyncLogEntry[] }
 }
 
 export async function syncNow(limit?: number): Promise<{ ok: boolean; summary?: any[]; error?: string }> {
-  const connected = connectionStatus().filter((s) => s.connected)
+  const connected = (await connectionStatus()).filter((s) => s.connected)
   if (!connected.length) {
     return {
       ok: false,
-      error: 'No platforms connected. Add the API credentials (VITE_ env vars) for YouTube / Instagram / LinkedIn / Facebook, then sync.',
+      error: 'No platforms connected. Add the server-side API credentials for YouTube / Instagram / LinkedIn / Facebook in the Vercel project settings, then sync.',
     }
   }
   await logActivity('sync', 0, 'triggered', `Social sync triggered for ${connected.map((s) => s.label).join(', ')}`)

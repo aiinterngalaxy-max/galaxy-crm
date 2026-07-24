@@ -1,8 +1,102 @@
 rules_version = '2';
+
+// Galaxy CRM — Cloud Storage rules
+//
+// Previously this file was a single `allow read, write: if request.auth != null`
+// over `/{allPaths=**}`. Combined with `googleProvider.setCustomParameters({ hd: '' })`
+// in src/lib/firebase.ts (any Google account may sign in) and the self-service
+// `role=pending` signup in firestore.rules, that meant ANY person on the internet
+// could sign in with a Gmail account and then read, overwrite or delete every
+// customer file in the bucket.
+//
+// These rules mirror firestore.rules: role comes from the caller's users/{uid}
+// document, `pending` users are locked out entirely, and each known upload prefix
+// is matched explicitly so an unrecognised path is denied by default.
+//
+// NOTE: this uses cross-service Rules (`firestore.get`) to read the user's role.
+// Each storage operation therefore costs one Firestore document read.
+//
+// REMINDER: storage rules deploy separately from Vercel —
+//   cd ~/galaxy-crm && git pull && firebase deploy --only storage
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+
+    function isAuth() {
+      return request.auth != null;
     }
+
+    // Role lookup against Firestore (cross-service rules).
+    function role() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Any approved team member. `pending` users have completed Google sign-in but
+    // have not been granted a role yet — they must not touch customer files.
+    function isStaff() {
+      return isAuth() && role() != 'pending';
+    }
+
+    function isManagement() {
+      return isAuth() && role() in ['super_admin', 'management'];
+    }
+
+    // ─── Upload shape guards ────────────────────────────────────────────────────
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function underMb(n) {
+      return request.resource.size < n * 1024 * 1024;
+    }
+
+    // Documents attached to a lead: floor plans (image/pdf) and uploaded quotes (pdf).
+    // src/modules/leads/LeadDetail.tsx, src/components/QuoteDocuments.tsx
+    match /leads/{leadId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && (isImage() || isPdf()) && underMb(25);
+      allow delete: if isManagement();
+    }
+
+    // B2B partner quote documents — src/components/QuoteDocuments.tsx
+    match /partners/{partnerId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && (isImage() || isPdf()) && underMb(25);
+      allow delete: if isManagement();
+    }
+
+    // Project SOPs, layouts and site images — src/modules/projects/ProjectDetail.tsx
+    match /projects/{projectId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && (isImage() || isPdf()) && underMb(25);
+      allow delete: if isManagement();
+    }
+
+    // Quotation floor plans — src/modules/quotations/QuotationBuilder.tsx
+    match /floor-plans/{fileName} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && (isImage() || isPdf()) && underMb(25);
+      allow delete: if isManagement();
+    }
+
+    // Generated/attached quotation PDFs — src/modules/quotations/QuotationBuilder.tsx
+    match /quotation-pdfs/{fileName} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isPdf() && underMb(25);
+      allow delete: if isManagement();
+    }
+
+    // Product catalogue images — src/modules/settings/ProductCatalogTab.tsx
+    // Written from Settings, which is management-only in the UI.
+    match /products/{fileName} {
+      allow read: if isStaff();
+      allow create, update: if isManagement() && isImage() && underMb(10);
+      allow delete: if isManagement();
+    }
+
+    // Anything not matched above is denied — no catch-all `/{allPaths=**}` rule.
   }
 }

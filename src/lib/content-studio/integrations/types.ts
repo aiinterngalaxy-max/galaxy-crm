@@ -34,7 +34,9 @@ export interface Provider {
   brandId: number
   configured: boolean
   needs: string[]
-  pull: (limit: number) => Promise<AccountResult>
+  /** Account/channel/page id, supplied by the server alongside the credential. */
+  accountId: string
+  pull: (limit: number, accountId: string) => Promise<AccountResult>
 }
 
 export const ZERO: NormMetrics = {

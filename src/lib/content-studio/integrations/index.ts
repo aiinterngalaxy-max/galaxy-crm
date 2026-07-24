@@ -1,21 +1,26 @@
 import { run, all, one } from '../db'
 import { Provider, AccountResult } from './types'
-import { ytConfigured, ytBrandId, ytPull, YT_NEEDS } from './youtube'
-import { igConfigured, igBrandId, igPull, IG_NEEDS } from './instagram'
-import { liConfigured, liBrandId, liPull, LI_NEEDS } from './linkedin'
-import { fbConfigured, fbBrandId, fbPull, FB_NEEDS } from './facebook'
+import { ytPull, YT_NEEDS } from './youtube'
+import { igPull, IG_NEEDS } from './instagram'
+import { liPull, LI_NEEDS } from './linkedin'
+import { fbPull, FB_NEEDS } from './facebook'
+import { providerStatus } from './proxy'
 
-export function providers(): Provider[] {
+// Which providers are usable is now a server-side fact (the credentials live there),
+// so this is async where it used to read import.meta.env synchronously.
+export async function providers(): Promise<Provider[]> {
+  const status = await providerStatus()
   return [
-    { key: 'youtube', label: 'YouTube', brandId: ytBrandId(), configured: ytConfigured(), needs: YT_NEEDS, pull: ytPull },
-    { key: 'instagram', label: 'Instagram', brandId: igBrandId(), configured: igConfigured(), needs: IG_NEEDS, pull: igPull },
-    { key: 'facebook', label: 'Facebook', brandId: fbBrandId(), configured: fbConfigured(), needs: FB_NEEDS, pull: fbPull },
-    { key: 'linkedin', label: 'LinkedIn', brandId: liBrandId(), configured: liConfigured(), needs: LI_NEEDS, pull: liPull },
+    { key: 'youtube', label: 'YouTube', needs: YT_NEEDS, pull: ytPull, ...status.youtube },
+    { key: 'instagram', label: 'Instagram', needs: IG_NEEDS, pull: igPull, ...status.instagram },
+    { key: 'facebook', label: 'Facebook', needs: FB_NEEDS, pull: fbPull, ...status.facebook },
+    { key: 'linkedin', label: 'LinkedIn', needs: LI_NEEDS, pull: liPull, ...status.linkedin },
   ]
 }
 
-export function connectionStatus() {
-  return providers().map((p) => ({ key: p.key, label: p.label, connected: p.configured, needs: p.needs, brandId: p.brandId }))
+export async function connectionStatus() {
+  const list = await providers()
+  return list.map((p) => ({ key: p.key, label: p.label, connected: p.configured, needs: p.needs, brandId: p.brandId }))
 }
 
 export interface SyncSummary {
@@ -28,11 +33,11 @@ export interface SyncSummary {
 
 export async function syncAll(limit = 100): Promise<SyncSummary[]> {
   const out: SyncSummary[] = []
-  for (const p of providers()) {
+  for (const p of await providers()) {
     if (!p.configured) continue
     let res: AccountResult
     try {
-      res = await p.pull(limit)
+      res = await p.pull(limit, p.accountId)
     } catch (e: any) {
       res = { ok: false, platform: p.label, handle: '', account_id: '', follower_count: 0, posts: [], error: String(e?.message || e) }
     }
