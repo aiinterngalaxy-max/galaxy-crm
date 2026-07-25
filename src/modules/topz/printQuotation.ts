@@ -108,8 +108,10 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   const unitVehiclePortion = baseAmount + nightExtra
   const vehiclePortion = unitVehiclePortion * u
   const beforeDiscount = vehiclePortion + extrasTotal
-  const totalAmount = finalAmount ?? beforeDiscount
-  const discountAmount = beforeDiscount - totalAmount
+  // The all-inclusive field overrides only the vehicle fare — add-ons always add on top of it.
+  const negotiatedVehiclePortion = finalAmount ?? vehiclePortion
+  const totalAmount = negotiatedVehiclePortion + extrasTotal
+  const discountAmount = vehiclePortion - negotiatedVehiclePortion
 
   // Description block for the main table row
   const dutyType = isLocal

@@ -273,8 +273,11 @@ export function QuotationTool() {
   const vehiclePortion = (baseTotal + nightExtra) * units
   const extrasTotal = extraCharges.reduce((s, c) => s + (typeof c.amount === 'number' ? c.amount : 0), 0)
   const totalBeforeDiscount = vehiclePortion + extrasTotal
-  const total = finalAmount !== '' ? finalAmount : totalBeforeDiscount
-  const discountAmount = totalBeforeDiscount - total
+  // The all-inclusive field overrides only the vehicle fare — add-ons always add on top of it,
+  // so typing a toll/parking charge never gets silently swallowed into the "discount" line.
+  const negotiatedVehiclePortion = finalAmount !== '' ? finalAmount : vehiclePortion
+  const total = negotiatedVehiclePortion + extrasTotal
+  const discountAmount = vehiclePortion - negotiatedVehiclePortion
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
   const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
