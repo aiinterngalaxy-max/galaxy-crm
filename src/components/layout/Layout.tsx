@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
 import { useFollowUpReminders } from '../../hooks/useFollowUpReminders'
+import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { HelpTour } from '../ui/HelpTour'
 import { CRMChatbot } from '../../modules/chatbot/CRMChatbot'
 
@@ -13,10 +14,14 @@ export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { user, role } = useAuth()
+  const mainRef = useRef<HTMLElement>(null)
 
   const isBD = ['super_admin', 'management', 'bd_exec', 'dept_head'].includes(role ?? '')
   useFollowUpNotifier(user?.id, isBD)
   useFollowUpReminders()
+  // <main> is the scroll container, so going back to a list must put the scroll
+  // position back by hand — the browser can't do it for us.
+  useScrollRestoration(mainRef)
 
   return (
     <div className="relative w-full h-screen overflow-hidden">
@@ -46,7 +51,7 @@ export function Layout() {
               else setCollapsed(c => !c)
             }}
           />
-          <main className="flex-1 overflow-y-auto">
+          <main ref={mainRef} className="flex-1 overflow-y-auto">
             <div className="p-5 md:p-6 max-w-screen-2xl mx-auto animate-fade-in">
               <Outlet />
             </div>

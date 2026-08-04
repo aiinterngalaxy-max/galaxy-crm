@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import {
   ArrowLeft, Plus, CheckCircle2, Circle, Lock, ChevronDown, ChevronUp,
   Camera, Copy, RefreshCw, MapPin, Phone, User, Upload, Trash2, AlertTriangle,
@@ -13,6 +13,7 @@ import { Input } from '../../components/ui/Input'
 import { Textarea } from '../../components/ui/Textarea'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../contexts/AuthContext'
+import { useGoBack } from '../../hooks/useGoBack'
 import {
   db, doc, getDoc, collection, getDocs, addDoc, updateDoc, deleteDoc,
   query, orderBy, serverTimestamp, Timestamp, storage
@@ -163,7 +164,7 @@ function generateAccessCode(): string {
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  const goBack = useGoBack('/projects')
   const { user, role } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
   const [workflowStages, setWorkflowStages] = useState<WorkflowStage[]>([])
@@ -706,7 +707,7 @@ export function ProjectDetail() {
 
       {/* ── Header ── */}
       <div className="flex items-start gap-4">
-        <button onClick={() => navigate('/projects')} className="text-gray-500 hover:text-gray-300 mt-1">
+        <button onClick={goBack} className="text-gray-500 hover:text-gray-300 mt-1">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1">

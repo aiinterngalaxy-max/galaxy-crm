@@ -7,10 +7,12 @@ import { db, doc, getDoc, collection, query, where, getDocs } from '../../lib/fi
 import { formatCurrency, formatDate, PROJECT_STATUS_CONFIG, QUOTATION_STATUS_CONFIG, INVOICE_STATUS_CONFIG } from '../../lib/utils'
 import type { Customer, Project, Quotation, Invoice } from '../../types'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
+import { useGoBack } from '../../hooks/useGoBack'
 
 export function CustomerDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack('/customers')
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
@@ -50,7 +52,7 @@ export function CustomerDetail() {
   return (
     <div className="space-y-5 max-w-5xl">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/customers')} className="text-gray-500 hover:text-gray-300">
+        <button onClick={goBack} className="text-gray-500 hover:text-gray-300">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div>
