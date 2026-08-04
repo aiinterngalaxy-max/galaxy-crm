@@ -23,7 +23,7 @@ const schema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
-  source: z.enum(['referral', 'partner', 'google_ads', 'linkedin', 'meta_ads', 'instagram', 'facebook', 'justdial', 'indiamart', 'cold_call', 'other']),
+  source: z.enum(['referral', 'partner', 'google_ads', 'linkedin', 'meta_ads', 'instagram', 'facebook', 'justdial', 'indiamart', 'cold_call', 'breville', 'other']),
   partnerId: z.string().optional(),
   projectType: z.string().optional(),
   propertySize: z.string().optional(),
@@ -53,6 +53,7 @@ const SOURCE_OPTIONS = [
   { value: 'justdial',   label: 'JustDial' },
   { value: 'indiamart',  label: 'IndiaMART' },
   { value: 'cold_call',  label: 'Cold Calls / Msgs' },
+  { value: 'breville',   label: 'Breville' },
   { value: 'other',      label: 'Other' },
 ]
 

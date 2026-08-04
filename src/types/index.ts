@@ -52,6 +52,7 @@ export type LeadStatus =
   | 'new'
   | 'contacted'
   | 'qualified'
+  | 'demo'
   | 'floor_plan'
   | 'quote_sent'
   | 'won'
@@ -68,6 +69,7 @@ export type LeadSource =
   | 'justdial'
   | 'indiamart'
   | 'cold_call'
+  | 'breville'
   | 'other'
 
 export type LostReason =
