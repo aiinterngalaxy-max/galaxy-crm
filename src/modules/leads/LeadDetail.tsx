@@ -14,6 +14,7 @@ import { Select } from '../../components/ui/Select'
 import { Textarea } from '../../components/ui/Textarea'
 import { Input } from '../../components/ui/Input'
 import { ActivityLog } from './ActivityLog'
+import { useGoBack } from '../../hooks/useGoBack'
 import { QuoteDocuments } from '../../components/QuoteDocuments'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -53,6 +54,7 @@ const CALL_OUTCOME_OPTIONS = [
 export function LeadDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack('/leads')
   const { user, role, isAdmin } = useAuth()
   const [lead, setLead] = useState<Lead | null>(null)
   const [activities, setActivities] = useState<LeadActivity[]>([])
@@ -377,7 +379,7 @@ export function LeadDetail() {
     <div className="space-y-5 max-w-5xl">
       {/* Back + Header */}
       <div className="flex items-start gap-4">
-        <button onClick={() => navigate('/leads')} className="text-gray-500 hover:text-gray-300 mt-1">
+        <button onClick={goBack} className="text-gray-500 hover:text-gray-300 mt-1">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1">

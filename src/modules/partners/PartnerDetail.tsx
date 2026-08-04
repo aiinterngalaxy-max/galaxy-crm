@@ -14,6 +14,7 @@ import { PageLoader } from '../../components/ui/LoadingSpinner'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { QuoteDocuments } from '../../components/QuoteDocuments'
 import { useAuth } from '../../contexts/AuthContext'
+import { useGoBack } from '../../hooks/useGoBack'
 import { db, collection, doc, onSnapshot, updateDoc, serverTimestamp, query, where, Timestamp } from '../../lib/firebase'
 import { formatCurrency, formatCurrencyShort, formatDate, toDate, canManageLeads, LEAD_STATUS_CONFIG } from '../../lib/utils'
 import type { Partner, Lead, PartnerType } from '../../types'
@@ -40,6 +41,7 @@ const PARTNER_TYPE_LABELS: Record<PartnerType, string> = {
 export function PartnerDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack('/partners')
   const { user, role } = useAuth()
   const canEdit = role ? canManageLeads(role) : false
   const [partner, setPartner] = useState<Partner | null>(null)
@@ -155,7 +157,7 @@ export function PartnerDetail() {
     <div className="space-y-6">
       {/* Back + header */}
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/partners')} className="text-gray-400 hover:text-gray-200 transition-colors">
+        <button onClick={goBack} className="text-gray-400 hover:text-gray-200 transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1 min-w-0">
