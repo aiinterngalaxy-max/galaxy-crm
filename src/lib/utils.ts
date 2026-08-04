@@ -62,6 +62,7 @@ export const LEAD_STATUS_CONFIG: Record<LeadStatus, { label: string; color: stri
   new:         { label: 'New',           color: 'text-blue-400',   bg: 'bg-blue-900/30' },
   contacted:   { label: 'Contacted',     color: 'text-cyan-400',   bg: 'bg-cyan-900/30' },
   qualified:   { label: 'Qualified',     color: 'text-indigo-400', bg: 'bg-indigo-900/30' },
+  demo:        { label: 'Demo',          color: 'text-purple-400', bg: 'bg-purple-900/30' },
   floor_plan:  { label: 'Floor Plan',    color: 'text-violet-400', bg: 'bg-violet-900/30' },
   quote_sent:  { label: 'Quote Sent',    color: 'text-yellow-400', bg: 'bg-yellow-900/30' },
   won:         { label: 'Confirm',        color: 'text-green-400',  bg: 'bg-green-900/30' },
@@ -224,6 +225,7 @@ const SOURCE_SCORE: Record<string, number> = {
   justdial:    7,
   indiamart:   7,
   cold_call:   3,
+  breville:   20,
   other:       0,
 }
 
