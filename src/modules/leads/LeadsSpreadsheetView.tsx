@@ -507,15 +507,19 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
 
   return (
     <div className="rounded-xl border border-gray-800 overflow-hidden">
-      {/* overflow-x-scroll (not auto) keeps the bar permanently visible, so it is
-          obvious there are more columns to the right. Only the height is overridden —
-          colour and track come from the global themed scrollbar in index.css. */}
-      <div className="overflow-x-scroll [&::-webkit-scrollbar]:h-2.5">
+      {/* The table gets its own scroll viewport (max-h) so the horizontal bar stays
+          on screen instead of sitting below every row. overflow-x-scroll (not auto)
+          keeps that bar permanently visible, making the extra columns discoverable.
+          Only the bar's size is overridden — colour and track come from the global
+          themed scrollbar in index.css, so every theme stays consistent. */}
+      <div className="max-h-[70vh] overflow-x-scroll overflow-y-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar]:w-2.5">
         <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-gray-800/60 border-b border-gray-700">
+          <thead className="sticky top-0 z-10">
+            <tr>
               {['Name', 'Phone', 'Source', 'Status', 'Budget (₹)', 'Score', 'Tier', 'Assigned To', 'Date Added', 'Date & Time', 'Type', 'Note', 'Follow-up', 'By'].map(h => (
-                <th key={h} className="px-2 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
+                /* Background sits on the th, not the tr — a sticky thead does not
+                   reliably paint a tr background. */
+                <th key={h} className="bg-gray-800 border-b border-gray-700 px-2 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
               ))}
