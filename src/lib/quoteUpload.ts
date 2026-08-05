@@ -1,5 +1,4 @@
 import { uploadFileResumable } from './firebase'
-import { compressPdf } from './pdfCompress'
 import type { QuoteDoc } from '../types'
 
 /** Largest PDF accepted, checked before any work starts. */
@@ -66,8 +65,11 @@ export async function uploadQuotePdf(opts: {
   }
 
   // Try to shrink it, but never fail the upload because compression did not work.
+  // Imported dynamically: pdfCompress pulls in pdfjs and jspdf (~800KB), which
+  // would otherwise be downloaded with the leads page for code that never runs.
   let body: Blob = file
   if (COMPRESSION_ENABLED) {
+    const { compressPdf } = await import('./pdfCompress')
     const result = await compressPdf(file, f => onProgress?.({ phase: 'compressing', fraction: f }))
     if (result && shouldUseCompressed(result.ratio)) {
       body = result.blob
