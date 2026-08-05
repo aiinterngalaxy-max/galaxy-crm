@@ -11,8 +11,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, getDocs, updateDoc, doc, serverTimestamp, query, where
 } from '../../lib/firebase'
-import { ROLE_LABELS } from '../../lib/utils'
-import type { User, UserRole, Department } from '../../types'
+import { ROLE_LABELS, calculateLeadScore } from '../../lib/utils'
+import type { User, UserRole, Department, Lead } from '../../types'
 import toast from 'react-hot-toast'
 
 interface AccessRequest {
@@ -456,6 +456,7 @@ export function SettingsPage() {
         <div className="space-y-4">
           <ThemePicker />
           {isAdmin && <ProjectStatsMaintenance />}
+          {isAdmin && <LeadScoreMaintenance />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />
@@ -562,6 +563,90 @@ function ProjectStatsMaintenance() {
       </p>
       <Button onClick={recompute} loading={running} size="sm">
         Recompute project stats
+      </Button>
+      {running && progress && (
+        <p className="text-xs text-gray-500 mt-3">Processing {progress.done}/{progress.total}…</p>
+      )}
+      {result && (
+        <p className="text-xs text-green-400 mt-3 flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Done — scanned {result.scanned}, updated {result.updated}.
+        </p>
+      )}
+    </Card>
+  )
+}
+
+// One-time (re-runnable) backfill for lead scores. aiScore used to be written only
+// at lead creation, so existing leads never reflected a demo, quote or call. This
+// counts each lead's 'call' activities into the denormalized callCount and rescores
+// from the current formula. Reads every lead's activities subcollection once —
+// acceptable as a manual maintenance action, not something a page load may do.
+function LeadScoreMaintenance() {
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [result, setResult] = useState<{ scanned: number; updated: number } | null>(null)
+
+  async function recompute() {
+    setRunning(true)
+    setResult(null)
+    setProgress(null)
+    try {
+      const leadSnap = await getDocs(collection(db, 'leads'))
+      const total = leadSnap.size
+      let updated = 0
+      for (let i = 0; i < leadSnap.docs.length; i++) {
+        const l = leadSnap.docs[i]
+        const cur = l.data() as Lead
+
+        const acts = await getDocs(collection(db, 'leads', l.id, 'activities'))
+        const callCount = acts.docs.filter(d => d.data().type === 'call').length
+
+        // A lead that reached Demo or beyond has had its site visit.
+        const demoGiven = cur.demoGiven || ['demo', 'floor_plan', 'quote_sent', 'won'].includes(cur.status)
+
+        const aiScore = calculateLeadScore({
+          source: cur.source,
+          estimatedBudget: cur.estimatedBudget,
+          floorPlanUrl: cur.floorPlanUrl,
+          demoGiven,
+          quoteCount: cur.quoteDocuments?.length ?? 0,
+          callCount,
+        })
+
+        if (cur.aiScore !== aiScore || cur.callCount !== callCount || cur.demoGiven !== demoGiven) {
+          await updateDoc(doc(db, 'leads', l.id), {
+            aiScore,
+            callCount,
+            demoGiven,
+            aiScoreNote: 'Auto-scored from source, budget, demo, quotes and calls.',
+          })
+          updated++
+        }
+        setProgress({ done: i + 1, total })
+      }
+      setResult({ scanned: total, updated })
+      toast.success(`Rescored ${total} leads — ${updated} updated`)
+    } catch (e) {
+      console.error(e)
+      toast.error('Lead rescore failed — see console')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-2">
+        <Zap className="w-5 h-5 text-indigo-400" />
+        <h3 className="text-sm font-semibold text-gray-200">Lead scores</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Recount each lead's calls and rescore it from source, budget, demo, quotes and
+        floor plan. Run once after the scoring change — existing leads keep the score they
+        were created with until this runs. Most scores will move.
+      </p>
+      <Button onClick={recompute} loading={running} size="sm">
+        Recompute lead scores
       </Button>
       {running && progress && (
         <p className="text-xs text-gray-500 mt-3">Processing {progress.done}/{progress.total}…</p>

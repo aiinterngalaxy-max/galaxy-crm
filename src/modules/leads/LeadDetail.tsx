@@ -22,9 +22,10 @@ import {
   serverTimestamp, Timestamp, uploadFile, deleteDoc, orderBy
 } from '../../lib/firebase'
 import {
-  LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, formatDate,
+  LEAD_STATUS_CONFIG, getScoreColor, getScoreBg, getLeadScoreBreakdown, formatDate,
   formatCurrency, canManageLeads
 } from '../../lib/utils'
+import { recalcLeadScore, registerLeadCall } from '../../lib/leadScore'
 import type { Lead, LeadStatus, LeadActivity, ActivityType, CallOutcome, Quotation } from '../../types'
 import toast from 'react-hot-toast'
 
@@ -130,8 +131,12 @@ export function LeadDetail() {
     if (!lead || !id) return
     setUpdating(true)
     try {
+      // Reaching the Demo stage means the site visit happened. It is never unset —
+      // a completed demo stays completed as the lead moves on to Quote and beyond.
+      const marksDemo = newStatus === 'demo' && !lead.demoGiven
       await updateDoc(doc(db, 'leads', id), {
         status: newStatus,
+        ...(marksDemo ? { demoGiven: true } : {}),
         updatedAt: serverTimestamp(),
       })
       await addDoc(collection(db, 'leads', id, 'activities'), {
@@ -142,7 +147,10 @@ export function LeadDetail() {
         performedByName: user?.name,
         createdAt: serverTimestamp(),
       })
-      setLead(prev => prev ? { ...prev, status: newStatus } : null)
+      const newScore = await recalcLeadScore(id)
+      setLead(prev => prev
+        ? { ...prev, status: newStatus, ...(marksDemo ? { demoGiven: true } : {}), ...(newScore != null ? { aiScore: newScore } : {}) }
+        : null)
       toast.success('Status updated')
     } catch {
       toast.error('Update failed')
@@ -234,6 +242,17 @@ export function LeadDetail() {
       }
 
       setActivities(prev => [optimistic, ...prev])
+
+      // Only calls count as a "connect" for scoring.
+      if (actType === 'call') {
+        await registerLeadCall(id)
+        const fresh = await getDoc(doc(db, 'leads', id))
+        if (fresh.exists()) {
+          const d = fresh.data() as Lead
+          setLead(prev => prev ? { ...prev, aiScore: d.aiScore, callCount: d.callCount } : null)
+        }
+      }
+
       toast.success('Activity logged')
       setShowActivityForm(false)
       setActNote('')
@@ -261,7 +280,8 @@ export function LeadDetail() {
       )
       const url = await Promise.race([uploadPromise, timeout])
       await updateDoc(doc(db, 'leads', id), { floorPlanUrl: url, updatedAt: serverTimestamp() })
-      setLead(prev => prev ? { ...prev, floorPlanUrl: url } : null)
+      const newScore = await recalcLeadScore(id, { floorPlanUrl: url })
+      setLead(prev => prev ? { ...prev, floorPlanUrl: url, ...(newScore != null ? { aiScore: newScore } : {}) } : null)
       await addDoc(collection(db, 'leads', id, 'activities'), {
         leadId: id,
         type: 'floor_plan_upload',
@@ -322,7 +342,11 @@ export function LeadDetail() {
         updatedAt:       serverTimestamp(),
       }
       await updateDoc(doc(db, 'leads', id), update)
-      setLead(prev => prev ? { ...prev, ...update, updatedAt: prev.updatedAt } : null)
+      // source and estimatedBudget both feed the score
+      const newScore = await recalcLeadScore(id)
+      setLead(prev => prev
+        ? { ...prev, ...update, updatedAt: prev.updatedAt, ...(newScore != null ? { aiScore: newScore } : {}) }
+        : null)
       toast.success('Lead updated!')
       setShowEditModal(false)
     } catch (err: any) {
@@ -388,7 +412,20 @@ export function LeadDetail() {
             <Badge color={statusCfg.color} bg={statusCfg.bg} className="text-sm px-3 py-1">
               {statusCfg.label}
             </Badge>
-            <span data-tour="ai-score" className={`text-sm font-bold px-2.5 py-1 rounded-lg ${getScoreBg(lead.aiScore)} ${getScoreColor(lead.aiScore)}`}>
+            {/* Hovering explains where the score came from, so the number is never
+                a black box to whoever is working the lead. */}
+            <span
+              data-tour="ai-score"
+              title={getLeadScoreBreakdown({
+                source: lead.source,
+                estimatedBudget: lead.estimatedBudget,
+                floorPlanUrl: lead.floorPlanUrl,
+                demoGiven: lead.demoGiven,
+                quoteCount: lead.quoteDocuments?.length ?? 0,
+                callCount: lead.callCount ?? 0,
+              }).map(r => `${r.label}: +${r.points}`).join('\n')}
+              className={`text-sm font-bold px-2.5 py-1 rounded-lg cursor-help ${getScoreBg(lead.aiScore)} ${getScoreColor(lead.aiScore)}`}
+            >
               Score: {lead.aiScore}/100
             </span>
             {isConverted && (

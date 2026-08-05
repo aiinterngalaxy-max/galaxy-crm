@@ -14,6 +14,7 @@ import { nextLeadCode } from '../../lib/counters'
 import { cn } from '../../lib/utils'
 import { Timestamp } from 'firebase/firestore'
 import toast from 'react-hot-toast'
+import { registerLeadCall } from '../../lib/leadScore'
 import type { Lead } from '../../types'
 import { Card } from '../../components/ui/Card'
 
@@ -656,6 +657,7 @@ function CallModeTab() {
       const updates: Record<string, unknown> = { status: 'contacted', updatedAt: serverTimestamp() }
       if (followUp) updates.nextFollowUp = Timestamp.fromDate(new Date(followUp))
       await updateDoc(doc(db, 'leads', lead.id), updates)
+      await registerLeadCall(lead.id)
       toast.success('Call logged')
       setNote(''); setFollowUp(''); setOutcome('answered'); setScriptOpen(false)
       if (idx < filtered.length - 1) setIdx(i => i + 1)

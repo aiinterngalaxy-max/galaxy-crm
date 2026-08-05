@@ -25,6 +25,7 @@ import {
   writeBatch,
   arrayUnion,
   runTransaction,
+  increment,
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
@@ -75,6 +76,7 @@ export {
   writeBatch,
   arrayUnion,
   runTransaction,
+  increment,
   type QueryConstraint,
 }
 

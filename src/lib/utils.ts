@@ -214,36 +214,88 @@ export function getMonthLabel(value: Timestamp | Date | string | undefined | nul
   return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' })
 }
 
+// ─── Lead scoring ──────────────────────────────────────────────────────────────
+//
+// The score answers "how far has this lead actually moved?", so what the lead has
+// *done* (demo, quotes, calls) outweighs where it came from. Weights are tuned so
+// a fully progressed lead lands near 100 without any single factor dominating.
+//
+//   base                                    10
+//   source                                0–15
+//   budget                                0–15
+//   floor plan uploaded                     10
+//   demo / site visit done                  25
+//   quotes sent          4 each, max 3    0–12
+//   calls logged         3 each, max 5    0–15
+//
+// Anything above 100 is clamped.
+
 const SOURCE_SCORE: Record<string, number> = {
-  referral:   25,
-  partner:    20,
-  google_ads: 15,
-  linkedin:   12,
-  meta_ads:   10,
-  instagram:  10,
-  facebook:   10,
-  justdial:    7,
-  indiamart:   7,
-  cold_call:   3,
-  breville:   20,
+  referral:   15,
+  partner:    12,
+  breville:   12,
+  google_ads:  9,
+  linkedin:    7,
+  meta_ads:    6,
+  instagram:   6,
+  facebook:    6,
+  justdial:    4,
+  indiamart:   4,
+  cold_call:   2,
   other:       0,
 }
 
-export function calculateLeadScore(lead: Partial<{
-  source: string
-  estimatedBudget: number
-  floorPlanUrl: string
-  activities: unknown[]
-}>): number {
-  let score = 30 // base
+export const LEAD_SCORE_WEIGHTS = {
+  base: 10,
+  floorPlan: 10,
+  demo: 25,
+  perQuote: 4,
+  maxQuotes: 3,
+  perCall: 3,
+  maxCalls: 5,
+} as const
 
-  score += SOURCE_SCORE[lead.source ?? 'other'] ?? 0
+export interface LeadScoreInput {
+  source?: string
+  estimatedBudget?: number
+  floorPlanUrl?: string
+  demoGiven?: boolean
+  /** Number of quote documents attached to the lead. */
+  quoteCount?: number
+  /** Number of 'call' activities logged against the lead. */
+  callCount?: number
+}
 
-  if (lead.estimatedBudget && lead.estimatedBudget >= 500000) score += 25
-  else if (lead.estimatedBudget && lead.estimatedBudget >= 200000) score += 12
-  else if (lead.estimatedBudget && lead.estimatedBudget >= 100000) score += 6
+/** One line per factor that contributed points — used to explain a score in the UI. */
+export interface LeadScoreBreakdown {
+  label: string
+  points: number
+}
 
-  if (lead.floorPlanUrl) score += 20
+export function getLeadScoreBreakdown(lead: LeadScoreInput): LeadScoreBreakdown[] {
+  const w = LEAD_SCORE_WEIGHTS
+  const rows: LeadScoreBreakdown[] = [{ label: 'Base', points: w.base }]
 
-  return Math.min(100, score)
+  const src = SOURCE_SCORE[lead.source ?? 'other'] ?? 0
+  if (src) rows.push({ label: `Source: ${(lead.source ?? 'other').replace('_', ' ')}`, points: src })
+
+  const budget = lead.estimatedBudget ?? 0
+  const budgetPts = budget >= 500000 ? 15 : budget >= 200000 ? 8 : budget >= 100000 ? 4 : 0
+  if (budgetPts) rows.push({ label: 'Budget', points: budgetPts })
+
+  if (lead.floorPlanUrl) rows.push({ label: 'Floor plan uploaded', points: w.floorPlan })
+  if (lead.demoGiven) rows.push({ label: 'Demo / site visit done', points: w.demo })
+
+  const quotes = Math.min(lead.quoteCount ?? 0, w.maxQuotes)
+  if (quotes) rows.push({ label: `Quotes sent (${quotes})`, points: quotes * w.perQuote })
+
+  const calls = Math.min(lead.callCount ?? 0, w.maxCalls)
+  if (calls) rows.push({ label: `Calls logged (${calls})`, points: calls * w.perCall })
+
+  return rows
+}
+
+export function calculateLeadScore(lead: LeadScoreInput): number {
+  const total = getLeadScoreBreakdown(lead).reduce((sum, r) => sum + r.points, 0)
+  return Math.min(100, total)
 }

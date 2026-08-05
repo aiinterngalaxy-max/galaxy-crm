@@ -126,6 +126,7 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
       const aiScore = calculateLeadScore({
         source: data.source,
         estimatedBudget: data.estimatedBudget,
+        demoGiven: data.demoGiven,
       })
 
       await addDoc(collection(db, 'leads'), {
@@ -148,8 +149,9 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         partnerName: selectedPartner ? (selectedPartner.firmName || selectedPartner.name) : null,
         notes: data.notes || null,
         demoGiven: data.demoGiven ?? false,
+        callCount: 0,
         aiScore,
-        aiScoreNote: `Auto-scored based on source and budget.`,
+        aiScoreNote: 'Auto-scored from source, budget, demo, quotes and calls.',
         createdBy: user?.id,
         createdAt: data.dateAdded
           ? Timestamp.fromDate(new Date(data.dateAdded))

@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { nextLeadCode } from '../../lib/counters'
+import { recalcLeadScore } from '../../lib/leadScore'
 import toast from 'react-hot-toast'
 import type { Lead, LeadActivity, ActivityType, LeadStatus, LeadSource } from '../../types'
 
@@ -161,8 +162,17 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     } else {
       updates[field] = value
     }
+    // Reaching the Demo stage records the site visit; it is never unset.
+    if (field === 'status' && value === 'demo' && !lead.demoGiven) {
+      updates.demoGiven = true
+    }
     await updateDoc(doc(db, 'leads', lead.id), updates)
-  }, [lead.id])
+
+    // budget, source and the demo flag all feed the score
+    if (field === 'estimatedBudget' || field === 'source' || field === 'status') {
+      await recalcLeadScore(lead.id)
+    }
+  }, [lead.id, lead.demoGiven])
 
   const statusCfg = LEAD_STATUS_CONFIG[lead.status]
 
@@ -355,7 +365,12 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
         return
       }
       const leadCode = await nextLeadCode()
-      const aiScore = calculateLeadScore({ source, estimatedBudget: budget ? Number(budget) : undefined })
+      const demoGiven = status === 'demo'
+      const aiScore = calculateLeadScore({
+        source,
+        estimatedBudget: budget ? Number(budget) : undefined,
+        demoGiven,
+      })
       await addDoc(collection(db, 'leads'), {
         leadCode,
         status,
@@ -367,8 +382,9 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
         assignedTo: user?.id ?? '',
         assignedToName: assignedToName.trim() || user?.name || null,
         aiScore,
-        aiScoreNote: 'Auto-scored based on source and budget.',
-        demoGiven: false,
+        aiScoreNote: 'Auto-scored from source, budget, demo, quotes and calls.',
+        demoGiven,
+        callCount: 0,
         createdBy: user?.id ?? '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

@@ -7,6 +7,7 @@ import {
   addDoc, updateDoc, doc, serverTimestamp,
 } from '../../lib/firebase'
 import { LEAD_STATUS_CONFIG } from '../../lib/utils'
+import { registerLeadCall } from '../../lib/leadScore'
 import type { Lead } from '../../types'
 import toast from 'react-hot-toast'
 
@@ -77,6 +78,8 @@ function DoneModal({ lead, onClose, onDone }: DoneModalProps) {
         nextFollowUp: nextFollowUp ? new Date(nextFollowUp) : null,
         updatedAt: serverTimestamp(),
       })
+      // Only calls count as a "connect" for scoring.
+      if (actType === 'call') await registerLeadCall(lead.id)
       toast.success('Follow-up marked as done')
       onDone(lead.id)
     } catch (e: any) {

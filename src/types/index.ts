@@ -108,6 +108,9 @@ export interface Lead {
   quoteDocuments?: QuoteDoc[]
   tier?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5'
   demoGiven?: boolean
+  /** Count of 'call' activities, denormalised so list views can score without
+   *  reading the activities subcollection. Maintained by logLeadCall(). */
+  callCount?: number
   notes?: string
   nextFollowUp?: Timestamp
   createdBy: string

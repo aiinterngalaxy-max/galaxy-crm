@@ -3,6 +3,7 @@ import { FileText, Upload, Trash2, ExternalLink, Loader2 } from 'lucide-react'
 import { Card } from './ui/Card'
 import { db, doc, updateDoc, serverTimestamp, uploadFile } from '../lib/firebase'
 import { formatDate } from '../lib/utils'
+import { recalcLeadScore } from '../lib/leadScore'
 import type { QuoteDoc } from '../types'
 import toast from 'react-hot-toast'
 
@@ -39,6 +40,11 @@ export function QuoteDocuments({
       quoteDocuments: next,
       updatedAt: serverTimestamp(),
     })
+    // Quote count feeds the lead score. Partners are not scored, so guard on the
+    // collection this instance is attached to.
+    if (collectionName === 'leads') {
+      await recalcLeadScore(docId, { quoteDocuments: next })
+    }
     onChange?.(next)
   }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   calculateLeadScore,
+  getLeadScoreBreakdown,
   canAccess,
   formatCurrency,
   formatCurrencyShort,
@@ -13,58 +14,124 @@ import type { UserRole } from '../../types'
 // ─── calculateLeadScore ────────────────────────────────────────────────────────
 
 describe('calculateLeadScore', () => {
-  it('returns base score of 30 for empty lead', () => {
-    expect(calculateLeadScore({})).toBe(30)
+  it('returns base score of 10 for empty lead', () => {
+    expect(calculateLeadScore({})).toBe(10)
   })
 
-  it('adds source bonus — referral is highest (25)', () => {
-    expect(calculateLeadScore({ source: 'referral' })).toBe(55)
+  it('adds source bonus — referral is highest (15)', () => {
+    expect(calculateLeadScore({ source: 'referral' })).toBe(25)
   })
 
-  it('adds source bonus — partner (20)', () => {
-    expect(calculateLeadScore({ source: 'partner' })).toBe(50)
+  it('adds source bonus — partner (12)', () => {
+    expect(calculateLeadScore({ source: 'partner' })).toBe(22)
   })
 
-  it('adds source bonus — cold_call is lowest (3)', () => {
-    expect(calculateLeadScore({ source: 'cold_call' })).toBe(33)
+  it('adds source bonus — cold_call is lowest (2)', () => {
+    expect(calculateLeadScore({ source: 'cold_call' })).toBe(12)
   })
 
   it('unknown source adds 0', () => {
-    expect(calculateLeadScore({ source: 'unknown_source' })).toBe(30)
+    expect(calculateLeadScore({ source: 'unknown_source' })).toBe(10)
   })
 
-  it('adds 25 for budget >= 5L', () => {
-    expect(calculateLeadScore({ estimatedBudget: 500000 })).toBe(55)
+  it('adds 15 for budget >= 5L', () => {
+    expect(calculateLeadScore({ estimatedBudget: 500000 })).toBe(25)
   })
 
-  it('adds 12 for budget >= 2L', () => {
-    expect(calculateLeadScore({ estimatedBudget: 200000 })).toBe(42)
+  it('adds 8 for budget >= 2L', () => {
+    expect(calculateLeadScore({ estimatedBudget: 200000 })).toBe(18)
   })
 
-  it('adds 6 for budget >= 1L', () => {
-    expect(calculateLeadScore({ estimatedBudget: 100000 })).toBe(36)
+  it('adds 4 for budget >= 1L', () => {
+    expect(calculateLeadScore({ estimatedBudget: 100000 })).toBe(14)
   })
 
   it('adds 0 for budget below 1L', () => {
-    expect(calculateLeadScore({ estimatedBudget: 50000 })).toBe(30)
+    expect(calculateLeadScore({ estimatedBudget: 50000 })).toBe(10)
   })
 
-  it('adds 20 for floor plan URL', () => {
-    expect(calculateLeadScore({ floorPlanUrl: 'https://example.com/plan.jpg' })).toBe(50)
+  it('adds 10 for floor plan URL', () => {
+    expect(calculateLeadScore({ floorPlanUrl: 'https://example.com/plan.jpg' })).toBe(20)
   })
 
-  it('caps at 100 for a perfect lead', () => {
+  // ─── progress factors ───────────────────────────────────────────────────────
+
+  it('adds 25 for a completed demo / site visit', () => {
+    expect(calculateLeadScore({ demoGiven: true })).toBe(35)
+  })
+
+  it('adds 4 per quote sent', () => {
+    expect(calculateLeadScore({ quoteCount: 1 })).toBe(14)
+    expect(calculateLeadScore({ quoteCount: 2 })).toBe(18)
+  })
+
+  it('caps quote credit at 3 quotes (12 points)', () => {
+    expect(calculateLeadScore({ quoteCount: 3 })).toBe(22)
+    expect(calculateLeadScore({ quoteCount: 9 })).toBe(22)
+  })
+
+  it('adds 3 per call logged', () => {
+    expect(calculateLeadScore({ callCount: 1 })).toBe(13)
+    expect(calculateLeadScore({ callCount: 2 })).toBe(16)
+  })
+
+  it('caps call credit at 5 calls (15 points)', () => {
+    expect(calculateLeadScore({ callCount: 5 })).toBe(25)
+    expect(calculateLeadScore({ callCount: 40 })).toBe(25)
+  })
+
+  it('ranks a progressed lead above a cold high-budget one', () => {
+    const cold = calculateLeadScore({ source: 'referral', estimatedBudget: 500000 })
+    const progressed = calculateLeadScore({ source: 'indiamart', demoGiven: true, quoteCount: 2, callCount: 3 })
+    expect(progressed).toBeGreaterThan(cold)
+  })
+
+  it('caps at 100 for a fully progressed lead', () => {
     const score = calculateLeadScore({
       source: 'referral',
       estimatedBudget: 1000000,
       floorPlanUrl: 'https://example.com/plan.jpg',
+      demoGiven: true,
+      quoteCount: 5,
+      callCount: 9,
     })
     expect(score).toBe(100)
   })
 
-  it('high-value referral with floor plan hits 100', () => {
-    // base 30 + referral 25 + budget>=5L 25 + floorPlan 20 = 100
-    expect(calculateLeadScore({ source: 'referral', estimatedBudget: 500000, floorPlanUrl: 'x' })).toBe(100)
+  it('sums every factor without clamping when under 100', () => {
+    // base 10 + indiamart 4 + budget>=1L 4 + demo 25 + 2 quotes 8 + 3 calls 9 = 60
+    expect(calculateLeadScore({
+      source: 'indiamart',
+      estimatedBudget: 100000,
+      demoGiven: true,
+      quoteCount: 2,
+      callCount: 3,
+    })).toBe(60)
+  })
+})
+
+// ─── getLeadScoreBreakdown ─────────────────────────────────────────────────────
+
+describe('getLeadScoreBreakdown', () => {
+  it('always includes the base row', () => {
+    expect(getLeadScoreBreakdown({})).toEqual([{ label: 'Base', points: 10 }])
+  })
+
+  it('omits factors that scored nothing', () => {
+    const labels = getLeadScoreBreakdown({ source: 'other', estimatedBudget: 500 }).map(r => r.label)
+    expect(labels).toEqual(['Base'])
+  })
+
+  it('breakdown total equals the score', () => {
+    const lead = { source: 'referral', estimatedBudget: 200000, demoGiven: true, quoteCount: 2, callCount: 4 }
+    const total = getLeadScoreBreakdown(lead).reduce((s, r) => s + r.points, 0)
+    expect(total).toBe(calculateLeadScore(lead))
+  })
+
+  it('reflects the capped counts in its labels', () => {
+    const rows = getLeadScoreBreakdown({ quoteCount: 7, callCount: 8 })
+    expect(rows.find(r => r.label.startsWith('Quotes'))).toEqual({ label: 'Quotes sent (3)', points: 12 })
+    expect(rows.find(r => r.label.startsWith('Calls'))).toEqual({ label: 'Calls logged (5)', points: 15 })
   })
 })
 
