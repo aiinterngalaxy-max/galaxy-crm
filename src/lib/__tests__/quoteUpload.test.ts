@@ -7,7 +7,7 @@ const uploadFileResumable = vi.hoisted(() => vi.fn())
 vi.mock('../pdfCompress', () => ({ compressPdf }))
 vi.mock('../firebase', () => ({ uploadFileResumable }))
 
-const { uploadQuotePdf, MAX_QUOTE_BYTES, formatBytes, isPdf } = await import('../quoteUpload')
+const { uploadQuotePdf, MAX_QUOTE_BYTES, formatBytes, isPdf, shouldUseCompressed } = await import('../quoteUpload')
 
 function makeFile(name: string, size: number, type = 'application/pdf'): File {
   const f = new File(['x'], name, { type })
@@ -34,6 +34,22 @@ describe('isPdf', () => {
 
   it('rejects non-pdfs', () => {
     expect(isPdf(makeFile('photo.png', 100, 'image/png'))).toBe(false)
+  })
+})
+
+describe('shouldUseCompressed', () => {
+  it('accepts a result that saves more than 40%', () => {
+    expect(shouldUseCompressed(0.25)).toBe(true)
+    expect(shouldUseCompressed(0.6)).toBe(true)
+  })
+
+  it('rejects a result that barely shrinks, which would lose text for nothing', () => {
+    expect(shouldUseCompressed(0.9)).toBe(false)
+    expect(shouldUseCompressed(0.61)).toBe(false)
+  })
+
+  it('rejects a result that grew', () => {
+    expect(shouldUseCompressed(1.2)).toBe(false)
   })
 })
 
@@ -64,34 +80,22 @@ describe('uploadQuotePdf', () => {
       .resolves.toBeTruthy()
   })
 
-  it('keeps the compressed blob when it saves more than 40%', async () => {
+  // Compression is currently disabled — it blocked the main thread and froze the
+  // tab on large PDFs. These lock in that uploads go straight through until the
+  // work moves off the main thread.
+  it('uploads the original without attempting compression', async () => {
     const file = makeFile('img-heavy.pdf', 20_000_000)
-    const blob = new Blob(['small'])
-    compressPdf.mockResolvedValue({ blob, originalBytes: 20_000_000, compressedBytes: 5_000_000, ratio: 0.25 })
 
     await uploadQuotePdf({ ...base, file })
-    expect(uploadFileResumable.mock.calls[0][1]).toBe(blob)
-  })
-
-  it('uploads the original when compression saves too little to justify losing text', async () => {
-    const file = makeFile('text-only.pdf', 1_000_000)
-    compressPdf.mockResolvedValue({
-      blob: new Blob(['barely smaller']),
-      originalBytes: 1_000_000,
-      compressedBytes: 900_000,
-      ratio: 0.9,
-    })
-
-    await uploadQuotePdf({ ...base, file })
+    expect(compressPdf).not.toHaveBeenCalled()
     expect(uploadFileResumable.mock.calls[0][1]).toBe(file)
   })
 
-  it('uploads the original when compression fails outright', async () => {
-    const file = makeFile('weird.pdf', 5_000_000)
-    compressPdf.mockResolvedValue(null)
+  it('never blocks on compression for a large file', async () => {
+    const file = makeFile('big.pdf', 24_000_000)
 
-    await uploadQuotePdf({ ...base, file })
-    expect(uploadFileResumable.mock.calls[0][1]).toBe(file)
+    await expect(uploadQuotePdf({ ...base, file })).resolves.toBeTruthy()
+    expect(compressPdf).not.toHaveBeenCalled()
   })
 
   it('sanitises the storage path but keeps the original display name', async () => {
@@ -104,15 +108,14 @@ describe('uploadQuotePdf', () => {
     expect(result.name).toBe('Quote #7 (final).pdf')
   })
 
-  it('reports both phases through onProgress', async () => {
-    compressPdf.mockImplementation(async (_f: File, cb: (n: number) => void) => { cb(0.5); return null })
+  it('reports upload progress through onProgress', async () => {
     uploadFileResumable.mockImplementation(async (_p: string, _b: Blob, cb: (n: number) => void) => {
-      cb(0.75); return 'https://example.com/q.pdf'
+      cb(0.25); cb(0.75); return 'https://example.com/q.pdf'
     })
 
     const phases: string[] = []
     await uploadQuotePdf({ ...base, file: makeFile('q.pdf', 100), onProgress: p => phases.push(`${p.phase}:${p.fraction}`) })
-    expect(phases).toEqual(['compressing:0.5', 'uploading:0.75'])
+    expect(phases).toEqual(['uploading:0.25', 'uploading:0.75'])
   })
 
   it('stamps the uploader and a timestamp on the returned doc', async () => {

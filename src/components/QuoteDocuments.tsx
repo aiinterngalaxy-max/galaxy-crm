@@ -56,7 +56,7 @@ export function QuoteDocuments({
     if (!file) return
 
     setUploading(true)
-    setProgress({ phase: 'compressing', fraction: 0 })
+    setProgress({ phase: 'uploading', fraction: 0 })
     try {
       const newDoc = await uploadQuotePdf({
         file,
@@ -107,7 +107,7 @@ export function QuoteDocuments({
       </div>
       {canEdit && !uploading && (
         <p className="text-[10px] text-gray-600 mb-2">
-          PDF up to {formatBytes(MAX_QUOTE_BYTES)}. Large image-heavy quotes are compressed automatically.
+          PDF up to {formatBytes(MAX_QUOTE_BYTES)}. Large files may take a minute or two to upload.
         </p>
       )}
 

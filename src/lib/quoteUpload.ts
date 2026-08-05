@@ -12,6 +12,19 @@ export const MAX_QUOTE_BYTES = 25 * 1024 * 1024
  */
 const MIN_SAVING = 0.4
 
+/**
+ * Off: compressPdf() renders pages to canvas on the main thread, which blocks
+ * the browser for long enough on a large PDF that the tab freezes and progress
+ * never repaints — it looks stuck at 0%. Re-enable once the work runs off the
+ * main thread (OffscreenCanvas in a worker) or is capped to small files.
+ */
+const COMPRESSION_ENABLED = false
+
+/** Is the compressed result a big enough win to justify losing selectable text? */
+export function shouldUseCompressed(ratio: number): boolean {
+  return ratio <= 1 - MIN_SAVING
+}
+
 export interface QuoteUploadProgress {
   phase: 'compressing' | 'uploading'
   /** 0..1 within the current phase. */
@@ -54,9 +67,11 @@ export async function uploadQuotePdf(opts: {
 
   // Try to shrink it, but never fail the upload because compression did not work.
   let body: Blob = file
-  const result = await compressPdf(file, f => onProgress?.({ phase: 'compressing', fraction: f }))
-  if (result && result.ratio <= 1 - MIN_SAVING) {
-    body = result.blob
+  if (COMPRESSION_ENABLED) {
+    const result = await compressPdf(file, f => onProgress?.({ phase: 'compressing', fraction: f }))
+    if (result && shouldUseCompressed(result.ratio)) {
+      body = result.blob
+    }
   }
 
   const safeName = file.name.replace(/[^\w.-]+/g, '_')

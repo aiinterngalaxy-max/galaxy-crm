@@ -161,7 +161,7 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     if (!file) return
 
     setUploading(true)
-    setProgress({ phase: 'compressing', fraction: 0 })
+    setProgress({ phase: 'uploading', fraction: 0 })
     try {
       const newDoc = await uploadQuotePdf({
         file,
