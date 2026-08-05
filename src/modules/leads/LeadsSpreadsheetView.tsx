@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, Check, X, Loader2, FileText } from 'lucide-react'
 import {
   db, collection, query, orderBy, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit,
+  addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit, uploadFile,
 } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
@@ -138,40 +138,97 @@ const ACTIVITY_TYPE_COLOR: Record<ActivityType, string> = {
 
 const QUOTE_SLOTS = 4
 
-// Four fixed slots showing the most recently uploaded quote PDFs, newest first.
-// Empty slots stay visible so the column keeps a steady width and it is obvious
-// at a glance how many quotes a lead has. Uploading happens on Lead Detail.
-function QuoteSlots({ docs }: { docs?: QuoteDoc[] }) {
-  const recent = [...(docs ?? [])]
+// Four fixed slots holding the most recently uploaded quote PDFs, newest first.
+// A filled slot opens its PDF; an empty one uploads into it, so quotes can be
+// attached without leaving the list. Empty slots keep the column a steady width
+// and make the quote count readable at a glance.
+function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+  const { user } = useAuth()
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const docs = lead.quoteDocuments ?? []
+  const recent = [...docs]
     .sort((a, b) => (b.uploadedAt ?? 0) - (a.uploadedAt ?? 0))
     .slice(0, QUOTE_SLOTS)
+  const extra = Math.max(0, docs.length - QUOTE_SLOTS)
 
-  const extra = Math.max(0, (docs?.length ?? 0) - QUOTE_SLOTS)
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file) return
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('Please upload a PDF file')
+      return
+    }
+    setUploading(true)
+    try {
+      const safeName = file.name.replace(/[^\w.-]+/g, '_')
+      const path = `leads/${lead.id}/quotes/${Date.now()}-${safeName}`
+      const uploadPromise = uploadFile(path, file)
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Upload timed out after 30s')), 30000)
+      )
+      const url = await Promise.race([uploadPromise, timeout])
+      const next: QuoteDoc[] = [
+        ...docs,
+        { name: file.name, url, uploadedAt: Date.now(), uploadedByName: user?.name },
+      ]
+      await updateDoc(doc(db, 'leads', lead.id), { quoteDocuments: next, updatedAt: serverTimestamp() })
+      // Quote count feeds the score (+4 each, first three).
+      await recalcLeadScore(lead.id, { quoteDocuments: next })
+      toast.success('Quote uploaded')
+    } catch (err: unknown) {
+      console.error('Quote upload error:', err)
+      toast.error(err instanceof Error ? err.message : 'Upload failed — check your connection')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div className="flex items-center gap-1">
+      <input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={handleUpload} className="hidden" />
       {Array.from({ length: QUOTE_SLOTS }).map((_, i) => {
         const d = recent[i]
-        if (!d) {
+
+        if (d) {
           return (
-            <span
+            <a
               key={i}
-              className="w-5 h-6 rounded border border-dashed border-gray-700 shrink-0"
-              title="No quote in this slot"
-            />
+              href={d.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${d.name}${d.uploadedAt ? ` — ${formatDate(new Date(d.uploadedAt))}` : ''}${d.uploadedByName ? ` · ${d.uploadedByName}` : ''}`}
+              className="w-5 h-6 rounded bg-gold-400/15 border border-gold-400/40 text-gold-400 hover:bg-gold-400/30 transition-colors flex items-center justify-center shrink-0"
+            >
+              <FileText className="w-3 h-3" />
+            </a>
           )
         }
+
+        // The first empty slot is the upload target; the rest are placeholders.
+        const isNextSlot = i === recent.length
+        if (canEdit && isNextSlot) {
+          return (
+            <button
+              key={i}
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              title="Upload a quote PDF"
+              className="w-5 h-6 rounded border border-dashed border-gray-600 text-gray-500 hover:border-gold-400/60 hover:text-gold-400 transition-colors flex items-center justify-center shrink-0 disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+            </button>
+          )
+        }
+
         return (
-          <a
+          <span
             key={i}
-            href={d.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`${d.name}${d.uploadedAt ? ` — ${formatDate(new Date(d.uploadedAt))}` : ''}${d.uploadedByName ? ` · ${d.uploadedByName}` : ''}`}
-            className="w-5 h-6 rounded bg-gold-400/15 border border-gold-400/40 text-gold-400 hover:bg-gold-400/30 transition-colors flex items-center justify-center shrink-0"
-          >
-            <FileText className="w-3 h-3" />
-          </a>
+            className="w-5 h-6 rounded border border-dashed border-gray-700 shrink-0"
+            title="No quote in this slot"
+          />
         )
       })}
       {extra > 0 && <span className="text-[10px] text-gray-500 shrink-0">+{extra}</span>}
@@ -289,7 +346,7 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
 
       {/* Quotes — up to 4 most recently uploaded PDFs */}
       <td className="px-2 py-2 min-w-[130px]">
-        <QuoteSlots docs={lead.quoteDocuments} />
+        <QuoteSlots lead={lead} canEdit={canEdit} />
       </td>
 
       {/* Budget */}
