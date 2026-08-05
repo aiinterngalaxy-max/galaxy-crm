@@ -507,7 +507,10 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
 
   return (
     <div className="rounded-xl border border-gray-800 overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* overflow-x-scroll (not auto) keeps the bar permanently visible, so it is
+          obvious there are more columns to the right. Only the height is overridden —
+          colour and track come from the global themed scrollbar in index.css. */}
+      <div className="overflow-x-scroll [&::-webkit-scrollbar]:h-2.5">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-gray-800/60 border-b border-gray-700">
@@ -538,7 +541,7 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
         </table>
       </div>
       <div className="px-4 py-2 bg-gray-900 border-t border-gray-800 text-xs text-gray-600">
-        {leads.length} leads · Click any cell to edit
+        {leads.length} leads · Click any cell to edit · Scroll sideways for more columns →
       </div>
     </div>
   )
