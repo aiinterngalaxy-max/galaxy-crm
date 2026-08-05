@@ -497,6 +497,29 @@ interface Props {
 }
 
 export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [maxHeight, setMaxHeight] = useState<number>()
+
+  // Size the scroll box from its own position down to the bottom of the window, so
+  // its horizontal scrollbar always lands on screen. A fixed max-height cannot do
+  // this: the table starts below a header and filter bar whose height varies.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const recalc = () => {
+      const top = el.getBoundingClientRect().top
+      const FOOTER_AND_GUTTER = 56 // the "N leads · …" strip plus breathing room
+      setMaxHeight(Math.max(240, window.innerHeight - top - FOOTER_AND_GUTTER))
+    }
+    recalc()
+    window.addEventListener('resize', recalc)
+    window.addEventListener('scroll', recalc, true)
+    return () => {
+      window.removeEventListener('resize', recalc)
+      window.removeEventListener('scroll', recalc, true)
+    }
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-gray-600 text-sm gap-2">
@@ -507,12 +530,15 @@ export function LeadsSpreadsheetView({ leads, loading, canEdit }: Props) {
 
   return (
     <div className="rounded-xl border border-gray-800 overflow-hidden">
-      {/* The table gets its own scroll viewport (max-h) so the horizontal bar stays
-          on screen instead of sitting below every row. overflow-x-scroll (not auto)
-          keeps that bar permanently visible, making the extra columns discoverable.
-          Only the bar's size is overridden — colour and track come from the global
-          themed scrollbar in index.css, so every theme stays consistent. */}
-      <div className="max-h-[70vh] overflow-x-scroll overflow-y-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar]:w-2.5">
+      {/* overflow-x-scroll (not auto) keeps the bar permanently visible, making the
+          extra columns discoverable. Only the bar's size is overridden — colour and
+          track come from the global themed scrollbar in index.css, so every theme
+          stays consistent. Height is set by the effect above. */}
+      <div
+        ref={scrollRef}
+        style={{ maxHeight }}
+        className="overflow-x-scroll overflow-y-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar]:w-2.5"
+      >
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10">
             <tr>
