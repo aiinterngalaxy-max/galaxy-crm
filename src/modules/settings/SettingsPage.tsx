@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Palette } from 'lucide-react'
+import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Palette, Download } from 'lucide-react'
 import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
 import { RolePermissionsTab } from './RolePermissionsTab'
@@ -12,6 +12,7 @@ import {
   db, collection, getDocs, updateDoc, doc, serverTimestamp, query, where
 } from '../../lib/firebase'
 import { ROLE_LABELS, calculateLeadScore } from '../../lib/utils'
+import { toCsv, downloadCsv, datedFilename } from '../../lib/exportCsv'
 import type { User, UserRole, Department, Lead } from '../../types'
 import toast from 'react-hot-toast'
 
@@ -459,6 +460,7 @@ export function SettingsPage() {
           {/* Management can rescore leads — they own the pipeline, and the backfill
               only rewrites derived fields (aiScore, callCount, demoGiven). */}
           {(isAdmin || isManagement) && <LeadScoreMaintenance />}
+          {(isAdmin || isManagement) && <QuoteLinksExport />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />
@@ -572,6 +574,94 @@ function ProjectStatsMaintenance() {
       {result && (
         <p className="text-xs text-green-400 mt-3 flex items-center gap-1">
           <CheckCircle2 className="w-3.5 h-3.5" /> Done — scanned {result.scanned}, updated {result.updated}.
+        </p>
+      )}
+    </Card>
+  )
+}
+
+// Offline record of every quote PDF and which lead it belongs to.
+//
+// Firebase Storage on the free tier has no backup: if a file is removed or the
+// project is lost, the PDF is gone. This does not protect the files themselves —
+// it preserves the index, so you always know which quotes existed, for whom, and
+// where they lived. Run it periodically and keep the CSV somewhere else.
+function QuoteLinksExport() {
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<{ leads: number; quotes: number } | null>(null)
+
+  async function exportLinks() {
+    setRunning(true)
+    setResult(null)
+    try {
+      const snap = await getDocs(collection(db, 'leads'))
+      const rows: (string | number | null)[][] = []
+      let leadsWithQuotes = 0
+
+      snap.docs.forEach(d => {
+        const l = { id: d.id, ...d.data() } as Lead
+        const quotes = l.quoteDocuments ?? []
+        if (quotes.length === 0) return
+        leadsWithQuotes++
+
+        quotes
+          .slice()
+          .sort((a, b) => (b.uploadedAt ?? 0) - (a.uploadedAt ?? 0))
+          .forEach((q, i) => {
+            rows.push([
+              l.leadCode ?? '',
+              l.name ?? '',
+              l.phone ?? '',
+              l.status ?? '',
+              l.assignedToName ?? '',
+              i + 1,
+              q.name ?? '',
+              q.uploadedAt ? new Date(q.uploadedAt).toISOString() : '',
+              q.uploadedByName ?? '',
+              q.url ?? '',
+            ])
+          })
+      })
+
+      if (rows.length === 0) {
+        toast.error('No quote documents found to export')
+        return
+      }
+
+      downloadCsv(
+        datedFilename('galaxy-quote-links'),
+        toCsv(
+          ['Lead Code', 'Lead Name', 'Phone', 'Status', 'Assigned To', '#', 'File Name', 'Uploaded At', 'Uploaded By', 'URL'],
+          rows,
+        ),
+      )
+      setResult({ leads: leadsWithQuotes, quotes: rows.length })
+      toast.success(`Exported ${rows.length} quotes across ${leadsWithQuotes} leads`)
+    } catch (e) {
+      console.error(e)
+      toast.error('Export failed — see console')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3 mb-2">
+        <Download className="w-5 h-5 text-indigo-400" />
+        <h3 className="text-sm font-semibold text-gray-200">Quote links backup</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Download a CSV of every quote PDF — which lead it belongs to, when it was uploaded, by whom,
+        and its link. Keep a copy outside the CRM. Note this saves the <em>links</em>, not the files:
+        if a PDF is deleted from Storage its link stops working, so download anything critical too.
+      </p>
+      <Button onClick={exportLinks} loading={running} size="sm">
+        Export quote links (CSV)
+      </Button>
+      {result && (
+        <p className="text-xs text-green-400 mt-3 flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Exported {result.quotes} quotes across {result.leads} leads.
         </p>
       )}
     </Card>
