@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { FileText, Upload, Trash2, ExternalLink, Loader2 } from 'lucide-react'
 import { Card } from './ui/Card'
-import { db, doc, updateDoc, serverTimestamp, uploadFile } from '../lib/firebase'
+import { db, doc, updateDoc, serverTimestamp } from '../lib/firebase'
 import { formatDate } from '../lib/utils'
 import { recalcLeadScore } from '../lib/leadScore'
+import { uploadQuotePdf, MAX_QUOTE_BYTES, formatBytes, type QuoteUploadProgress } from '../lib/quoteUpload'
 import type { QuoteDoc } from '../types'
 import toast from 'react-hot-toast'
 
@@ -31,6 +32,7 @@ export function QuoteDocuments({
   collectionName, docId, documents, canEdit, uploadedByName, onChange, title = 'Quote Documents',
 }: Props) {
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState<QuoteUploadProgress | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
 
   const docs = documents ?? []
@@ -52,27 +54,25 @@ export function QuoteDocuments({
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-selecting the same file later
     if (!file) return
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error('Please upload a PDF file')
-      return
-    }
+
     setUploading(true)
+    setProgress({ phase: 'compressing', fraction: 0 })
     try {
-      const safeName = file.name.replace(/[^\w.-]+/g, '_')
-      const path = `${collectionName}/${docId}/quotes/${Date.now()}-${safeName}`
-      const uploadPromise = uploadFile(path, file)
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Upload timed out after 30s')), 30000)
-      )
-      const url = await Promise.race([uploadPromise, timeout])
-      const next = [...docs, { name: file.name, url, uploadedAt: Date.now(), uploadedByName }]
-      await persist(next)
+      const newDoc = await uploadQuotePdf({
+        file,
+        collectionName,
+        docId,
+        uploadedByName,
+        onProgress: setProgress,
+      })
+      await persist([...docs, newDoc])
       toast.success('Quote uploaded')
     } catch (err: unknown) {
       console.error('Quote upload error:', err)
       toast.error(err instanceof Error ? err.message : 'Upload failed — check your connection')
     } finally {
       setUploading(false)
+      setProgress(null)
     }
   }
 
@@ -97,12 +97,19 @@ export function QuoteDocuments({
         {canEdit && (
           <label className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 cursor-pointer transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
             {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            {uploading ? 'Uploading…' : 'Upload PDF'}
+            {uploading
+              ? `${progress?.phase === 'compressing' ? 'Compressing' : 'Uploading'} ${Math.round((progress?.fraction ?? 0) * 100)}%`
+              : 'Upload PDF'}
             <input type="file" accept="application/pdf,.pdf" className="sr-only"
               onChange={handleUpload} disabled={uploading} />
           </label>
         )}
       </div>
+      {canEdit && !uploading && (
+        <p className="text-[10px] text-gray-600 mb-2">
+          PDF up to {formatBytes(MAX_QUOTE_BYTES)}. Large image-heavy quotes are compressed automatically.
+        </p>
+      )}
 
       {docs.length === 0 ? (
         <div className="text-center py-4">

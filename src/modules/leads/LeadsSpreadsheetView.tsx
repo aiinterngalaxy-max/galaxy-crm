@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, Check, X, Loader2, FileText } from 'lucide-react'
 import {
   db, collection, query, orderBy, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit, uploadFile,
+  addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit,
 } from '../../lib/firebase'
+import { uploadQuotePdf, type QuoteUploadProgress } from '../../lib/quoteUpload'
 import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { nextLeadCode } from '../../lib/counters'
@@ -145,6 +146,7 @@ const QUOTE_SLOTS = 4
 function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   const { user } = useAuth()
   const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState<QuoteUploadProgress | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const docs = lead.quoteDocuments ?? []
@@ -157,23 +159,18 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-selecting the same file later
     if (!file) return
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error('Please upload a PDF file')
-      return
-    }
+
     setUploading(true)
+    setProgress({ phase: 'compressing', fraction: 0 })
     try {
-      const safeName = file.name.replace(/[^\w.-]+/g, '_')
-      const path = `leads/${lead.id}/quotes/${Date.now()}-${safeName}`
-      const uploadPromise = uploadFile(path, file)
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Upload timed out after 30s')), 30000)
-      )
-      const url = await Promise.race([uploadPromise, timeout])
-      const next: QuoteDoc[] = [
-        ...docs,
-        { name: file.name, url, uploadedAt: Date.now(), uploadedByName: user?.name },
-      ]
+      const newDoc = await uploadQuotePdf({
+        file,
+        collectionName: 'leads',
+        docId: lead.id,
+        uploadedByName: user?.name,
+        onProgress: setProgress,
+      })
+      const next: QuoteDoc[] = [...docs, newDoc]
       await updateDoc(doc(db, 'leads', lead.id), { quoteDocuments: next, updatedAt: serverTimestamp() })
       // Quote count feeds the score (+4 each, first three).
       await recalcLeadScore(lead.id, { quoteDocuments: next })
@@ -183,8 +180,11 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
       toast.error(err instanceof Error ? err.message : 'Upload failed — check your connection')
     } finally {
       setUploading(false)
+      setProgress(null)
     }
   }
+
+  const pct = progress ? Math.round(progress.fraction * 100) : 0
 
   return (
     <div className="flex items-center gap-1">
@@ -210,15 +210,27 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
         // The first empty slot is the upload target; the rest are placeholders.
         const isNextSlot = i === recent.length
         if (canEdit && isNextSlot) {
+          if (uploading) {
+            // Show the percentage rather than a bare spinner — a large upload can
+            // run for a minute and a spinner alone reads as "stuck".
+            return (
+              <span
+                key={i}
+                title={progress?.phase === 'compressing' ? 'Compressing…' : 'Uploading…'}
+                className="h-6 px-1 rounded border border-gold-400/40 bg-gold-400/10 text-[9px] font-semibold text-gold-400 flex items-center justify-center shrink-0 tabular-nums min-w-[2.25rem]"
+              >
+                {progress?.phase === 'compressing' ? `${pct}%⇩` : `${pct}%`}
+              </span>
+            )
+          }
           return (
             <button
               key={i}
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
               title="Upload a quote PDF"
-              className="w-5 h-6 rounded border border-dashed border-gray-600 text-gray-500 hover:border-gold-400/60 hover:text-gold-400 transition-colors flex items-center justify-center shrink-0 disabled:opacity-50"
+              className="w-5 h-6 rounded border border-dashed border-gray-600 text-gray-500 hover:border-gold-400/60 hover:text-gold-400 transition-colors flex items-center justify-center shrink-0"
             >
-              {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+              <Plus className="w-3 h-3" />
             </button>
           )
         }

@@ -27,7 +27,7 @@ import {
   runTransaction,
   increment,
 } from 'firebase/firestore'
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 
 // Firebase config — reads from .env file. Falls back to placeholder so the
 // login page renders and shows setup instructions when not yet configured.
@@ -144,6 +144,44 @@ export async function uploadFile(
   const storageRef = ref(storage, path)
   await uploadBytes(storageRef, file)
   return getDownloadURL(storageRef)
+}
+
+/**
+ * Uploads with real progress and no wall-clock timeout.
+ *
+ * uploadBytes() gives no feedback, so large files look frozen; pairing it with a
+ * Promise.race timeout was worse still — the race rejects but the transfer keeps
+ * running, leaving an orphaned file in Storage. Resumable uploads report bytes
+ * transferred, retry dropped chunks, and can be cancelled for real.
+ *
+ * Progress is reported 0..1. The returned promise resolves with the download URL.
+ */
+export function uploadFileResumable(
+  path: string,
+  data: Blob | File,
+  onProgress?: (fraction: number) => void,
+  contentType?: string,
+): Promise<string> & { cancel: () => void } {
+  const task = uploadBytesResumable(ref(storage, path), data, contentType ? { contentType } : undefined)
+
+  const promise = new Promise<string>((resolve, reject) => {
+    task.on(
+      'state_changed',
+      snap => {
+        if (snap.totalBytes > 0) onProgress?.(snap.bytesTransferred / snap.totalBytes)
+      },
+      reject,
+      async () => {
+        try {
+          resolve(await getDownloadURL(task.snapshot.ref))
+        } catch (err) {
+          reject(err)
+        }
+      },
+    )
+  })
+
+  return Object.assign(promise, { cancel: () => task.cancel() })
 }
 
 export async function uploadBase64(path: string, base64: string, mimeType: string): Promise<string> {
