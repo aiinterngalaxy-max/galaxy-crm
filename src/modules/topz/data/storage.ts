@@ -42,6 +42,8 @@ export interface SavedQuotation {
   sentBy?: string
   /** Optional add-on charges (toll, parking, border tax, custom) included in totalAmount. */
   extraCharges?: ExtraCharge[]
+  /** Flat discount taken off the whole quote after add-ons, already reflected in totalAmount. */
+  specialDiscount?: number
 }
 
 export interface Booking {

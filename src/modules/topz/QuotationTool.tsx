@@ -215,6 +215,11 @@ export function QuotationTool() {
     new Set(['min_km', 'toll_extra'])
   )
   const [finalAmount, setFinalAmount] = useState<number | ''>('')
+  // A flat goodwill/seasonal discount taken off the whole quote. Separate from the
+  // all-inclusive field, which negotiates the vehicle fare instead.
+  const [specialDiscount, setSpecialDiscount] = useState<number | ''>(
+    typeof editQuote?.specialDiscount === 'number' ? editQuote.specialDiscount : '',
+  )
   const [hideBreakdown, setHideBreakdown] = useState(false)
   const [extraCharges, setExtraCharges] = useState<EditCharge[]>(
     Array.isArray(editQuote?.extraCharges)
@@ -276,8 +281,14 @@ export function QuotationTool() {
   // The all-inclusive field overrides only the vehicle fare — add-ons always add on top of it,
   // so typing a toll/parking charge never gets silently swallowed into the "discount" line.
   const negotiatedVehiclePortion = finalAmount !== '' ? finalAmount : vehiclePortion
-  const total = negotiatedVehiclePortion + extrasTotal
   const discountAmount = vehiclePortion - negotiatedVehiclePortion
+  // Flat discount off the whole quote, applied last. Clamped so it can never push
+  // the total negative, which would print a refund on a customer-facing quote.
+  const specialDiscountAmount = Math.min(
+    Math.max(specialDiscount === '' ? 0 : specialDiscount, 0),
+    negotiatedVehiclePortion + extrasTotal,
+  )
+  const total = negotiatedVehiclePortion + extrasTotal - specialDiscountAmount
 
   const phoneValid = !form.clientPhone || /^\d{10}$/.test(form.clientPhone.replace(/\s/g, ''))
   const passengersValid = !form.passengers || parseInt(form.passengers) >= 1
@@ -395,6 +406,7 @@ export function QuotationTool() {
       passengers: form.passengers, estimatedKm: form.estimatedKm,
       vehicleName: selectedVehicle.name, vehicleCategory: selectedVehicle.category,
       units, days, totalAmount: total, sentBy, extraCharges: cleanCharges(),
+      specialDiscount: specialDiscountAmount > 0 ? specialDiscountAmount : undefined,
     })
   }
 
@@ -411,7 +423,7 @@ export function QuotationTool() {
   async function handlePrint() {
     if (!selectedVehicle) return
     const qNo = savedQuoteNo || quoteNo()
-    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, units, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined, extraCharges: cleanCharges(), hideBreakdown })
+    await printQuotation({ form, vehicle: selectedVehicle, result, localResult, days, units, quoteNo: qNo, nightTier, retTier, nightExtra, includeTnc, selectedNotes, finalAmount: finalAmount !== '' ? finalAmount : undefined, extraCharges: cleanCharges(), specialDiscount: specialDiscountAmount > 0 ? specialDiscountAmount : undefined, hideBreakdown })
   }
 
   async function handleWhatsApp() {
@@ -1020,6 +1032,13 @@ export function QuotationTool() {
                     <td className="px-4 py-2.5 text-right font-semibold" style={{ color: '#f87171' }}>− {fmt(discountAmount)}</td>
                   </tr>
                 )}
+                {specialDiscountAmount > 0 && (
+                  <tr style={{ borderTop: '1px solid var(--glass-border)' }}>
+                    <td className="px-4 py-2.5 text-sm" style={{ color: '#f87171' }}>Special discount</td>
+                    <td colSpan={2} />
+                    <td className="px-4 py-2.5 text-right font-semibold" style={{ color: '#f87171' }}>− {fmt(specialDiscountAmount)}</td>
+                  </tr>
+                )}
                 <tr style={{ background: 'rgba(201,168,64,0.08)', borderTop: '2px solid rgba(201,168,64,0.3)' }}>
                   <td className="px-4 py-3 font-bold text-sm" style={{ color: 'var(--text-base)' }}>Total</td>
                   <td colSpan={2} />
@@ -1077,6 +1096,40 @@ export function QuotationTool() {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* ── Special discount (flat, off the whole quote) ── */}
+          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--glass-border)', background: 'var(--glass-bg)' }}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--text-base)' }}>Special discount</p>
+                <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  Flat amount off the whole quote, applied after add-ons.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border"
+                  style={{ borderColor: specialDiscountAmount > 0 ? 'rgba(248,113,113,0.5)' : 'var(--glass-border)' }}>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>&#8377;</span>
+                  <input type="number" min={0} value={specialDiscount}
+                    onChange={e => setSpecialDiscount(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="w-24 bg-transparent text-xs font-semibold focus:outline-none"
+                    style={{ color: specialDiscountAmount > 0 ? '#f87171' : 'var(--text-base)' }} />
+                </div>
+                {specialDiscount !== '' && (
+                  <button onClick={() => setSpecialDiscount('')} title="Clear discount"
+                    className="p-1.5 rounded-lg transition-colors" style={{ color: '#f87171' }}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {specialDiscount !== '' && specialDiscount > negotiatedVehiclePortion + extrasTotal && (
+              <p className="text-[11px] mt-2" style={{ color: '#f0c040' }}>
+                Discount is larger than the quote — capped at {fmt(specialDiscountAmount)} so the total stays at zero.
+              </p>
             )}
           </div>
 

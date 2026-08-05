@@ -40,6 +40,7 @@ async function init() {
         { type: 'execute', stmt: { sql: `ALTER TABLE topz_quotations ADD COLUMN sentBy TEXT`, args: [] } },
         { type: 'execute', stmt: { sql: `ALTER TABLE topz_quotations ADD COLUMN extraCharges TEXT`, args: [] } },
         { type: 'execute', stmt: { sql: `ALTER TABLE topz_quotations ADD COLUMN units INTEGER NOT NULL DEFAULT 1`, args: [] } },
+        { type: 'execute', stmt: { sql: `ALTER TABLE topz_quotations ADD COLUMN specialDiscount REAL`, args: [] } },
         { type: 'close' },
       ],
     }),
@@ -59,17 +60,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(rows.map(r => {
       let extraCharges: unknown = undefined
       if (r.extraCharges) { try { extraCharges = JSON.parse(r.extraCharges) } catch { extraCharges = undefined } }
-      return { ...r, isRoundTrip: r.isRoundTrip === '1' || r.isRoundTrip === 1, days: Number(r.days), totalAmount: Number(r.totalAmount), units: r.units != null ? Number(r.units) : 1, sentBy: r.sentBy ?? undefined, extraCharges }
+      return { ...r, isRoundTrip: r.isRoundTrip === '1' || r.isRoundTrip === 1, days: Number(r.days), totalAmount: Number(r.totalAmount), units: r.units != null ? Number(r.units) : 1, sentBy: r.sentBy ?? undefined, extraCharges, specialDiscount: r.specialDiscount != null ? Number(r.specialDiscount) : undefined }
     }))
   }
 
   if (req.method === 'POST') {
     const q = req.body
     await sql(
-      `INSERT INTO topz_quotations (id,quoteNo,createdAt,status,tripType,isRoundTrip,clientName,clientPhone,clientEmail,pickupDate,pickupLocation,dropDate,dropLocation,passengers,estimatedKm,vehicleName,vehicleCategory,days,totalAmount,sentBy,extraCharges,units)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET quoteNo=excluded.quoteNo,status=excluded.status,tripType=excluded.tripType,isRoundTrip=excluded.isRoundTrip,clientName=excluded.clientName,clientPhone=excluded.clientPhone,clientEmail=excluded.clientEmail,pickupDate=excluded.pickupDate,pickupLocation=excluded.pickupLocation,dropDate=excluded.dropDate,dropLocation=excluded.dropLocation,passengers=excluded.passengers,estimatedKm=excluded.estimatedKm,vehicleName=excluded.vehicleName,vehicleCategory=excluded.vehicleCategory,days=excluded.days,totalAmount=excluded.totalAmount,sentBy=excluded.sentBy,extraCharges=excluded.extraCharges,units=excluded.units`,
-      [q.id, q.quoteNo, new Date().toISOString(), q.status ?? 'draft', q.tripType ?? 'outstation', q.isRoundTrip ? 1 : 0, q.clientName ?? '', q.clientPhone ?? '', q.clientEmail ?? '', q.pickupDate ?? '', q.pickupLocation ?? '', q.dropDate ?? '', q.dropLocation ?? '', q.passengers ?? '', q.estimatedKm ?? '', q.vehicleName ?? '', q.vehicleCategory ?? '', q.days ?? 1, q.totalAmount ?? 0, q.sentBy ?? null, Array.isArray(q.extraCharges) && q.extraCharges.length ? JSON.stringify(q.extraCharges) : null, Number(q.units) > 0 ? Number(q.units) : 1]
+      `INSERT INTO topz_quotations (id,quoteNo,createdAt,status,tripType,isRoundTrip,clientName,clientPhone,clientEmail,pickupDate,pickupLocation,dropDate,dropLocation,passengers,estimatedKm,vehicleName,vehicleCategory,days,totalAmount,sentBy,extraCharges,units,specialDiscount)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET quoteNo=excluded.quoteNo,status=excluded.status,tripType=excluded.tripType,isRoundTrip=excluded.isRoundTrip,clientName=excluded.clientName,clientPhone=excluded.clientPhone,clientEmail=excluded.clientEmail,pickupDate=excluded.pickupDate,pickupLocation=excluded.pickupLocation,dropDate=excluded.dropDate,dropLocation=excluded.dropLocation,passengers=excluded.passengers,estimatedKm=excluded.estimatedKm,vehicleName=excluded.vehicleName,vehicleCategory=excluded.vehicleCategory,days=excluded.days,totalAmount=excluded.totalAmount,sentBy=excluded.sentBy,extraCharges=excluded.extraCharges,units=excluded.units,specialDiscount=excluded.specialDiscount`,
+      [q.id, q.quoteNo, new Date().toISOString(), q.status ?? 'draft', q.tripType ?? 'outstation', q.isRoundTrip ? 1 : 0, q.clientName ?? '', q.clientPhone ?? '', q.clientEmail ?? '', q.pickupDate ?? '', q.pickupLocation ?? '', q.dropDate ?? '', q.dropLocation ?? '', q.passengers ?? '', q.estimatedKm ?? '', q.vehicleName ?? '', q.vehicleCategory ?? '', q.days ?? 1, q.totalAmount ?? 0, q.sentBy ?? null, Array.isArray(q.extraCharges) && q.extraCharges.length ? JSON.stringify(q.extraCharges) : null, Number(q.units) > 0 ? Number(q.units) : 1, Number(q.specialDiscount) > 0 ? Number(q.specialDiscount) : null]
     )
     return res.status(200).json({ ok: true })
   }

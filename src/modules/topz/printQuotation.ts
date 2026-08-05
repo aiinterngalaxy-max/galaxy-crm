@@ -31,6 +31,8 @@ interface PrintArgs {
   includeTnc?: boolean
   selectedNotes?: Set<string>
   finalAmount?: number
+  /** Flat discount off the whole quote, applied after add-ons. */
+  specialDiscount?: number
   /** Add-on charges (toll, parking, border tax, custom) shown as their own line items. */
   extraCharges?: ExtraCharge[]
   /** When true, the PDF hides the rate breakdown and shows a single consolidated fare line. */
@@ -91,7 +93,7 @@ async function fetchBase64(path: string): Promise<string> {
 
 const getLogoBase64 = () => fetchBase64('/topz-logo.png')
 
-export async function printQuotation({ form, vehicle, result, localResult, days, units = 1, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount, extraCharges, hideBreakdown = false }: PrintArgs) {
+export async function printQuotation({ form, vehicle, result, localResult, days, units = 1, quoteNo, nightTier = 'normal', retTier = 'normal', nightExtra = 0, overrideTotalAmount, includeTnc = false, selectedNotes, finalAmount, specialDiscount, extraCharges, hideBreakdown = false }: PrintArgs) {
   const has = (id: string) => !selectedNotes || selectedNotes.has(id)
   const [logoDataUrl, qrDataUrl] = await Promise.all([getLogoBase64(), fetchBase64('/topz-qr.png')])
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -110,8 +112,14 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
   const beforeDiscount = vehiclePortion + extrasTotal
   // The all-inclusive field overrides only the vehicle fare — add-ons always add on top of it.
   const negotiatedVehiclePortion = finalAmount ?? vehiclePortion
-  const totalAmount = negotiatedVehiclePortion + extrasTotal
   const discountAmount = vehiclePortion - negotiatedVehiclePortion
+  // Flat discount off the whole quote, applied last. Clamped so a printed quote
+  // can never show a negative total.
+  const specialDiscountAmount = Math.min(
+    Math.max(specialDiscount ?? 0, 0),
+    negotiatedVehiclePortion + extrasTotal,
+  )
+  const totalAmount = negotiatedVehiclePortion + extrasTotal - specialDiscountAmount
 
   // Description block for the main table row
   const dutyType = isLocal
@@ -409,6 +417,7 @@ export async function printQuotation({ form, vehicle, result, localResult, days,
     <tbody>
       <tr><td class="label">Sub Total</td><td class="val">${fmt(beforeDiscount)}</td></tr>
       ${discountAmount > 0 ? `<tr><td class="label" style="color:#c53030;">Discount</td><td class="val" style="color:#c53030;">− ${fmt(discountAmount)}</td></tr>` : ''}
+      ${specialDiscountAmount > 0 ? `<tr><td class="label" style="color:#c53030;">Special Discount</td><td class="val" style="color:#c53030;">− ${fmt(specialDiscountAmount)}</td></tr>` : ''}
     </tbody>
     <tr class="in-words"><td colspan="2">In words: <em>${numberToWords(totalAmount)}</em></td></tr>
     <tbody>
