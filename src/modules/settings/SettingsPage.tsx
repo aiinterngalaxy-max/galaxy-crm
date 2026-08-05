@@ -456,7 +456,9 @@ export function SettingsPage() {
         <div className="space-y-4">
           <ThemePicker />
           {isAdmin && <ProjectStatsMaintenance />}
-          {isAdmin && <LeadScoreMaintenance />}
+          {/* Management can rescore leads — they own the pipeline, and the backfill
+              only rewrites derived fields (aiScore, callCount, demoGiven). */}
+          {(isAdmin || isManagement) && <LeadScoreMaintenance />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />
