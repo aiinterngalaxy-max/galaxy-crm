@@ -299,3 +299,17 @@ export function calculateLeadScore(lead: LeadScoreInput): number {
   const total = getLeadScoreBreakdown(lead).reduce((sum, r) => sum + r.points, 0)
   return Math.min(100, total)
 }
+
+/**
+ * First letter for an avatar placeholder, safe when the name is missing.
+ *
+ * A record written without a name — an access request that never completed, a
+ * Google account with no display name, an imported row with a blank field —
+ * used to crash an entire page: `undefined.charAt(0)` throws during render and
+ * the error boundary replaces the whole screen with "Something went wrong".
+ * One malformed record should cost one avatar, not the page.
+ */
+export function initial(name?: string | null): string {
+  const first = (name ?? '').trim().charAt(0)
+  return first ? first.toUpperCase() : '?'
+}

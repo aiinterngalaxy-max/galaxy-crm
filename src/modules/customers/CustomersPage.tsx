@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { db, collection, query, orderBy, onSnapshot, limit, where, getDocs } from '../../lib/firebase'
 import { trashItem } from '../../lib/trash'
-import { formatCurrency } from '../../lib/utils'
+import { formatCurrency, initial } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Customer } from '../../types'
 
@@ -162,7 +162,7 @@ export function CustomersPage() {
             >
               {/* Avatar */}
               <div className="w-10 h-10 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
-                {customer.name.charAt(0).toUpperCase()}
+                {initial(customer.name)}
               </div>
 
               <div className="flex-1 min-w-0">

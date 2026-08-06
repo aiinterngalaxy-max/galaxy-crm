@@ -12,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, getDocs, updateDoc, doc, serverTimestamp, query, where
 } from '../../lib/firebase'
-import { ROLE_LABELS, calculateLeadScore } from '../../lib/utils'
+import { ROLE_LABELS, calculateLeadScore, initial } from '../../lib/utils'
 import { toCsv, downloadCsv, datedFilename } from '../../lib/exportCsv'
 import type { User, UserRole, Department, Lead } from '../../types'
 import toast from 'react-hot-toast'
@@ -292,7 +292,7 @@ export function SettingsPage() {
                         <img src={req.userAvatar} className="w-9 h-9 rounded-full shrink-0" alt="" />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
-                          {req.userName.charAt(0).toUpperCase()}
+                          {initial(req.userName)}
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
@@ -406,7 +406,7 @@ export function SettingsPage() {
               {activeUsers.map(u => (
                 <div key={u.id} className="flex items-center gap-4 px-5 py-4">
                   <div className="w-9 h-9 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
-                    {u.name.charAt(0).toUpperCase()}
+                    {initial(u.name)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-200">{u.name}</p>

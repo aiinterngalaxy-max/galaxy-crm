@@ -11,8 +11,7 @@ import {
   canManageLeads,
   canManageProjects,
   canApprove,
-  generateInvoiceCode,
-} from '../utils'
+  generateInvoiceCode, initial } from '../utils'
 import type { UserRole } from '../../types'
 
 // ─── toDate ───────────────────────────────────────────────────────────────────
@@ -223,5 +222,28 @@ describe('generateInvoiceCode', () => {
 
   it('handles 3-digit sequences without padding', () => {
     expect(generateInvoiceCode(100)).toMatch(/100$/)
+  })
+})
+
+// Regression: a user document with no `name` crashed the entire Settings page
+// with "Cannot read properties of undefined (reading 'charAt')".
+describe('initial', () => {
+  it('returns the uppercased first letter', () => {
+    expect(initial('riya')).toBe('R')
+    expect(initial('Arjun Singh')).toBe('A')
+  })
+
+  it('survives undefined, null and empty — this is the crash it exists to stop', () => {
+    expect(initial(undefined)).toBe('?')
+    expect(initial(null)).toBe('?')
+    expect(initial('')).toBe('?')
+  })
+
+  it('survives a whitespace-only name', () => {
+    expect(initial('   ')).toBe('?')
+  })
+
+  it('trims before taking the letter', () => {
+    expect(initial('  mansi')).toBe('M')
   })
 })
