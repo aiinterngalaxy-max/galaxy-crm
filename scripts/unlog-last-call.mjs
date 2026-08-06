@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore, collection, getDocs, query, where, orderBy, limit, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { requireConfirmation } from './_guard.mjs'
 
 const firebaseConfig = {
   apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
@@ -52,6 +53,11 @@ async function unlogLast() {
   console.log(`  Outcome: ${latestActivity.outcome}`)
   console.log(`  Notes  : ${latestActivity.description}`)
   console.log(`  At     : ${time}`)
+
+  // Only one document, but it is still an unrecoverable delete plus a status
+  // change on a real lead — same flag as the collection-wiping scripts.
+  requireConfirmation(1, `activity log entry (and reverts "${latestLeadName}" to status 'new')`)
+
   console.log(`\nDeleting activity and reverting lead status to 'new'…`)
 
   await deleteDoc(doc(db, 'leads', latestLeadId, 'activities', latestActivity.id))
