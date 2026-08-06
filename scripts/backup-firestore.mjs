@@ -30,7 +30,7 @@
  */
 import { initializeApp } from 'firebase/app'
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
-import { getFirestore, collection, collectionGroup, getDocs } from 'firebase/firestore'
+import { getFirestore, collection, getDocs } from 'firebase/firestore'
 import { mkdirSync, writeFileSync, cpSync } from 'node:fs'
 import { join, basename } from 'node:path'
 
@@ -54,16 +54,19 @@ const COLLECTIONS = [
 ]
 
 /**
- * Subcollections, fetched with collectionGroup so every parent is covered in one
- * read. The client SDK cannot enumerate subcollections, so this list is taken
- * from firestore.rules — add to it if a new nested collection appears there.
+ * Subcollections, keyed by the top-level parent they live under. Fetched one
+ * parent at a time via a direct path (collection(db, `${parent}/${id}/${sub}`))
+ * rather than collectionGroup() — firestore.rules defines these as nested
+ * matches scoped to their exact parent path, which Firestore does not extend
+ * to a collectionGroup query across every parent. Add here (and to
+ * firestore.rules) if a new nested collection appears.
  */
-const SUBCOLLECTIONS = [
-  'activities', 'documents',     // leads
-  'lineItems',                   // quotations
-  'workflow', 'milestones', 'tasks', 'orderItems', 'siteReports', 'issues', // projects
-  'payments',                    // invoices
-]
+const SUBCOLLECTIONS_BY_PARENT = {
+  leads: ['activities', 'documents'],
+  quotations: ['lineItems'],
+  projects: ['workflow', 'milestones', 'tasks', 'orderItems', 'siteReports', 'issues'],
+  invoices: ['payments'],
+}
 
 /**
  * Firestore returns Timestamps, GeoPoints and DocumentReferences, none of which
@@ -99,10 +102,9 @@ function serialize(value) {
   return value
 }
 
-async function dumpCollection(db, name, outDir, manifest, isGroup = false) {
+async function dumpCollection(db, name, outDir, manifest) {
   try {
-    const ref = isGroup ? collectionGroup(db, name) : collection(db, name)
-    const snap = await getDocs(ref)
+    const snap = await getDocs(collection(db, name))
     const docs = snap.docs.map(d => ({
       __id: d.id,
       __path: d.ref.path,
@@ -110,16 +112,42 @@ async function dumpCollection(db, name, outDir, manifest, isGroup = false) {
     }))
     writeFileSync(join(outDir, `${name}.json`), JSON.stringify(docs, null, 2), 'utf8')
     manifest.collections[name] = docs.length
-    console.log(`  ${String(docs.length).padStart(6)}  ${name}${isGroup ? '  (subcollection)' : ''}`)
-    return docs.length
+    console.log(`  ${String(docs.length).padStart(6)}  ${name}`)
+    return { count: docs.length, ids: docs.map(d => d.__id) }
   } catch (err) {
     // A missing index or a denied read on one collection must not abandon the
     // rest of the backup — record it and carry on.
     const reason = err?.code || err?.message || String(err)
     manifest.skipped[name] = reason
     console.warn(`  SKIPPED  ${name} — ${reason}`)
-    return 0
+    return { count: 0, ids: [] }
   }
+}
+
+/**
+ * Fetches one subcollection across every parent document, one parent at a time,
+ * so each read matches firestore.rules' nested-match path exactly. A parent
+ * with no such subcollection, or that denies the read, just contributes nothing
+ * — the rest of the parents still get backed up.
+ */
+async function dumpSubcollection(db, parentName, parentIds, subName, outDir, manifest) {
+  const docs = []
+  let deniedCount = 0
+  for (const parentId of parentIds) {
+    try {
+      const snap = await getDocs(collection(db, `${parentName}/${parentId}/${subName}`))
+      for (const d of snap.docs) {
+        docs.push({ __id: d.id, __path: d.ref.path, ...serialize(d.data()) })
+      }
+    } catch (err) {
+      deniedCount++
+    }
+  }
+  writeFileSync(join(outDir, `${subName}.json`), JSON.stringify(docs, null, 2), 'utf8')
+  manifest.collections[subName] = docs.length
+  if (deniedCount) manifest.skipped[subName] = `denied on ${deniedCount}/${parentIds.length} parent(s)`
+  console.log(`  ${String(docs.length).padStart(6)}  ${subName}  (subcollection of ${parentName})`)
+  return docs.length
 }
 
 async function run() {
@@ -163,8 +191,19 @@ async function run() {
   console.log('  ----    ----------')
 
   let total = 0
-  for (const name of COLLECTIONS) total += await dumpCollection(db, name, outDir, manifest)
-  for (const name of SUBCOLLECTIONS) total += await dumpCollection(db, name, outDir, manifest, true)
+  const idsByCollection = {}
+  for (const name of COLLECTIONS) {
+    const { count, ids } = await dumpCollection(db, name, outDir, manifest)
+    total += count
+    idsByCollection[name] = ids
+  }
+
+  for (const [parentName, subNames] of Object.entries(SUBCOLLECTIONS_BY_PARENT)) {
+    const parentIds = idsByCollection[parentName] || []
+    for (const subName of subNames) {
+      total += await dumpSubcollection(db, parentName, parentIds, subName, outDir, manifest)
+    }
+  }
 
   manifest.totalDocuments = total
   writeFileSync(join(outDir, '_manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
