@@ -14,10 +14,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mj
 // the progress counter appeared stuck. Every page now yields via
 // requestAnimationFrame before the next one starts, which keeps the UI alive.
 
-/** Quality ladder. Each pass is tried in turn until the result fits the target. */
-const QUALITY_STEPS = [0.75, 0.6, 0.45, 0.3]
+/**
+ * Quality ladder. Each pass is tried in turn until the result fits the target.
+ *
+ * Tuned down from 0.75/2.0 because storage is the scarce resource, not fidelity:
+ * a quote is read on screen and occasionally printed, never zoomed into. 0.55 at
+ * 1.5x keeps small print and figures legible while typically landing a 20 MB
+ * scan near 1 MB rather than 3-4 MB — roughly triple the number of quotes the
+ * free tier holds.
+ */
+const QUALITY_STEPS = [0.55, 0.45, 0.35, 0.25]
 /** Render scale per quality pass — dropped alongside quality on later passes. */
-const SCALE_STEPS = [2, 1.75, 1.5, 1.25]
+const SCALE_STEPS = [1.5, 1.35, 1.2, 1.05]
 /** Beyond this many pages the wait stops being worth it and we give up. */
 const MAX_PAGES = 60
 

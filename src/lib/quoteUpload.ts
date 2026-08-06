@@ -13,6 +13,13 @@ export const MAX_QUOTE_BYTES = 25 * 1024 * 1024
 const MIN_SAVING = 0.4
 
 /**
+ * What compression aims for, well under the 10 MB storage limit. Every megabyte
+ * saved is free-tier headroom: at ~1 MB a quote the 25 GB allowance holds tens of
+ * thousands, at 8 MB it holds a few thousand.
+ */
+const COMPRESS_TARGET_BYTES = 3 * 1024 * 1024
+
+/**
  * Compression runs whenever a file is over the storage cap, and opportunistically
  * below it. It renders pages on the main thread but yields to the browser between
  * each one, so the tab stays responsive — the freeze that forced this off
@@ -194,10 +201,14 @@ export async function uploadQuotePdf(opts: {
 
   if (COMPRESSION_ENABLED && (mustShrink || file.size > 2 * 1024 * 1024)) {
     const { compressPdf } = await loadCompressor()
+    // Aim well below the 10 MB hard limit rather than merely under it. Stopping
+    // at the limit leaves quotes 5-10x larger than they need to be and burns the
+    // free tier for no benefit; 3 MB is comfortably readable and lets the ladder
+    // stop early on files that are already reasonable.
     const result = await compressPdf(
       file,
       p => onProgress?.({ phase: 'compressing', fraction: p.fraction }),
-      CLOUDINARY_MAX_BYTES,
+      Math.min(COMPRESS_TARGET_BYTES, CLOUDINARY_MAX_BYTES),
     )
 
     // Over the cap: take any shrink at all, since the alternative is a rejected
