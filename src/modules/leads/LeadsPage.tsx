@@ -409,9 +409,16 @@ export function LeadsPage() {
           )}
           {!loading && filtered.length > 0 && (
             <Card padding="none">
-              <div className="overflow-x-auto">
+              {/* The table scrolls inside its own box rather than growing down the
+                  page. With 150+ leads the horizontal scrollbar used to sit below
+                  every row, so reaching the right-hand columns meant scrolling to
+                  the very bottom first. Capping the height to the viewport keeps
+                  that scrollbar on screen at all times. */}
+              <div className="overflow-auto table-scroll max-h-[calc(100vh-18rem)] min-h-[20rem]">
                 <table className="w-full text-sm">
-                  <thead>
+                  {/* Sticky so the column names stay put now that the rows scroll
+                      within the box instead of with the page. */}
+                  <thead className="sticky top-0 z-10" style={{ background: 'var(--app-bg)' }}>
                     <tr className="border-b border-gray-800">
                       {['Name', 'Phone', 'Source', 'Status', 'Score', 'Demo', 'Assigned To', 'Date Added', 'Last Updated', ''].map(h => (
                         <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
