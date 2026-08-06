@@ -4,7 +4,10 @@ import {
   db, collection, query, orderBy, onSnapshot,
   addDoc, updateDoc, doc, serverTimestamp, getDocs, where, limit as fsLimit,
 } from '../../lib/firebase'
-import { uploadQuotePdf, type QuoteUploadProgress } from '../../lib/quoteUpload'
+import {
+  uploadQuotePdf, formatBytes, DuplicateQuoteError, type QuoteUploadProgress,
+} from '../../lib/quoteUpload'
+import { describeUploadError, logStage } from '../../lib/uploadDiagnostics'
 import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { nextLeadCode } from '../../lib/counters'
@@ -161,23 +164,30 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     if (!file) return
 
     setUploading(true)
-    setProgress({ phase: 'uploading', fraction: 0 })
+    setProgress({ phase: 'hashing', fraction: 0 })
     try {
       const newDoc = await uploadQuotePdf({
         file,
         collectionName: 'leads',
         docId: lead.id,
         uploadedByName: user?.name,
+        existingDocs: docs,
         onProgress: setProgress,
       })
       const next: QuoteDoc[] = [...docs, newDoc]
       await updateDoc(doc(db, 'leads', lead.id), { quoteDocuments: next, updatedAt: serverTimestamp() })
       // Quote count feeds the score (+4 each, first three).
       await recalcLeadScore(lead.id, { quoteDocuments: next })
-      toast.success('Quote uploaded')
+      logStage('firestore-saved', { leadId: lead.id, quotes: next.length })
+      toast.success(`Quote uploaded — ${formatBytes(newDoc.size ?? file.size)}`)
     } catch (err: unknown) {
-      console.error('Quote upload error:', err)
-      toast.error(err instanceof Error ? err.message : 'Upload failed — check your connection')
+      // A duplicate is a normal outcome, not a failure: the file is already here.
+      if (err instanceof DuplicateQuoteError) {
+        toast(err.message, { icon: 'ℹ️' })
+        return
+      }
+      logStage('failed', { leadId: lead.id, error: String(err) })
+      toast.error(describeUploadError(err))
     } finally {
       setUploading(false)
       setProgress(null)

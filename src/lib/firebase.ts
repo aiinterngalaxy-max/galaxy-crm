@@ -28,6 +28,7 @@ import {
   increment,
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
+import { logStage, warnIfPlaceholderConfig, STALL_MS, UploadStalledError } from './uploadDiagnostics'
 
 // Firebase config — reads from .env file. Falls back to placeholder so the
 // login page renders and shows setup instructions when not yet configured.
@@ -162,19 +163,53 @@ export function uploadFileResumable(
   onProgress?: (fraction: number) => void,
   contentType?: string,
 ): Promise<string> & { cancel: () => void } {
+  warnIfPlaceholderConfig(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET)
+
   const task = uploadBytesResumable(ref(storage, path), data, contentType ? { contentType } : undefined)
+  logStage('upload-start', { path, bytes: data.size, contentType })
 
   const promise = new Promise<string>((resolve, reject) => {
+    // A blocked request never fires a single progress event, so the transfer sits
+    // at 0% forever. Give up after STALL_MS with an error that names the likely
+    // cause, and cancel the task so it cannot complete behind our back.
+    let sawBytes = false
+    const stallTimer = setTimeout(() => {
+      if (sawBytes) return
+      logStage('failed', { path, reason: 'no bytes transferred', afterMs: STALL_MS })
+      try {
+        task.cancel()
+      } catch {
+        /* already settled */
+      }
+      reject(new UploadStalledError())
+    }, STALL_MS)
+
+    const settle = () => clearTimeout(stallTimer)
+
     task.on(
       'state_changed',
       snap => {
-        if (snap.totalBytes > 0) onProgress?.(snap.bytesTransferred / snap.totalBytes)
+        if (snap.totalBytes <= 0) return
+        if (snap.bytesTransferred > 0 && !sawBytes) {
+          sawBytes = true
+          settle()
+          logStage('first-byte', { path, bytes: snap.bytesTransferred })
+        }
+        onProgress?.(snap.bytesTransferred / snap.totalBytes)
       },
-      reject,
+      err => {
+        settle()
+        logStage('failed', { path, code: (err as { code?: string }).code, message: err.message })
+        reject(err)
+      },
       async () => {
+        settle()
         try {
-          resolve(await getDownloadURL(task.snapshot.ref))
+          const url = await getDownloadURL(task.snapshot.ref)
+          logStage('upload-complete', { path, bytes: task.snapshot.totalBytes })
+          resolve(url)
         } catch (err) {
+          logStage('failed', { path, stage: 'getDownloadURL', error: String(err) })
           reject(err)
         }
       },

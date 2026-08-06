@@ -1,8 +1,38 @@
 [
   {
-    "origin": ["http://localhost:5173", "https://galaxy-home-automation-crm.vercel.app"],
-    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "origin": [
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "https://galaxy-home-automation-crm.vercel.app"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "PATCH", "DELETE"],
     "maxAgeSeconds": 3600,
-    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent"]
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Range",
+      "Content-Disposition",
+      "Content-Encoding",
+      "Range",
+      "Authorization",
+      "User-Agent",
+      "X-Requested-With",
+      "X-Goog-Api-Client",
+      "X-Goog-Content-Length-Range",
+      "X-Goog-Upload-Chunk-Granularity",
+      "X-Goog-Upload-Command",
+      "X-Goog-Upload-Content-Length",
+      "X-Goog-Upload-Content-Type",
+      "X-Goog-Upload-Header-Content-Length",
+      "X-Goog-Upload-Header-Content-Type",
+      "X-Goog-Upload-Offset",
+      "X-Goog-Upload-Protocol",
+      "X-Goog-Upload-Size-Received",
+      "X-Goog-Upload-Status",
+      "X-Goog-Upload-URL",
+      "X-Firebase-Storage-Version",
+      "X-Firebase-GMPID",
+      "X-Firebase-AppCheck"
+    ]
   }
 ]

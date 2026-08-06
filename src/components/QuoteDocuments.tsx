@@ -4,7 +4,10 @@ import { Card } from './ui/Card'
 import { db, doc, updateDoc, serverTimestamp } from '../lib/firebase'
 import { formatDate } from '../lib/utils'
 import { recalcLeadScore } from '../lib/leadScore'
-import { uploadQuotePdf, MAX_QUOTE_BYTES, formatBytes, type QuoteUploadProgress } from '../lib/quoteUpload'
+import {
+  uploadQuotePdf, MAX_QUOTE_BYTES, formatBytes, DuplicateQuoteError, type QuoteUploadProgress,
+} from '../lib/quoteUpload'
+import { describeUploadError, logStage } from '../lib/uploadDiagnostics'
 import type { QuoteDoc } from '../types'
 import toast from 'react-hot-toast'
 
@@ -56,20 +59,27 @@ export function QuoteDocuments({
     if (!file) return
 
     setUploading(true)
-    setProgress({ phase: 'uploading', fraction: 0 })
+    setProgress({ phase: 'hashing', fraction: 0 })
     try {
       const newDoc = await uploadQuotePdf({
         file,
         collectionName,
         docId,
         uploadedByName,
+        existingDocs: docs,
         onProgress: setProgress,
       })
       await persist([...docs, newDoc])
-      toast.success('Quote uploaded')
+      logStage('firestore-saved', { collectionName, docId, quotes: docs.length + 1 })
+      toast.success(`Quote uploaded — ${formatBytes(newDoc.size ?? file.size)}`)
     } catch (err: unknown) {
-      console.error('Quote upload error:', err)
-      toast.error(err instanceof Error ? err.message : 'Upload failed — check your connection')
+      // A duplicate is a normal outcome, not a failure: the file is already here.
+      if (err instanceof DuplicateQuoteError) {
+        toast(err.message, { icon: 'ℹ️' })
+        return
+      }
+      logStage('failed', { collectionName, docId, error: String(err) })
+      toast.error(describeUploadError(err))
     } finally {
       setUploading(false)
       setProgress(null)

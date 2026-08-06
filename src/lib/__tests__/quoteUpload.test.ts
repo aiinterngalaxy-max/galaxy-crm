@@ -115,7 +115,8 @@ describe('uploadQuotePdf', () => {
 
     const phases: string[] = []
     await uploadQuotePdf({ ...base, file: makeFile('q.pdf', 100), onProgress: p => phases.push(`${p.phase}:${p.fraction}`) })
-    expect(phases).toEqual(['uploading:0.25', 'uploading:0.75'])
+    // Hashing runs first so an identical file can be caught before any transfer.
+    expect(phases).toEqual(['hashing:0', 'uploading:0.25', 'uploading:0.75'])
   })
 
   it('stamps the uploader and a timestamp on the returned doc', async () => {
@@ -126,5 +127,87 @@ describe('uploadQuotePdf', () => {
     expect(result.uploadedByName).toBe('Riya')
     expect(result.uploadedAt).toBeGreaterThanOrEqual(before)
     expect(result.url).toBe('https://example.com/quote.pdf')
+  })
+})
+
+// ─── Deduplication (Issue 2: storage optimisation) ──────────────────────────────
+
+const { hashFile, findDuplicate, DuplicateQuoteError } = await import('../quoteUpload')
+
+function docWith(over: Partial<QuoteDocT>): QuoteDocT {
+  return { name: 'q.pdf', url: 'https://x/q.pdf', uploadedAt: 1, ...over }
+}
+type QuoteDocT = import('../../types').QuoteDoc
+
+describe('hashFile', () => {
+  it('is stable for identical bytes and differs for different bytes', async () => {
+    const a = await hashFile(new Blob(['same content']))
+    const b = await hashFile(new Blob(['same content']))
+    const c = await hashFile(new Blob(['other content']))
+    expect(a).toBeTruthy()
+    expect(a).toBe(b)
+    expect(a).not.toBe(c)
+  })
+
+  it('returns a 64-char hex digest', async () => {
+    expect(await hashFile(new Blob(['x']))).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('findDuplicate', () => {
+  it('matches on content hash regardless of filename', () => {
+    const existing = [docWith({ name: 'quote.pdf', sha256: 'abc', size: 100 })]
+    const hit = findDuplicate(existing, { sha256: 'abc', name: 'quote (1).pdf', size: 100 })
+    expect(hit?.name).toBe('quote.pdf')
+  })
+
+  it('does not match a different file with the same name', () => {
+    const existing = [docWith({ name: 'quote.pdf', sha256: 'abc', size: 100 })]
+    expect(findDuplicate(existing, { sha256: 'zzz', name: 'quote.pdf', size: 100 })).toBeUndefined()
+  })
+
+  // Records uploaded before hashing existed have no sha256 and must still work.
+  it('falls back to name + size for legacy records without a hash', () => {
+    const legacy = [docWith({ name: 'old.pdf', size: 2048 })]
+    expect(findDuplicate(legacy, { sha256: 'new', name: 'old.pdf', size: 2048 })?.name).toBe('old.pdf')
+  })
+
+  it('does not treat a legacy record of a different size as a duplicate', () => {
+    const legacy = [docWith({ name: 'old.pdf', size: 2048 })]
+    expect(findDuplicate(legacy, { sha256: null, name: 'old.pdf', size: 9999 })).toBeUndefined()
+  })
+
+  it('never matches a legacy record that has no size recorded', () => {
+    const legacy = [docWith({ name: 'old.pdf' })]
+    expect(findDuplicate(legacy, { sha256: null, name: 'old.pdf', size: 100 })).toBeUndefined()
+  })
+
+  it('returns nothing when the record has no quotes yet', () => {
+    expect(findDuplicate([], { sha256: 'abc', name: 'q.pdf', size: 1 })).toBeUndefined()
+  })
+})
+
+describe('uploadQuotePdf deduplication', () => {
+  it('refuses to re-upload an identical file and does not touch Storage', async () => {
+    const file = makeFile('q.pdf', 12)
+    const sha = await hashFile(file)
+    const existing = [docWith({ name: 'already-here.pdf', sha256: sha!, size: 12 })]
+
+    await expect(uploadQuotePdf({ ...base, file, existingDocs: existing }))
+      .rejects.toBeInstanceOf(DuplicateQuoteError)
+    expect(uploadFileResumable).not.toHaveBeenCalled()
+  })
+
+  it('uploads normally when the record holds a different file', async () => {
+    const existing = [docWith({ name: 'other.pdf', sha256: 'unrelated', size: 999 })]
+    await expect(uploadQuotePdf({ ...base, file: makeFile('q.pdf', 12), existingDocs: existing }))
+      .resolves.toBeTruthy()
+    expect(uploadFileResumable).toHaveBeenCalledOnce()
+  })
+
+  it('records size and hash on the returned doc so future uploads can dedupe', async () => {
+    const result = await uploadQuotePdf({ ...base, file: makeFile('q.pdf', 12) })
+    expect(result.size).toBe(12)
+    expect(result.sha256).toMatch(/^[0-9a-f]{64}$/)
   })
 })
