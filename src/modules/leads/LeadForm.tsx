@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, addDoc, getDocs, serverTimestamp, query, where, limit } from '../../lib/firebase'
 import { Timestamp } from 'firebase/firestore'
+import { describeFirestoreError, stripUndefined } from '../../lib/errorMessage'
 import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
 import type { User, Partner } from '../../types'
@@ -102,6 +103,18 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     else if (businessType === 'b2c') setValue('source', 'referral')
   }, [businessType, setValue])
 
+  /**
+   * The date field is `type="date"` so it arrives as YYYY-MM-DD, but a pasted or
+   * autofilled value can still be unparseable. Timestamp.fromDate() throws on an
+   * Invalid Date, which would fail the whole save, so fall back to the server
+   * clock rather than losing the lead over a bad date.
+   */
+  const createdAtValue = (dateAdded?: string) => {
+    if (!dateAdded) return serverTimestamp()
+    const d = new Date(dateAdded)
+    return isNaN(d.getTime()) ? serverTimestamp() : Timestamp.fromDate(d)
+  }
+
   const onSubmit = async (data: FormData) => {
     if (data.businessType === 'b2b' && !data.partnerId) {
       toast.error('Please select a B2B partner')
@@ -129,7 +142,10 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         demoGiven: data.demoGiven,
       })
 
-      await addDoc(collection(db, 'leads'), {
+      // stripUndefined guards the whole payload: Firestore rejects a document
+      // containing undefined anywhere, and one missed fallback fails the save
+      // with a message that names no field the user can do anything about.
+      await addDoc(collection(db, 'leads'), stripUndefined({
         leadCode,
         status: 'new',
         businessType: data.businessType,
@@ -152,18 +168,16 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         callCount: 0,
         aiScore,
         aiScoreNote: 'Auto-scored from source, budget, demo, quotes and calls.',
-        createdBy: user?.id,
-        createdAt: data.dateAdded
-          ? Timestamp.fromDate(new Date(data.dateAdded))
-          : serverTimestamp(),
+        createdBy: user?.id ?? null,
+        createdAt: createdAtValue(data.dateAdded),
         updatedAt: serverTimestamp(),
-      })
+      }))
 
       toast.success('Lead created!')
       onSuccess()
     } catch (err) {
-      toast.error('Failed to create lead')
-      console.error(err)
+      console.error('Create lead failed:', err)
+      toast.error(describeFirestoreError(err, 'Failed to create lead'))
     } finally {
       setLoading(false)
     }

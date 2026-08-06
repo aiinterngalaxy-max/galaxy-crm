@@ -13,6 +13,7 @@ import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calc
 import { nextLeadCode } from '../../lib/counters'
 import { recalcLeadScore } from '../../lib/leadScore'
 import { trashQuoteDoc } from '../../lib/trash'
+import { describeFirestoreError } from '../../lib/errorMessage'
 import toast from 'react-hot-toast'
 import type { Lead, LeadActivity, ActivityType, LeadStatus, LeadSource, QuoteDoc } from '../../types'
 
@@ -556,8 +557,9 @@ function NewLeadRow({ canEdit }: { canEdit: boolean }) {
       })
       toast.success(`Lead "${name.trim()}" created`)
       reset()
-    } catch {
-      toast.error('Failed to create lead')
+    } catch (err) {
+      console.error('Create lead failed:', err)
+      toast.error(describeFirestoreError(err, 'Failed to create lead'))
     } finally {
       setSaving(false)
     }
