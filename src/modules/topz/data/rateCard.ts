@@ -28,7 +28,7 @@ export const VEHICLES: Vehicle[] = [
   { name: '13 Seater Maharaja AC',       category: 'Tempo Traveller', type: 'traveller', seats: 13, minKmPerDay: 300, ratePerKm: 35, permitPerDay: 1500, driverAllowancePerDay: 600, perDayRate: 12600, localRate: 5000 },
   { name: '13 Seater AC TT',             category: 'Tempo Traveller', type: 'traveller', seats: 13, minKmPerDay: 300, ratePerKm: 25, permitPerDay: 800,  driverAllowancePerDay: 600, perDayRate: 8900,  localRate: 3800 },
   { name: '13 Seater Non-AC TT',         category: 'Tempo Traveller', type: 'traveller', seats: 13, minKmPerDay: 300, ratePerKm: 23, permitPerDay: 800,  driverAllowancePerDay: 600, perDayRate: 8300,  localRate: 3400 },
-  { name: '14 Seater AC Tempo',          category: 'Tempo Traveller', type: 'traveller', seats: 14, minKmPerDay: 300, ratePerKm: 25, permitPerDay: 800,  driverAllowancePerDay: 600, perDayRate: 8900,  localRate: 3800 },
+  { name: '14 Seater AC TT',             category: 'Tempo Traveller', type: 'traveller', seats: 14, minKmPerDay: 300, ratePerKm: 25, permitPerDay: 800,  driverAllowancePerDay: 600, perDayRate: 8900,  localRate: 3800 },
   { name: '17 Seater AC TT',             category: 'Tempo Traveller', type: 'traveller', seats: 17, minKmPerDay: 300, ratePerKm: 26, permitPerDay: 800,  driverAllowancePerDay: 600, perDayRate: 9200,  localRate: 4200 },
   { name: '16 Seater Urbina AC',         category: 'Tempo Traveller', type: 'traveller', seats: 16, minKmPerDay: 300, ratePerKm: 34, permitPerDay: 1500, driverAllowancePerDay: 600, perDayRate: 12300, localRate: 5000 },
   { name: '20 Seater AC TT',             category: 'Tempo Traveller', type: 'traveller', seats: 20, minKmPerDay: 300, ratePerKm: 28, permitPerDay: 900,  driverAllowancePerDay: 600, perDayRate: 9900,  localRate: 4800 },
@@ -45,7 +45,7 @@ export const VEHICLES: Vehicle[] = [
   { name: '45 Seater AC Bus',            category: 'Bus',             type: 'bus',       seats: 45, minKmPerDay: 300, ratePerKm: 55, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 19200, localRate: 9500 },
   { name: '49 Seater AC Bus',            category: 'Bus',             type: 'bus',       seats: 49, minKmPerDay: 300, ratePerKm: 55, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 19200, localRate: 9500 },
   { name: '54 Seater AC Volvo Bus',      category: 'Eicher',          type: 'bus',       seats: 54, minKmPerDay: 300, ratePerKm: 57, permitPerDay: 2500, driverAllowancePerDay: 700, perDayRate: 20300, localRate: 10500 },
-  { name: '58 Seater AC Volvo Bus',      category: 'Volvo Bus',       type: 'bus',       seats: 58, minKmPerDay: 300, ratePerKm: 68, permitPerDay: 2500, driverAllowancePerDay: 700, perDayRate: 23600, localRate: 12000 },
+  { name: '58 Seater AC Volvo Bus',      category: 'Eicher',          type: 'bus',       seats: 58, minKmPerDay: 300, ratePerKm: 68, permitPerDay: 2500, driverAllowancePerDay: 700, perDayRate: 23600, localRate: 12000 },
 ]
 
 export interface QuotationResult {
