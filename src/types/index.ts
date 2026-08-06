@@ -8,6 +8,14 @@ export interface QuoteDoc {
   url: string
   uploadedAt: number      // epoch ms (stored as a plain number so it works inside arrays)
   uploadedByName?: string
+  /** Stored bytes. Optional: records uploaded before size tracking do not have it. */
+  size?: number
+  /**
+   * SHA-256 of the file contents, hex encoded. Used to reject a re-upload of the
+   * same PDF. Optional: records predating deduplication do not have it, and they
+   * are matched on name + size instead.
+   */
+  sha256?: string
 }
 
 // ─── Role System ───────────────────────────────────────────────────────────────
