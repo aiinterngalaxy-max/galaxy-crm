@@ -33,3 +33,9 @@ npm-debug.log*
 
 # Serena MCP
 .serena/
+
+# Firestore backups — real client data. NEVER commit these.
+backups/
+
+# Backup launcher, contains a login. Copy BACKUP.bat.example instead.
+scripts/BACKUP.bat

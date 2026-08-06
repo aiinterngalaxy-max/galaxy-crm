@@ -1,0 +1,23 @@
+@echo off
+REM ---------------------------------------------------------------------------
+REM  Galaxy CRM - local Firestore backup
+REM
+REM  SETUP (once):
+REM    1. Copy this file and rename the copy to  BACKUP.bat
+REM    2. Put your login below
+REM    3. Double-click BACKUP.bat whenever you want a backup
+REM
+REM  BACKUP.bat is gitignored, so your password never reaches GitHub.
+REM  Keep this file off shared drives and out of email.
+REM
+REM  This script only READS. It cannot delete or change anything.
+REM ---------------------------------------------------------------------------
+
+set GALAXY_BACKUP_EMAIL=your-email@example.com
+set GALAXY_BACKUP_PASSWORD=your-password-here
+
+cd /d "%~dp0\.."
+node scripts/backup-firestore.mjs
+
+echo.
+pause

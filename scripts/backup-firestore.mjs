@@ -1,0 +1,178 @@
+/**
+ * Local Firestore backup — reads every collection and writes it to JSON on disk.
+ *
+ * WHY THIS EXISTS
+ * Point-in-time recovery is a Blaze-plan feature and this project is on Spark, so
+ * a deleted document is gone permanently. There is no undo anywhere in the stack.
+ * This script is the undo: run it and you hold a complete, timestamped copy.
+ *
+ * IT ONLY READS. There is no delete, no write, no update anywhere in this file.
+ * Running it a hundred times cannot harm the database.
+ *
+ * USAGE
+ *   set GALAXY_BACKUP_EMAIL=you@example.com
+ *   set GALAXY_BACKUP_PASSWORD=yourpassword
+ *   node scripts/backup-firestore.mjs
+ *
+ * Or copy BACKUP.bat.example to BACKUP.bat, fill it in once, and double-click it.
+ *
+ * Credentials are read from the environment and never written anywhere. Sign in is
+ * required because the security rules deny reads to anonymous callers — which is
+ * also why the delete-* scripts in this folder would fail today.
+ */
+import { initializeApp } from 'firebase/app'
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
+import { getFirestore, collection, collectionGroup, getDocs } from 'firebase/firestore'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const firebaseConfig = {
+  apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
+  authDomain:        'galaxy-crm-7d4dc.firebaseapp.com',
+  projectId:         'galaxy-crm-7d4dc',
+  storageBucket:     'galaxy-crm-7d4dc.firebasestorage.app',
+  messagingSenderId: '934034711347',
+  appId:             '1:934034711347:web:9a43f300fcd86ebab8d446',
+}
+
+/** Every top-level collection, from firestore.rules plus the ones the app writes. */
+const COLLECTIONS = [
+  'users', 'meta', 'accessRequests',
+  'leads', 'customers', 'partners',
+  'quotations', 'products', 'projects', 'invoices',
+  'inventory', 'nonWorkingInventory', 'stockTransactions',
+  'dailyReports', 'aiDigests', 'notifications', 'auditLogs',
+  'settings', 'jobDescriptions', 'candidates', 'deletedItems',
+]
+
+/**
+ * Subcollections, fetched with collectionGroup so every parent is covered in one
+ * read. The client SDK cannot enumerate subcollections, so this list is taken
+ * from firestore.rules — add to it if a new nested collection appears there.
+ */
+const SUBCOLLECTIONS = [
+  'activities', 'documents',     // leads
+  'lineItems',                   // quotations
+  'workflow', 'milestones', 'tasks', 'orderItems', 'siteReports', 'issues', // projects
+  'payments',                    // invoices
+]
+
+/**
+ * Firestore returns Timestamps, GeoPoints and DocumentReferences, none of which
+ * survive JSON.stringify intact. Convert them to something readable that still
+ * identifies what it was, so a restore can reverse it.
+ */
+function serialize(value) {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(serialize)
+
+  if (typeof value === 'object') {
+    // Timestamp
+    if (typeof value.toDate === 'function') {
+      return { __type: 'timestamp', iso: value.toDate().toISOString() }
+    }
+    // GeoPoint
+    if (typeof value.latitude === 'number' && typeof value.longitude === 'number') {
+      return { __type: 'geopoint', latitude: value.latitude, longitude: value.longitude }
+    }
+    // DocumentReference
+    if (typeof value.path === 'string' && value.firestore) {
+      return { __type: 'reference', path: value.path }
+    }
+    // Bytes
+    if (typeof value.toBase64 === 'function') {
+      return { __type: 'bytes', base64: value.toBase64() }
+    }
+    const out = {}
+    for (const [k, v] of Object.entries(value)) out[k] = serialize(v)
+    return out
+  }
+
+  return value
+}
+
+async function dumpCollection(db, name, outDir, manifest, isGroup = false) {
+  try {
+    const ref = isGroup ? collectionGroup(db, name) : collection(db, name)
+    const snap = await getDocs(ref)
+    const docs = snap.docs.map(d => ({
+      __id: d.id,
+      __path: d.ref.path,
+      ...serialize(d.data()),
+    }))
+    writeFileSync(join(outDir, `${name}.json`), JSON.stringify(docs, null, 2), 'utf8')
+    manifest.collections[name] = docs.length
+    console.log(`  ${String(docs.length).padStart(6)}  ${name}${isGroup ? '  (subcollection)' : ''}`)
+    return docs.length
+  } catch (err) {
+    // A missing index or a denied read on one collection must not abandon the
+    // rest of the backup — record it and carry on.
+    const reason = err?.code || err?.message || String(err)
+    manifest.skipped[name] = reason
+    console.warn(`  SKIPPED  ${name} — ${reason}`)
+    return 0
+  }
+}
+
+async function run() {
+  const email = process.env.GALAXY_BACKUP_EMAIL
+  const password = process.env.GALAXY_BACKUP_PASSWORD
+
+  if (!email || !password) {
+    console.error(
+      '\nMissing credentials.\n\n' +
+        'Set them first:\n' +
+        '  set GALAXY_BACKUP_EMAIL=you@example.com\n' +
+        '  set GALAXY_BACKUP_PASSWORD=yourpassword\n' +
+        '  node scripts/backup-firestore.mjs\n\n' +
+        'Or copy scripts/BACKUP.bat.example to scripts/BACKUP.bat, fill it in, and run that.\n' +
+        'Use an account with management or super_admin role, or some collections will be skipped.\n',
+    )
+    process.exit(1)
+  }
+
+  const app = initializeApp(firebaseConfig)
+  const db = getFirestore(app)
+
+  console.log('Signing in…')
+  await signInWithEmailAndPassword(getAuth(app), email, password)
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const outDir = join(process.cwd(), 'backups', stamp)
+  mkdirSync(outDir, { recursive: true })
+
+  const manifest = {
+    takenAt: new Date().toISOString(),
+    projectId: firebaseConfig.projectId,
+    takenBy: email,
+    collections: {},
+    skipped: {},
+    note: 'Read-only export. Topz Cab lives in a separate Firebase project and is NOT included.',
+  }
+
+  console.log(`\nWriting to backups/${stamp}\n`)
+  console.log('  DOCS    COLLECTION')
+  console.log('  ----    ----------')
+
+  let total = 0
+  for (const name of COLLECTIONS) total += await dumpCollection(db, name, outDir, manifest)
+  for (const name of SUBCOLLECTIONS) total += await dumpCollection(db, name, outDir, manifest, true)
+
+  manifest.totalDocuments = total
+  writeFileSync(join(outDir, '_manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
+
+  const skipped = Object.keys(manifest.skipped).length
+  console.log(`\nDone. ${total} documents across ${Object.keys(manifest.collections).length} collections.`)
+  if (skipped) console.log(`${skipped} collection(s) skipped — see _manifest.json.`)
+  console.log(`Saved to: ${outDir}\n`)
+
+  process.exit(0)
+}
+
+run().catch(err => {
+  console.error('\nBackup failed:', err?.code || err?.message || err)
+  if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password') {
+    console.error('Check GALAXY_BACKUP_EMAIL and GALAXY_BACKUP_PASSWORD.\n')
+  }
+  process.exit(1)
+})
