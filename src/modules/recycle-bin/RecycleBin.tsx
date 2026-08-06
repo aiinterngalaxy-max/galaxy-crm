@@ -13,6 +13,7 @@ const COLLECTION_COLORS: Record<string, string> = {
   partners: 'bg-orange-900/30 text-orange-300 border-orange-800/40',
   candidates: 'bg-pink-900/30 text-pink-300 border-pink-800/40',
   jobDescriptions: 'bg-indigo-900/30 text-indigo-300 border-indigo-800/40',
+  quoteDocuments: 'bg-amber-900/30 text-amber-300 border-amber-800/40',
 }
 
 function timeAgo(ts: unknown): string {

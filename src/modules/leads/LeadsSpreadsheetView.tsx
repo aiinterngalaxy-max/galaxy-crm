@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { nextLeadCode } from '../../lib/counters'
 import { recalcLeadScore } from '../../lib/leadScore'
+import { trashQuoteDoc } from '../../lib/trash'
 import toast from 'react-hot-toast'
 import type { Lead, LeadActivity, ActivityType, LeadStatus, LeadSource, QuoteDoc } from '../../types'
 
@@ -150,6 +151,7 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   const { user } = useAuth()
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState<QuoteUploadProgress | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const docs = lead.quoteDocuments ?? []
@@ -194,6 +196,21 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     }
   }
 
+  const handleRemove = async (target: QuoteDoc) => {
+    setRemoving(target.url)
+    try {
+      await trashQuoteDoc('leads', lead.id, target as unknown as Record<string, unknown>, user?.id ?? '', user?.name ?? 'Unknown')
+      // Quote count feeds the score, so it has to come back down on removal.
+      await recalcLeadScore(lead.id, { quoteDocuments: docs.filter(q => q.url !== target.url) })
+      toast.success(`"${target.name}" moved to Recycle Bin`)
+    } catch (err) {
+      logStage('failed', { leadId: lead.id, stage: 'remove-quote', error: String(err) })
+      toast.error(err instanceof Error ? err.message : 'Could not remove the quote')
+    } finally {
+      setRemoving(null)
+    }
+  }
+
   const pct = progress ? Math.round(progress.fraction * 100) : 0
 
   return (
@@ -203,17 +220,36 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
         const d = recent[i]
 
         if (d) {
+          // The remove button sits on the corner and only appears on hover, so the
+          // slot stays a clean 20px in the resting state and the row does not shift.
           return (
-            <a
-              key={i}
-              href={d.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`${d.name}${d.uploadedAt ? ` — ${formatDate(new Date(d.uploadedAt))}` : ''}${d.uploadedByName ? ` · ${d.uploadedByName}` : ''}`}
-              className="w-5 h-6 rounded bg-gold-400/15 border border-gold-400/40 text-gold-400 hover:bg-gold-400/30 transition-colors flex items-center justify-center shrink-0"
-            >
-              <FileText className="w-3 h-3" />
-            </a>
+            <div key={i} className="relative group/slot shrink-0">
+              <a
+                href={d.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`${d.name}${d.uploadedAt ? ` — ${formatDate(new Date(d.uploadedAt))}` : ''}${d.uploadedByName ? ` · ${d.uploadedByName}` : ''}`}
+                className="w-5 h-6 rounded bg-gold-400/15 border border-gold-400/40 text-gold-400 hover:bg-gold-400/30 transition-colors flex items-center justify-center"
+              >
+                <FileText className="w-3 h-3" />
+              </a>
+              {canEdit && (
+                <button
+                  onClick={e => {
+                    // The slot is wrapped by the row's own click handlers; without
+                    // this the click would also open the PDF or the lead.
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleRemove(d)
+                  }}
+                  disabled={removing === d.url}
+                  title={`Remove "${d.name}" (goes to Recycle Bin)`}
+                  className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/slot:opacity-100 focus:opacity-100 transition-opacity hover:bg-red-500 disabled:opacity-40 shadow"
+                >
+                  <X className="w-2.5 h-2.5" strokeWidth={3} />
+                </button>
+              )}
+            </div>
           )
         }
 
