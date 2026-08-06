@@ -14,17 +14,25 @@
  *   set GALAXY_BACKUP_PASSWORD=yourpassword
  *   node scripts/backup-firestore.mjs
  *
- * Or copy BACKUP.bat.example to BACKUP.bat, fill it in once, and double-click it.
+ * Or copy BACKUP.bat.example to BACKUP.bat, fill it in once, and double-click it —
+ * or let Task Scheduler double-click it for you every other day.
  *
  * Credentials are read from the environment and never written anywhere. Sign in is
  * required because the security rules deny reads to anonymous callers — which is
  * also why the delete-* scripts in this folder would fail today.
+ *
+ * MIRRORING (optional)
+ * Set GALAXY_BACKUP_MIRROR_1 / _2 / _3 to extra directory paths (e.g. an E: drive
+ * folder, or a Google Drive for desktop sync folder) and the finished, already-
+ * written backup folder is copied there too — same JSON files, no separate upload
+ * logic. Google Drive syncing happens on its own once the file lands in that
+ * folder; this script has no network access beyond signing in to Firestore.
  */
 import { initializeApp } from 'firebase/app'
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
 import { getFirestore, collection, collectionGroup, getDocs } from 'firebase/firestore'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, writeFileSync, cpSync } from 'node:fs'
+import { join, basename } from 'node:path'
 
 const firebaseConfig = {
   apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
@@ -165,6 +173,22 @@ async function run() {
   console.log(`\nDone. ${total} documents across ${Object.keys(manifest.collections).length} collections.`)
   if (skipped) console.log(`${skipped} collection(s) skipped — see _manifest.json.`)
   console.log(`Saved to: ${outDir}\n`)
+
+  const mirrors = [
+    process.env.GALAXY_BACKUP_MIRROR_1,
+    process.env.GALAXY_BACKUP_MIRROR_2,
+    process.env.GALAXY_BACKUP_MIRROR_3,
+  ].filter(Boolean)
+
+  for (const mirrorRoot of mirrors) {
+    try {
+      const dest = join(mirrorRoot, basename(outDir))
+      cpSync(outDir, dest, { recursive: true })
+      console.log(`Mirrored to: ${dest}`)
+    } catch (err) {
+      console.warn(`Mirror to ${mirrorRoot} failed: ${err?.message || err}`)
+    }
+  }
 
   process.exit(0)
 }

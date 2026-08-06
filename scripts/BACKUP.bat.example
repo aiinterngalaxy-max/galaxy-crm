@@ -5,7 +5,8 @@ REM
 REM  SETUP (once):
 REM    1. Copy this file and rename the copy to  BACKUP.bat
 REM    2. Put your login below
-REM    3. Double-click BACKUP.bat whenever you want a backup
+REM    3. Double-click BACKUP.bat whenever you want a backup — or let the
+REM       "GalaxyCRM Backup" scheduled task run it automatically every 2 days
 REM
 REM  BACKUP.bat is gitignored, so your password never reaches GitHub.
 REM  Keep this file off shared drives and out of email.
@@ -16,8 +17,21 @@ REM ---------------------------------------------------------------------------
 set GALAXY_BACKUP_EMAIL=your-email@example.com
 set GALAXY_BACKUP_PASSWORD=your-password-here
 
+REM Mirrors: the finished backup folder is also copied here after the main
+REM backups/ copy succeeds. Leave GALAXY_BACKUP_MIRROR_2 blank until Google
+REM Drive for desktop is installed and signed in — then point it at the
+REM "My Drive" folder it creates (commonly G:\My Drive, sometimes under
+REM %USERPROFILE%\Google Drive\My Drive — check File Explorer for the actual
+REM path on this PC).
+set GALAXY_BACKUP_MIRROR_1=E:\GalaxyCRM-Backups
+set GALAXY_BACKUP_MIRROR_2=
+
 cd /d "%~dp0\.."
+if not exist "%GALAXY_BACKUP_MIRROR_1%" mkdir "%GALAXY_BACKUP_MIRROR_1%"
+
 node scripts/backup-firestore.mjs
 
-echo.
-pause
+REM GALAXY_SCHEDULED is set by the scheduled task so it doesn't sit waiting
+REM for a keypress that will never come. Double-clicking manually still pauses
+REM so you can read the result before the window closes.
+if not defined GALAXY_SCHEDULED pause
