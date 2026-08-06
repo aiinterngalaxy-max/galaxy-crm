@@ -39,3 +39,9 @@ backups/
 
 # Backup launcher, contains a login. Copy BACKUP.bat.example instead.
 scripts/BACKUP.bat
+
+# Firebase service account key — full admin access to the database.
+# Treat it like a master key: never commit, never email, never share.
+serviceAccountKey.json
+**/serviceAccountKey.json
+*-firebase-adminsdk-*.json

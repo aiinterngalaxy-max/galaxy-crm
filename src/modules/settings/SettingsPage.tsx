@@ -3,6 +3,7 @@ import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Pa
 import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
 import { RolePermissionsTab } from './RolePermissionsTab'
+import { BackupCard } from './BackupCard'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -455,6 +456,10 @@ export function SettingsPage() {
       {/* System Tab */}
       {tab === 'system' && (
         <div className="space-y-4">
+          {/* First in the tab on purpose: it is the only recovery path this plan
+              has, and it should be the thing you see before any maintenance tool
+              below it that rewrites data. */}
+          {(isAdmin || isManagement) && <BackupCard />}
           <ThemePicker />
           {isAdmin && <ProjectStatsMaintenance />}
           {/* Management can rescore leads — they own the pipeline, and the backfill
