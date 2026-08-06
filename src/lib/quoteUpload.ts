@@ -44,6 +44,54 @@ export function isPdf(file: File): boolean {
 
 export class QuoteUploadError extends Error {}
 
+/** Set once per tab so a genuinely broken chunk cannot reload the page forever. */
+const RELOAD_FLAG = 'galaxy-compressor-reload'
+
+/**
+ * Loads the compressor, surviving a stale build.
+ *
+ * The compressor is ~1 MB of pdfjs and jspdf, so it is fetched on demand rather
+ * than shipped with the leads page. The cost of that is a tab left open across a
+ * deploy: it holds the old build's chunk names, those files no longer exist, and
+ * the import fails with "Failed to fetch dynamically imported module" at the
+ * exact moment someone tries to upload.
+ *
+ * One retry covers a transient network blip. If it fails again the build really
+ * has moved on, so the page is reloaded once to pick up the current chunk names.
+ * Table edits save on blur, so a reload here costs nothing but the file picker.
+ */
+async function loadCompressor(): Promise<typeof import('./pdfCompress')> {
+  try {
+    return await import('./pdfCompress')
+  } catch (first) {
+    logStage('failed', { stage: 'load-compressor', attempt: 1, error: String(first) })
+    try {
+      return await import('./pdfCompress')
+    } catch (second) {
+      logStage('failed', { stage: 'load-compressor', attempt: 2, error: String(second) })
+
+      const alreadyReloaded =
+        typeof sessionStorage !== 'undefined' && sessionStorage.getItem(RELOAD_FLAG) === '1'
+
+      if (!alreadyReloaded && typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem(RELOAD_FLAG, '1')
+        } catch {
+          /* private mode — reload anyway, the flag is only a loop guard */
+        }
+        window.location.reload()
+        // Never resolves: the page is going away.
+        await new Promise(() => {})
+      }
+
+      throw new QuoteUploadError(
+        'The PDF compressor could not be loaded, so this file cannot be shrunk to fit. ' +
+          'Refresh the page and try again; if it keeps happening, compress the PDF before uploading.',
+      )
+    }
+  }
+}
+
 /** Raised when the exact same PDF is already attached to this record. */
 export class DuplicateQuoteError extends QuoteUploadError {
   constructor(public readonly existing: QuoteDoc) {
@@ -145,7 +193,7 @@ export async function uploadQuotePdf(opts: {
   const mustShrink = file.size > CLOUDINARY_MAX_BYTES
 
   if (COMPRESSION_ENABLED && (mustShrink || file.size > 2 * 1024 * 1024)) {
-    const { compressPdf } = await import('./pdfCompress')
+    const { compressPdf } = await loadCompressor()
     const result = await compressPdf(
       file,
       p => onProgress?.({ phase: 'compressing', fraction: p.fraction }),
