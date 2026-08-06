@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore, collection, getDocs, deleteDoc } from 'firebase/firestore'
+import { requireConfirmation } from './_guard.mjs'
 
 const firebaseConfig = {
   apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
@@ -16,6 +17,7 @@ const db  = getFirestore(app)
 async function run() {
   console.log('Deleting all inventory documents…')
   const snap = await getDocs(collection(db, 'inventory'))
+  requireConfirmation(snap.size, 'inventory documents')
   for (const d of snap.docs) {
     await deleteDoc(d.ref)
   }

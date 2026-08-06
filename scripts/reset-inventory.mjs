@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore, collection, getDocs, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore'
+import { requireConfirmation } from './_guard.mjs'
 
 const firebaseConfig = {
   apiKey:            'AIzaSyDkf5CBWbAtISfbo5bWIRJvi9qX88DyogU',
@@ -184,6 +185,7 @@ async function reset() {
   // Delete all existing inventory
   console.log('Deleting existing inventory…')
   const snap = await getDocs(collection(db, 'inventory'))
+  requireConfirmation(snap.size, 'inventory documents')
   for (const d of snap.docs) {
     await deleteDoc(d.ref)
   }
