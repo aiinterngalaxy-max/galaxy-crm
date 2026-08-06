@@ -1,28 +1,25 @@
-import { uploadFileResumable } from './firebase'
+import { uploadToCloudinary, CLOUDINARY_MAX_BYTES } from './cloudinaryUpload'
 import { logStage } from './uploadDiagnostics'
 import type { QuoteDoc } from '../types'
 
-/** Largest PDF accepted, checked before any work starts. */
+/** Largest PDF accepted for processing, checked before any work starts. */
 export const MAX_QUOTE_BYTES = 25 * 1024 * 1024
 
 /**
  * Compression rasterises the PDF, costing selectable text, so the result is only
- * kept when it saves more than this. Image-heavy quotes clear it comfortably;
- * text-only ones do not and are uploaded untouched with their text intact.
+ * kept when it saves more than this — unless the file is over the storage cap,
+ * in which case a rasterised quote that uploads beats a pristine one that cannot.
  */
 const MIN_SAVING = 0.4
 
 /**
- * Off: compressPdf() renders pages to canvas on the main thread, which blocks
- * the browser for long enough on a large PDF that the tab freezes and progress
- * never repaints — it looks stuck at 0%. Re-enable once the work runs off the
- * main thread (OffscreenCanvas in a worker) or is capped to small files.
- *
- * Deliberately left off until uploads are confirmed working end to end: turning
- * this on in the same change as the CORS fix would make a regression impossible
- * to attribute. Deduplication below saves more storage than compression anyway.
+ * Compression runs whenever a file is over the storage cap, and opportunistically
+ * below it. It renders pages on the main thread but yields to the browser between
+ * each one, so the tab stays responsive — the freeze that forced this off
+ * previously came from rendering every page without ever returning to the event
+ * loop. See pdfCompress.ts.
  */
-const COMPRESSION_ENABLED = false
+const COMPRESSION_ENABLED = true
 
 /** Is the compressed result a big enough win to justify losing selectable text? */
 export function shouldUseCompressed(ratio: number): boolean {
@@ -138,31 +135,50 @@ export async function uploadQuotePdf(opts: {
     throw new DuplicateQuoteError(duplicate)
   }
 
-  // Try to shrink it, but never fail the upload because compression did not work.
+  // Shrink it when it is over the storage cap, or when the saving is large enough
+  // to be worth losing selectable text. Never fail the upload because compression
+  // did not work — fall back to the original and let the size check below decide.
+  //
   // Imported dynamically: pdfCompress pulls in pdfjs and jspdf (~800KB), which
   // would otherwise be downloaded with the leads page for code that never runs.
   let body: Blob = file
-  if (COMPRESSION_ENABLED) {
+  const mustShrink = file.size > CLOUDINARY_MAX_BYTES
+
+  if (COMPRESSION_ENABLED && (mustShrink || file.size > 2 * 1024 * 1024)) {
     const { compressPdf } = await import('./pdfCompress')
-    const result = await compressPdf(file, f => onProgress?.({ phase: 'compressing', fraction: f }))
-    if (result && shouldUseCompressed(result.ratio)) {
+    const result = await compressPdf(
+      file,
+      p => onProgress?.({ phase: 'compressing', fraction: p.fraction }),
+      CLOUDINARY_MAX_BYTES,
+    )
+
+    // Over the cap: take any shrink at all, since the alternative is a rejected
+    // upload. Under the cap: only take a saving big enough to justify the loss
+    // of selectable text.
+    const worthIt = result && (mustShrink ? result.compressedBytes < file.size : shouldUseCompressed(result.ratio))
+
+    if (result && worthIt) {
       body = result.blob
-      logStage('compressing', { from: file.size, to: body.size, ratio: result.ratio.toFixed(2) })
+      logStage('compressing', {
+        from: file.size,
+        to: body.size,
+        ratio: result.ratio.toFixed(2),
+        quality: result.quality,
+      })
     } else {
       logStage('compression-skipped', { reason: result ? 'saving too small' : 'could not process' })
     }
   } else {
-    logStage('compression-skipped', { reason: 'disabled' })
+    logStage('compression-skipped', { reason: COMPRESSION_ENABLED ? 'already small' : 'disabled' })
   }
 
+  // Prefix the record it belongs to. Cloudinary's media library is a flat list,
+  // so without this a stray "Quote.pdf" cannot be traced back to a lead.
   const safeName = file.name.replace(/[^\w.-]+/g, '_')
-  const path = `${collectionName}/${docId}/quotes/${Date.now()}-${safeName}`
+  const storedName = `${collectionName}-${docId}-${Date.now()}-${safeName}`
 
-  const url = await uploadFileResumable(
-    path,
-    body,
-    f => onProgress?.({ phase: 'uploading', fraction: f }),
-    'application/pdf',
+  const { url, bytes } = await uploadToCloudinary(body, storedName, f =>
+    onProgress?.({ phase: 'uploading', fraction: f }),
   )
 
   return {
@@ -170,7 +186,7 @@ export async function uploadQuotePdf(opts: {
     url,
     uploadedAt: Date.now(),
     uploadedByName,
-    size: body.size,
+    size: bytes,
     ...(sha256 ? { sha256 } : {}),
   }
 }
