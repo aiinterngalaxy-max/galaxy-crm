@@ -12,15 +12,22 @@ import { Timestamp } from 'firebase/firestore'
 import { describeFirestoreError, stripUndefined } from '../../lib/errorMessage'
 import { nextLeadCode } from '../../lib/counters'
 import { calculateLeadScore } from '../../lib/utils'
+import { parsePhone, sanitizePhoneInput, duplicateCandidates, flagOf, lengthLabel } from '../../lib/phone'
 import type { User, Partner } from '../../types'
 import toast from 'react-hot-toast'
 
 const schema = z.object({
   businessType: z.enum(['b2c', 'b2b']),
   name: z.string().min(2, 'Name required'),
+  // Length is per-country, not a flat 10 — see src/lib/phone.ts.
   phone: z.string()
-    .transform(v => v.replace(/\D/g, ''))
-    .pipe(z.string().length(10, 'Phone must be exactly 10 digits')),
+    .superRefine((v, ctx) => {
+      const parsed = parsePhone(v)
+      if (!parsed.valid) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.error ?? 'Enter a valid phone number' })
+      }
+    })
+    .transform(v => parsePhone(v).digits),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   whatsapp: z.string().optional(),
   address: z.string().optional(),
@@ -76,6 +83,16 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
 
   const businessType = watch('businessType')
 
+  // Live country readout under the phone field, so the person entering the lead
+  // can see which country was detected and how many digits it expects.
+  const phoneInput = watch('phone') || ''
+  const phoneHint = (() => {
+    if (!phoneInput) return 'Indian numbers as-is; for other countries start with + (e.g. +971)'
+    const { country, national } = parsePhone(phoneInput)
+    if (!country) return `Unknown country code · ${national.length} digits entered`
+    return `${flagOf(country.iso)} ${country.name} (+${country.dial}) · ${national.length}/${lengthLabel(country)}`
+  })()
+
   useEffect(() => {
     getDocs(collection(db, 'users')).then(snap => {
       const users = snap.docs.map(d => ({ id: d.id, ...d.data() }) as User)
@@ -122,13 +139,17 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
     }
     setLoading(true)
     try {
-      // Uniqueness check — exact match on normalized phone (new leads are stored digits-only)
-      const normalizedPhone = data.phone.replace(/\D/g, '')
-      const dupSnap = await getDocs(query(collection(db, 'leads'), where('phone', '==', normalizedPhone), limit(1)))
-      if (!dupSnap.empty) {
-        toast.error(`Phone ${normalizedPhone} is already used by lead "${dupSnap.docs[0].data().name}"`)
-        setLoading(false)
-        return
+      // Uniqueness check — new leads are stored digits-only. An international
+      // entry is checked both with and without its calling code, because leads
+      // saved earlier hold the bare national number.
+      const normalizedPhone = data.phone
+      for (const candidate of duplicateCandidates(normalizedPhone)) {
+        const dupSnap = await getDocs(query(collection(db, 'leads'), where('phone', '==', candidate), limit(1)))
+        if (!dupSnap.empty) {
+          toast.error(`Phone ${candidate} is already used by lead "${dupSnap.docs[0].data().name}"`)
+          setLoading(false)
+          return
+        }
       }
 
       const leadCode = await nextLeadCode()
@@ -236,14 +257,14 @@ export function LeadForm({ onSuccess, onCancel, defaultValues }: LeadFormProps) 
         />
         <Input
           label="Phone *"
-          placeholder="9876543210"
+          placeholder="9876543210 or +971 50 123 4567"
           type="tel"
-          maxLength={10}
+          maxLength={16}
           error={errors.phone?.message}
+          hint={phoneHint}
           {...register('phone')}
           onChange={e => {
-            const clean = e.target.value.replace(/\D/g, '').slice(0, 10)
-            setValue('phone', clean, { shouldValidate: !!errors.phone })
+            setValue('phone', sanitizePhoneInput(e.target.value), { shouldValidate: !!errors.phone })
           }}
         />
         {businessType === 'b2c' && (
