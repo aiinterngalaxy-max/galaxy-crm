@@ -31,6 +31,12 @@ export function JDWizard() {
   const [generatedJD, setGeneratedJD] = useState('')
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
+  /**
+   * True once "Generate everything" has drafted steps 2-4. Those steps then stop
+   * being part of the journey — Back from the JD returns to the role setup rather
+   * than walking through drafts nobody typed.
+   */
+  const [autoDrafted, setAutoDrafted] = useState(false)
 
   const toggleEmpType = (type: string) => {
     setS1(p => ({
@@ -136,8 +142,9 @@ Where:
       }
       // Pass the drafted values straight through; state has not committed yet.
       await runGenerateJD(drafted.d2, drafted.d3, drafted.d4)
+      setAutoDrafted(true)
       setStep(STEPS.length - 1)
-      toast.success('Drafted every step — review and edit anything')
+      toast.success('Job description ready — edit it below before saving')
     } catch (err) {
       if (err instanceof SyntaxError) toast.error('The AI reply was malformed — please try again')
       else toast.error(err instanceof Error ? err.message : 'Failed to draft the job description')
@@ -199,16 +206,36 @@ ${g3.tools || 'Not specified'}
 **Compensation:**
 ${compText}${g4.perks ? `\nPerks: ${g4.perks}` : ''}
 
-Write a complete, polished JD with exactly these sections using ## headings:
+Write the job description with exactly these sections, using ## headings, in this order:
+## About Galaxy Home Automation
 ## About the Role
 ## Key Responsibilities
 ## Requirements
 ## What We're Looking For
 ## Compensation & Benefits
 
-Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automation where it adds context.`
+Open with the company: two or three sentences on Galaxy Home Automation — a premium
+smart home automation company in India fitting lighting, curtains, security and home
+theatre for homeowners, architects and builders — before saying anything about the role.
 
-      const jd = await callClaude(prompt, 'You are an expert HR writer. Generate job descriptions that are professional, specific, and compelling. Use ## markdown headings for sections. Respond with only the job description text.')
+Write it the way a hiring manager who actually works here would write it. That means:
+
+- Address the reader as "you". Say "we", not "the company" or "the organisation".
+- Plain, direct sentences. Vary their length. A short one lands well after a long one.
+- Concrete over abstract: name the actual work, tools and teams rather than describing
+  qualities in the abstract.
+- Warm and straightforward, not salesy. It is fine to be honest about what is hard.
+
+Do not use any of these, they are the giveaways of machine-written copy:
+"seeking a talented", "we are looking for a passionate", "dynamic", "cutting-edge",
+"fast-paced environment", "synergy", "leverage", "spearhead", "world-class",
+"rockstar", "ninja", "wear many hats", "the ideal candidate will", "join our team of",
+"exciting opportunity", "vital role", "key member", em-dash-heavy sentence fragments,
+and any sentence built on "not only... but also".
+
+Write only the job description. No preamble, no notes about what you produced.`
+
+      const jd = await callClaude(prompt, "You are the hiring manager at Galaxy Home Automation writing a job posting yourself. Write in natural human prose — plain, specific and warm, never corporate boilerplate. Use ## markdown headings. Respond with only the job description text.")
       setGeneratedJD(jd)
     }
   }
@@ -274,31 +301,35 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
         </button>
         <div>
           <h1 className="page-title">New Job Description</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Answer a few questions — AI will write the JD for you</p>
+          <p className="text-sm text-gray-500 mt-0.5">Tell us about the role — the rest is drafted for you</p>
         </div>
       </div>
 
-      {/* Step indicators */}
+      {/* Step indicators. Once the middle steps are drafted they are no longer
+          part of the journey, so the trail collapses to what was actually done. */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
-        {STEPS.map((label, i) => (
-          <div key={i} className="flex items-center gap-1 shrink-0">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              i === step ? 'bg-gold-400/10 text-gold-400 border border-gold-400/30' :
-              i < step  ? 'text-gray-400 bg-gray-800/50' :
-                          'text-gray-600'
-            }`}>
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold border ${
-                i < step  ? 'border-gray-500 bg-gray-700' :
-                i === step ? 'border-gold-400' :
-                             'border-gray-700'
+        {(autoDrafted ? [STEPS[0], STEPS[STEPS.length - 1]] : STEPS).map((label, i, shown) => {
+          const idx = autoDrafted && i === shown.length - 1 ? STEPS.length - 1 : i
+          return (
+            <div key={label} className="flex items-center gap-1 shrink-0">
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                idx === step ? 'bg-gold-400/10 text-gold-400 border border-gold-400/30' :
+                idx < step  ? 'text-gray-400 bg-gray-800/50' :
+                              'text-gray-600'
               }`}>
-                {i < step ? <Check className="w-3 h-3" /> : i + 1}
-              </span>
-              {label}
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold border ${
+                  idx < step  ? 'border-gray-500 bg-gray-700' :
+                  idx === step ? 'border-gold-400' :
+                                 'border-gray-700'
+                }`}>
+                  {idx < step ? <Check className="w-3 h-3" /> : i + 1}
+                </span>
+                {label}
+              </div>
+              {i < shown.length - 1 && <span className="text-gray-700 text-xs">›</span>}
             </div>
-            {i < STEPS.length - 1 && <span className="text-gray-700 text-xs">›</span>}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Step content */}
@@ -548,7 +579,7 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-semibold text-gray-200 mb-0.5">AI-Generated Job Description</h2>
+                <h2 className="text-sm font-semibold text-gray-200 mb-0.5">Job Description</h2>
                 <p className="text-xs text-gray-500">Review and edit before saving</p>
               </div>
               <div className="flex gap-2">
@@ -598,7 +629,12 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
         <div className="flex items-center justify-between mt-6 pt-5 border-t border-gray-800">
           <Button
             variant="secondary"
-            onClick={() => step === 0 ? navigate('/hr') : setStep(s => s - 1)}
+            onClick={() => {
+              if (step === 0) { navigate('/hr'); return }
+              // Steps 2-4 were drafted, not answered — skip straight back to the
+              // only screen that was actually filled in.
+              setStep(autoDrafted ? 0 : step - 1)
+            }}
             icon={<ArrowLeft className="w-4 h-4" />}
           >
             {step === 0 ? 'Cancel' : 'Back'}
@@ -606,11 +642,13 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
           <div className="flex gap-3">
             {step < 4 && (
               <Button
-                onClick={() => setStep(s => s + 1)}
+                // Already drafted? Next goes back to the JD, not through the
+                // drafted steps the user chose not to fill in.
+                onClick={() => setStep(s => (autoDrafted ? STEPS.length - 1 : s + 1))}
                 disabled={!canProceed()}
                 iconRight={<ArrowRight className="w-4 h-4" />}
               >
-                Next
+                {autoDrafted ? 'Back to job description' : 'Next'}
               </Button>
             )}
             {step === 4 && generatedJD && (
