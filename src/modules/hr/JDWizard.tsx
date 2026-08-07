@@ -13,7 +13,7 @@ import { callClaude } from '../../lib/ai'
 import { downloadJDasPDF } from './downloadJD'
 import toast from 'react-hot-toast'
 
-interface Step1Data { title: string; department: string; employmentTypes: string[]; experienceLevel: string }
+interface Step1Data { title: string; department: string; employmentTypes: string[]; experienceLevel: string; vacancies: string }
 interface Step2Data { dayToDay: string; outcomes: string; reportingTo: string }
 interface Step3Data { mustHave: string; niceToHave: string; education: string; tools: string }
 interface Step4Data { compensationType: 'salary' | 'stipend'; minAmount: string; maxAmount: string; perks: string }
@@ -24,7 +24,7 @@ export function JDWizard() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [step, setStep] = useState(0)
-  const [s1, setS1] = useState<Step1Data>({ title: '', department: '', employmentTypes: [], experienceLevel: 'junior' })
+  const [s1, setS1] = useState<Step1Data>({ title: '', department: '', employmentTypes: [], experienceLevel: 'junior', vacancies: '1' })
   const [s2, setS2] = useState<Step2Data>({ dayToDay: '', outcomes: '', reportingTo: '' })
   const [s3, setS3] = useState<Step3Data>({ mustHave: '', niceToHave: '', education: 'bachelors', tools: '' })
   const [s4, setS4] = useState<Step4Data>({ compensationType: 'salary', minAmount: '', maxAmount: '', perks: '' })
@@ -49,16 +49,124 @@ export function JDWizard() {
     return true
   }
 
+  /**
+   * Fills Responsibilities, Requirements and Compensation from the role details
+   * alone, so the only thing that has to be typed is step 1.
+   *
+   * The answers land in the same state the manual steps use, so they stay
+   * reviewable and editable — this drafts the wizard, it does not bypass it.
+   *
+   * Returns the drafted values as well as setting them: setState is async, so the
+   * caller cannot read them back off state in the same tick and would otherwise
+   * write the JD from the empty fields.
+   * Returns null if nothing usable came back, leaving the fields untouched.
+   */
+  const autoFillFromRole = async (): Promise<{ d2: Step2Data; d3: Step3Data; d4: Step4Data } | null> => {
+    const empLabel: Record<string, string> = { full_time: 'Full-Time', part_time: 'Part-Time', internship: 'Internship', contract: 'Contract / Freelance' }
+    const expLabel: Record<string, string> = { fresher: 'Fresher (0–1 year)', junior: 'Junior (1–3 years)', mid: 'Mid-level (3–5 years)', senior: 'Senior (5+ years)' }
+
+    const prompt = `You are drafting a Job Description for Galaxy Home Automation, a premium smart home automation company in India (smart lighting, curtains, security, home theatre; sells to homeowners, architects and builders).
+
+Role: ${s1.title}
+Department / Team: ${s1.department}
+Employment Type: ${s1.employmentTypes.map(t => empLabel[t] || t).join(' / ') || 'Full-Time'}
+Experience Level: ${expLabel[s1.experienceLevel] || s1.experienceLevel}
+Number of vacancies: ${s1.vacancies || '1'}
+
+Return this exact JSON and nothing else:
+{"dayToDay":"","outcomes":"","reportingTo":"","mustHave":"","niceToHave":"","education":"bachelors","tools":"","compensationType":"salary","minAmount":"","maxAmount":"","perks":""}
+
+Where:
+- dayToDay: 4-6 day-to-day tasks, one per line, each starting with a verb. Specific to this role at a home automation company.
+- outcomes: 3-4 measurable outcomes expected in the first 3-6 months, one per line.
+- reportingTo: who this role reports to and works with, one short line.
+- mustHave: 4-6 essential skills, one per line.
+- niceToHave: 2-4 bonus skills, one per line.
+- education: exactly one of "no_pref" | "diploma" | "bachelors" | "masters" | "phd"
+- tools: comma-separated tools or software realistic for this role.
+- compensationType: "stipend" if the employment type is an internship, otherwise "salary"
+- minAmount / maxAmount: realistic Indian market numbers as plain digits, no symbols or commas. For salary these are LPA (e.g. "4" to "7"). For a stipend these are rupees per month (e.g. "10000" to "15000").
+- perks: one short line of realistic perks.`
+
+    const raw = await callClaude(
+      prompt,
+      'You are an expert Indian technical recruiter. Return ONLY a JSON object with no surrounding text or markdown.',
+      1400,
+    )
+    const cleaned = raw.replace(/```json|```/g, '').trim()
+    const d = JSON.parse(cleaned) as Partial<Step2Data & Step3Data & Step4Data>
+
+    if (!d.dayToDay?.trim() || !d.mustHave?.trim()) return null
+
+    const EDU = ['no_pref', 'diploma', 'bachelors', 'masters', 'phd']
+    // Digits only — the model sometimes returns "4 LPA" or "₹10,000" despite the
+    // instruction, and a non-numeric amount would be saved as NaN.
+    const num = (v: unknown) => String(v ?? '').replace(/[^\d.]/g, '')
+
+    const d2: Step2Data = {
+      dayToDay: d.dayToDay.trim(),
+      outcomes: d.outcomes?.trim() ?? '',
+      reportingTo: d.reportingTo?.trim() ?? '',
+    }
+    const d3: Step3Data = {
+      mustHave: d.mustHave.trim(),
+      niceToHave: d.niceToHave?.trim() ?? '',
+      education: EDU.includes(String(d.education)) ? String(d.education) : 'bachelors',
+      tools: d.tools?.trim() ?? '',
+    }
+    const d4: Step4Data = {
+      compensationType: d.compensationType === 'stipend' ? 'stipend' : 'salary',
+      minAmount: num(d.minAmount),
+      maxAmount: num(d.maxAmount),
+      perks: d.perks?.trim() ?? '',
+    }
+
+    setS2(d2); setS3(d3); setS4(d4)
+    return { d2, d3, d4 }
+  }
+
+  /** Step 1 -> finished JD in one go: drafts steps 2-4, then writes the JD. */
+  const generateEverything = async () => {
+    setGenerating(true)
+    try {
+      const drafted = await autoFillFromRole()
+      if (!drafted) {
+        toast.error("Couldn't draft the details — fill the steps in yourself or try again")
+        return
+      }
+      // Pass the drafted values straight through; state has not committed yet.
+      await runGenerateJD(drafted.d2, drafted.d3, drafted.d4)
+      setStep(STEPS.length - 1)
+      toast.success('Drafted every step — review and edit anything')
+    } catch (err) {
+      if (err instanceof SyntaxError) toast.error('The AI reply was malformed — please try again')
+      else toast.error(err instanceof Error ? err.message : 'Failed to draft the job description')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const generateJD = async () => {
     setGenerating(true)
     try {
+      await runGenerateJD()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate JD')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  /** Defaults to whatever is in state; callers that just drafted pass values in. */
+  const runGenerateJD = async (g2: Step2Data = s2, g3: Step3Data = s3, g4: Step4Data = s4) => {
+    {
       const empLabel: Record<string, string> = { full_time: 'Full-Time', part_time: 'Part-Time', internship: 'Internship', contract: 'Contract / Freelance' }
       const empTypes = s1.employmentTypes.map(t => empLabel[t] || t).join(' / ')
       const expLabel: Record<string, string> = { fresher: 'Fresher (0–1 year)', junior: 'Junior (1–3 years)', mid: 'Mid-level (3–5 years)', senior: 'Senior (5+ years)' }
       const eduLabel: Record<string, string> = { no_pref: 'No preference', diploma: 'Diploma', bachelors: "Bachelor's degree", masters: "Master's degree", phd: 'PhD' }
-      const compText = s4.compensationType === 'stipend'
-        ? `Monthly Stipend: ₹${s4.minAmount || '?'} – ₹${s4.maxAmount || '?'}`
-        : `Annual Salary: ₹${s4.minAmount || '?'} – ₹${s4.maxAmount || '?'} LPA`
+      const compText = g4.compensationType === 'stipend'
+        ? `Monthly Stipend: ₹${g4.minAmount || '?'} – ₹${g4.maxAmount || '?'}`
+        : `Annual Salary: ₹${g4.minAmount || '?'} – ₹${g4.maxAmount || '?'} LPA`
 
       const prompt = `Generate a professional Job Description for Galaxy Home Automation, a premium smart home automation company in India.
 
@@ -68,28 +176,28 @@ export function JDWizard() {
 **Experience Level:** ${expLabel[s1.experienceLevel] || s1.experienceLevel}
 
 **Day-to-day tasks:**
-${s2.dayToDay}
+${g2.dayToDay}
 
 **Key outcomes expected (3–6 months):**
-${s2.outcomes || 'Not specified'}
+${g2.outcomes || 'Not specified'}
 
 **Reports to / works with:**
-${s2.reportingTo || 'Not specified'}
+${g2.reportingTo || 'Not specified'}
 
 **Must-have skills:**
-${s3.mustHave}
+${g3.mustHave}
 
 **Nice-to-have:**
-${s3.niceToHave || 'None'}
+${g3.niceToHave || 'None'}
 
 **Education requirement:**
-${eduLabel[s3.education] || s3.education}
+${eduLabel[g3.education] || g3.education}
 
 **Tools / software:**
-${s3.tools || 'Not specified'}
+${g3.tools || 'Not specified'}
 
 **Compensation:**
-${compText}${s4.perks ? `\nPerks: ${s4.perks}` : ''}
+${compText}${g4.perks ? `\nPerks: ${g4.perks}` : ''}
 
 Write a complete, polished JD with exactly these sections using ## headings:
 ## About the Role
@@ -102,10 +210,6 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
 
       const jd = await callClaude(prompt, 'You are an expert HR writer. Generate job descriptions that are professional, specific, and compelling. Use ## markdown headings for sections. Respond with only the job description text.')
       setGeneratedJD(jd)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to generate JD')
-    } finally {
-      setGenerating(false)
     }
   }
 
@@ -137,6 +241,7 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
         department: s1.department,
         employmentType: s1.employmentTypes.join(','),
         experienceLevel: s1.experienceLevel,
+        vacancies: Math.max(1, parseInt(s1.vacancies) || 1),
         prerequisites: prerequisites.length ? prerequisites : s3.mustHave.split('\n').filter(Boolean),
         responsibilities: responsibilities.length ? responsibilities : s2.dayToDay.split('\n').filter(Boolean),
         compensation: {
@@ -207,6 +312,16 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input label="Job Title *" placeholder="e.g. Business Development Executive" value={s1.title} onChange={e => setS1(p => ({ ...p, title: e.target.value }))} />
               <Input label="Department / Team *" placeholder="e.g. Sales, Operations, Tech" value={s1.department} onChange={e => setS1(p => ({ ...p, department: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Number of Vacancies *"
+                type="number"
+                min={1}
+                placeholder="1"
+                value={s1.vacancies}
+                onChange={e => setS1(p => ({ ...p, vacancies: e.target.value }))}
+              />
             </div>
             <div className="space-y-4">
               <div>
@@ -279,6 +394,30 @@ Be specific, warm in tone, and avoid generic filler. Mention Galaxy Home Automat
                   })}
                 </div>
               </div>
+            </div>
+
+            {/* Everything below this step can be written from the role alone. */}
+            <div className="rounded-lg border border-gold-400/30 bg-gold-400/[0.06] p-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm font-semibold text-gold-300">Let AI write the rest</p>
+                  <p className="text-xs text-gray-400 mt-0.5 max-w-md">
+                    Drafts the responsibilities, requirements, compensation and the full job
+                    description from the details above. You can edit any step afterwards.
+                  </p>
+                </div>
+                <Button
+                  onClick={generateEverything}
+                  loading={generating}
+                  disabled={!canProceed()}
+                  icon={<Sparkles className="w-4 h-4" />}
+                >
+                  Generate everything
+                </Button>
+              </div>
+              {!canProceed() && (
+                <p className="text-xs text-gray-600 mt-2">Fill in the title, department and employment type first.</p>
+              )}
             </div>
           </div>
         )}
