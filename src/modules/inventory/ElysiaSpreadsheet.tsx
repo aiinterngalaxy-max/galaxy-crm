@@ -7,6 +7,7 @@ import type { InventoryItem, StockStatus } from '../../types'
 import { cn } from '../../lib/utils'
 import { describeFirestoreError } from '../../lib/errorMessage'
 import { closingOf } from '../../lib/stock'
+import { ElysiaRegister } from './ElysiaRegister'
 import toast from 'react-hot-toast'
 
 /**
@@ -108,14 +109,53 @@ function Cell({ value, onSave, numeric, readOnly, className, align = 'left' }: C
   )
 }
 
-export function ElysiaSpreadsheet({
-  items, canEdit, userId, userName,
-}: {
+interface ViewProps {
   items: InventoryItem[]
   canEdit: boolean
   userId: string
   userName: string
-}) {
+}
+
+/**
+ * The Elysia section opens as a daily register, because that is what the team
+ * was already doing on paper. The grid below is the same sheet as before — kept,
+ * not replaced, since correcting a wrong figure is a different job from
+ * recording the day's movements, and only this view can do it.
+ */
+export function ElysiaSpreadsheet(props: ViewProps) {
+  const [view, setView] = useState<'register' | 'sheet'>('register')
+
+  return (
+    <div>
+      <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
+        {([
+          { v: 'register', label: 'Daily Register', hint: "Today's entries" },
+          { v: 'sheet', label: 'Edit Sheet', hint: 'Correct any figure' },
+        ] as const).map(t => (
+          <button
+            key={t.v}
+            onClick={() => setView(t.v)}
+            title={t.hint}
+            className={cn(
+              'text-xs px-3 py-1.5 rounded-lg font-medium transition-colors border',
+              view === t.v
+                ? 'border-gold-500 text-gold-400 bg-gold-500/10'
+                : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'register' ? <ElysiaRegister {...props} /> : <SheetGrid {...props} />}
+    </div>
+  )
+}
+
+function SheetGrid({
+  items, canEdit, userId, userName,
+}: ViewProps) {
   /** Plain field edit — no stock movement, so no transaction record. */
   const saveText = async (item: InventoryItem, field: TextField, value: string) => {
     await runTransaction(db, async tx => {
