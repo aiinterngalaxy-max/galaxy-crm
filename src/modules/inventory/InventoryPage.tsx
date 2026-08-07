@@ -14,6 +14,7 @@ import {
   serverTimestamp, limit, runTransaction,
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
+import { ElysiaSpreadsheet } from './ElysiaSpreadsheet'
 import { ScannerModal } from './ScannerModal'
 import { CurtainDispatchModal } from './CurtainDispatchModal'
 import toast from 'react-hot-toast'
@@ -1212,7 +1213,7 @@ export function InventoryPage() {
   const { user, role } = useAuth()
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'stock' | 'log'>('stock')
+  const [tab, setTab] = useState<'stock' | 'log' | 'sheet'>('stock')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
@@ -1239,6 +1240,12 @@ export function InventoryPage() {
       setEditingLocation(null)
     }
   }
+
+  // The Spreadsheet tab only exists for Elysia. Switching product line while it
+  // is open would otherwise leave a selected tab with no button to leave it by.
+  useEffect(() => {
+    if (tab === 'sheet' && line !== 'elysia') setTab('stock')
+  }, [line, tab])
 
   const canManage = role ? ['super_admin', 'management', 'dept_head'].includes(role) : false
   const canIssue  = role ? ['super_admin', 'management', 'dept_head', 'project_manager'].includes(role) : false
@@ -1582,7 +1589,14 @@ export function InventoryPage() {
 
       {/* Tabs */}
       <div data-tour="inv-tabs" className="flex gap-1 border-b border-gray-800">
-        {([['stock', 'Stock Table', Package], ['log', 'Transaction Log', History]] as const).map(([t, label, Icon]) => (
+        {/* Spreadsheet is Elysia-only: it is the line the warehouse recounts by
+            hand, and the other lines have their own workflows (curtain dispatch,
+            Vitrum's code scheme) that an editable grid would not respect. */}
+        {([
+          ['stock', 'Stock Table', Package],
+          ...(line === 'elysia' ? [['sheet', 'Spreadsheet', FileSpreadsheet] as const] : []),
+          ['log', 'Transaction Log', History],
+        ] as const).map(([t, label, Icon]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -1753,6 +1767,16 @@ export function InventoryPage() {
           <div data-tour="stock-table"><Card padding="none">
             {loading ? (
               <div className="p-12 text-center text-sm text-gray-600">Loading inventory…</div>
+            ) : tab === 'sheet' ? (
+              /* Same filters, same rows — an editable grid instead of a read-only
+                 table. Sits inside this branch so the filter bar above applies to
+                 both views rather than being duplicated. */
+              <ElysiaSpreadsheet
+                items={filtered}
+                canEdit={canManage}
+                userId={user?.id ?? ''}
+                userName={user?.name ?? 'Unknown'}
+              />
             ) : filtered.length === 0 ? (
               <div className="p-12 text-center">
                 <Package className="w-10 h-10 text-gray-700 mx-auto mb-3" />
