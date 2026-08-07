@@ -43,6 +43,7 @@ const PartnerDetail = lazy(() => import('./modules/partners/PartnerDetail').then
 const SettingsPage = lazy(() => import('./modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const NonWorkingPage = lazy(() => import('./modules/inventory/NonWorkingPage').then(m => ({ default: m.NonWorkingPage })))
+const CurtainsAssistant = lazy(() => import('./modules/inventory/CurtainsAssistant').then(m => ({ default: m.CurtainsAssistant })))
 const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
 const HRPage = lazy(() => import('./modules/hr/HRPage').then(m => ({ default: m.HRPage })))
 const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default: m.JDWizard })))
@@ -191,6 +192,10 @@ function AppRoutes() {
           {/* Inventory */}
           <Route path="inventory" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
           <Route path="inventory/non-working" element={<RequireRole module="inventory"><NonWorkingPage /></RequireRole>} />
+          {/* Curtains is a chat assistant rather than a table. The static path
+              wins over :line, so Elysia/Vitrum/General still reach InventoryPage
+              untouched, and the sidebar link needs no change. */}
+          <Route path="inventory/curtains" element={<RequireRole module="inventory"><CurtainsAssistant /></RequireRole>} />
           <Route path="inventory/:line" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
 
           {/* HR */}
