@@ -411,6 +411,10 @@ export interface InventoryItem {
   openingStock: number
   importedQty: number
   issuedQty: number
+  /** Stock dispatched out of the warehouse to a client. Absent on older rows. */
+  outwardQty?: number
+  /** Who the outward stock went to. Free text — not a link to the CRM client. */
+  clientName?: string
   closingStock: number
   reorderLevel: number
   stockStatus: StockStatus

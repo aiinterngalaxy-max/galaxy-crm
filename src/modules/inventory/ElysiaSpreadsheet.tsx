@@ -6,6 +6,7 @@ import {
 import type { InventoryItem, StockStatus } from '../../types'
 import { cn } from '../../lib/utils'
 import { describeFirestoreError } from '../../lib/errorMessage'
+import { closingOf } from '../../lib/stock'
 import toast from 'react-hot-toast'
 
 /**
@@ -28,9 +29,9 @@ function computeStatus(closing: number, reorder: number): StockStatus {
 }
 
 /** Fields that are safe to edit freely — no stock movement, no audit needed. */
-type TextField = 'itemName' | 'color' | 'material' | 'location'
+type TextField = 'itemCode' | 'itemName' | 'color' | 'material' | 'location' | 'clientName'
 /** Fields that change the stock position and therefore must be logged. */
-type NumField = 'openingStock' | 'importedQty' | 'issuedQty' | 'reorderLevel'
+type NumField = 'openingStock' | 'importedQty' | 'issuedQty' | 'outwardQty' | 'reorderLevel'
 
 interface CellProps {
   value: string
@@ -146,13 +147,15 @@ export function ElysiaSpreadsheet({
       const opening  = field === 'openingStock' ? next : cur.openingStock
       const imported = field === 'importedQty'  ? next : cur.importedQty
       const issued   = field === 'issuedQty'    ? next : cur.issuedQty
+      const outward  = field === 'outwardQty'   ? next : (cur.outwardQty ?? 0)
       const reorder  = field === 'reorderLevel' ? next : cur.reorderLevel
-      const closing  = opening + imported - issued
+      const closing  = closingOf({ openingStock: opening, importedQty: imported, issuedQty: issued, outwardQty: outward })
 
       tx.update(ref, {
         openingStock: opening,
         importedQty: imported,
         issuedQty: issued,
+        outwardQty: outward,
         reorderLevel: reorder,
         closingStock: closing,
         stockStatus: computeStatus(closing, reorder),
@@ -160,26 +163,84 @@ export function ElysiaSpreadsheet({
       })
 
       // Reorder level is a threshold, not stock, so it moves nothing and needs
-      // no transaction. The other three change the stock position.
+      // no transaction. The other four change the stock position.
       if (field !== 'reorderLevel') {
         const before = field === 'openingStock' ? cur.openingStock
-          : field === 'importedQty' ? cur.importedQty : cur.issuedQty
+          : field === 'importedQty' ? cur.importedQty
+          : field === 'issuedQty' ? cur.issuedQty : (cur.outwardQty ?? 0)
         const delta = next - before
         if (delta !== 0) {
+          // Outward is stock leaving for a client, so the log names who it went
+          // to — a bare "issue" row would say nothing about where it went.
+          const leaving = field === 'issuedQty' || field === 'outwardQty'
+          const client = cur.clientName?.trim()
           const txRef = doc(collection(db, 'stockTransactions'))
           tx.set(txRef, {
             itemId: item.id,
             itemCode: cur.itemCode,
             itemName: cur.itemName,
-            // An increase in issued reduces stock; everything else adds to it.
-            type: (field === 'issuedQty' ? delta > 0 : delta < 0) ? 'issue' : 'import',
+            // An increase in issued/outward reduces stock; everything else adds to it.
+            type: (leaving ? delta > 0 : delta < 0) ? 'issue' : 'import',
             quantity: Math.abs(delta),
-            note: `Spreadsheet edit — ${field} ${before} → ${next}`,
+            note: field === 'outwardQty'
+              ? `Spreadsheet edit — outward ${before} → ${next}${client ? ` (client: ${client})` : ''}`
+              : `Spreadsheet edit — ${field} ${before} → ${next}`,
             recordedBy: userId,
             recordedByName: userName,
             createdAt: serverTimestamp(),
           })
         }
+      }
+    })
+  }
+
+  /**
+   * Closing is a derived figure, so it cannot simply be written — it would drift
+   * away from the columns it is the sum of. Typing one instead back-solves the
+   * opening stock that makes the sum come out right, which keeps imported,
+   * issued and outward intact and the row still adding up.
+   */
+  const saveClosing = async (item: InventoryItem, raw: string) => {
+    const target = Number(raw)
+    if (!Number.isFinite(target) || target < 0) {
+      throw new Error('Enter a whole number of 0 or more')
+    }
+
+    await runTransaction(db, async tx => {
+      const ref = doc(db, 'inventory', item.id)
+      const snap = await tx.get(ref)
+      if (!snap.exists()) throw new Error('This item no longer exists')
+      const cur = snap.data() as InventoryItem
+
+      const movements = cur.importedQty - cur.issuedQty - (cur.outwardQty ?? 0)
+      const opening = target - movements
+      if (opening < 0) {
+        throw new Error(
+          `Can't reach a closing of ${target} — ${cur.importedQty} imported already exceeds it. Correct Imported first.`,
+        )
+      }
+
+      tx.update(ref, {
+        openingStock: opening,
+        closingStock: target,
+        stockStatus: computeStatus(target, cur.reorderLevel),
+        updatedAt: serverTimestamp(),
+      })
+
+      const delta = target - cur.closingStock
+      if (delta !== 0) {
+        const txRef = doc(collection(db, 'stockTransactions'))
+        tx.set(txRef, {
+          itemId: item.id,
+          itemCode: cur.itemCode,
+          itemName: cur.itemName,
+          type: delta > 0 ? 'import' : 'issue',
+          quantity: Math.abs(delta),
+          note: `Spreadsheet edit — closing ${cur.closingStock} → ${target} (opening adjusted to ${opening})`,
+          recordedBy: userId,
+          recordedByName: userName,
+          createdAt: serverTimestamp(),
+        })
       }
     })
   }
@@ -192,14 +253,14 @@ export function ElysiaSpreadsheet({
     )
   }
 
-  const headers = ['Code', 'Item Name', 'Colour', 'Material', 'Rack',
-                   'Opening', 'Imported', 'Issued', 'Closing', 'Reorder', 'Status']
+  const headers = ['Code', 'Item Name', 'Colour', 'Material', 'Rack', 'Client',
+                   'Opening', 'Imported', 'Issued', 'Outward', 'Closing', 'Reorder', 'Status']
 
   return (
     <div>
       <div className="px-4 py-2.5 text-[11px] text-gray-500 border-b border-gray-800">
         {canEdit
-          ? 'Click any cell to edit. Closing is calculated, and every quantity change is written to the Transaction Log.'
+          ? 'Click any cell to edit — every column, Closing included. Outward is stock leaving the warehouse for the client named on the row, and every quantity change is written to the Transaction Log.'
           : 'Read-only — your role cannot edit stock.'}
       </div>
 
@@ -228,7 +289,11 @@ export function ElysiaSpreadsheet({
 
               return (
                 <tr key={item.id} className="hover:bg-gray-800/30">
-                  <td className="px-2 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{item.itemCode}</td>
+                  <td className="px-2 py-2 min-w-[150px]">
+                    <Cell value={item.itemCode} readOnly={!canEdit}
+                      onSave={v => saveText(item, 'itemCode', v)}
+                      className="font-mono text-[11px] text-gray-500" />
+                  </td>
 
                   <td className="px-2 py-2 min-w-[190px]">
                     <Cell value={item.itemName} readOnly={!canEdit}
@@ -247,6 +312,10 @@ export function ElysiaSpreadsheet({
                     <Cell value={item.location ?? ''} readOnly={!canEdit}
                       onSave={v => saveText(item, 'location', v)} className="text-xs" />
                   </td>
+                  <td className="px-2 py-2 min-w-[140px]">
+                    <Cell value={item.clientName ?? ''} readOnly={!canEdit}
+                      onSave={v => saveText(item, 'clientName', v)} className="text-xs text-gray-300" />
+                  </td>
 
                   <td className="px-2 py-2 w-20">
                     <Cell value={String(item.openingStock)} numeric align="right" readOnly={!canEdit}
@@ -261,10 +330,17 @@ export function ElysiaSpreadsheet({
                       onSave={v => saveNumber(item, 'issuedQty', v)} className="text-xs text-red-400" />
                   </td>
 
-                  {/* Calculated, never typed — editing it would let closing drift
-                      away from opening + imported − issued. */}
-                  <td className="px-2 py-2 w-20 text-right">
-                    <span className={cn('text-xs font-bold tabular-nums', statusColor)}>{closing}</span>
+                  <td className="px-2 py-2 w-20">
+                    <Cell value={String(item.outwardQty ?? 0)} numeric align="right" readOnly={!canEdit}
+                      onSave={v => saveNumber(item, 'outwardQty', v)} className="text-xs text-orange-400" />
+                  </td>
+
+                  {/* Editable, but back-solved through opening stock so the row
+                      keeps adding up — see saveClosing. */}
+                  <td className="px-2 py-2 w-20">
+                    <Cell value={String(closing)} numeric align="right" readOnly={!canEdit}
+                      onSave={v => saveClosing(item, v)}
+                      className={cn('text-xs font-bold tabular-nums', statusColor)} />
                   </td>
 
                   <td className="px-2 py-2 w-20">
@@ -283,7 +359,7 @@ export function ElysiaSpreadsheet({
       </div>
 
       <div className="px-4 py-2 text-[11px] text-gray-600 border-t border-gray-800">
-        {items.length} item{items.length === 1 ? '' : 's'} · Closing = Opening + Imported − Issued
+        {items.length} item{items.length === 1 ? '' : 's'} · Closing = Opening + Imported − Issued − Outward
       </div>
     </div>
   )

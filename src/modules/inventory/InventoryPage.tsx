@@ -15,6 +15,7 @@ import {
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
 import { ElysiaSpreadsheet } from './ElysiaSpreadsheet'
+import { closingOf } from '../../lib/stock'
 import { ScannerModal } from './ScannerModal'
 import { CurtainDispatchModal } from './CurtainDispatchModal'
 import toast from 'react-hot-toast'
@@ -257,7 +258,7 @@ async function mergeAsStockIn(existingId: string, quantity: number, itemCode: st
     if (!snap.exists()) throw new Error('Item not found')
     const data = snap.data() as InventoryItem
     const newImported = data.importedQty + quantity
-    const newClosing = data.openingStock + newImported - data.issuedQty
+    const newClosing = closingOf({ ...data, importedQty: newImported })
     tx.update(itemRef, {
       importedQty: newImported,
       closingStock: newClosing,
@@ -1063,7 +1064,7 @@ function StockModal({ item, type, onClose, userId, userName }: StockModalProps) 
         const data = snap.data() as InventoryItem
         const newImported = type === 'import' ? data.importedQty + quantity : data.importedQty
         const newIssued   = type === 'issue'  ? data.issuedQty  + quantity : data.issuedQty
-        const newClosing  = data.openingStock + newImported - newIssued
+        const newClosing  = closingOf({ ...data, importedQty: newImported, issuedQty: newIssued })
         tx.update(itemRef, {
           importedQty: newImported,
           issuedQty:   newIssued,
@@ -1413,7 +1414,7 @@ export function InventoryPage() {
           if (existing) {
             await updateDoc(doc(db, 'inventory', existing.id), {
               category, itemName, location, material, color,
-              openingStock: opening, importedQty: 0, issuedQty: 0,
+              openingStock: opening, importedQty: 0, issuedQty: 0, outwardQty: 0,
               closingStock: opening, stockStatus: computeStatus(opening, existing.reorderLevel), updatedAt: serverTimestamp(),
             })
             updated2++
@@ -1466,7 +1467,8 @@ export function InventoryPage() {
           if (existing) {
             await updateDoc(doc(db, 'inventory', existing.id), {
               category, itemName, location, material, color,
-              openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
+              // A physical count replaces the whole ledger, outward included.
+              openingStock: counted, importedQty: 0, issuedQty: 0, outwardQty: 0, reorderLevel: reorder,
               closingStock: counted, stockStatus: computeStatus(counted, reorder), updatedAt: serverTimestamp(),
             })
             updated++
@@ -1492,7 +1494,7 @@ export function InventoryPage() {
           // original baseline and isn't re-applied from the file on every import.
           const importedQty = existing.importedQty + csvImported
           const issuedQty = existing.issuedQty + csvIssued
-          const closingStock = existing.openingStock + importedQty - issuedQty
+          const closingStock = closingOf({ ...existing, importedQty, issuedQty })
           await updateDoc(doc(db, 'inventory', existing.id), {
             category, itemName, location, material, color,
             importedQty, issuedQty, reorderLevel: reorder,
