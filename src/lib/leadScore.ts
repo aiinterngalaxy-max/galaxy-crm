@@ -36,13 +36,26 @@ export async function recalcLeadScore(leadId: string, patch: Partial<Lead> = {})
 }
 
 /**
+ * Moves the denormalised call counter by `delta`, then rescores. Use a negative
+ * delta when an activity stops being a call — e.g. someone retypes a logged call
+ * as a note — so the count cannot drift above what the activity log supports.
+ *
+ * The counter is clamped at zero on read (see recalcLeadScore), so a stray
+ * decrement on a lead with no calls cannot push the score below its floor.
+ */
+export async function adjustLeadCallCount(leadId: string, delta: number): Promise<void> {
+  if (delta === 0) return
+  await updateDoc(doc(db, 'leads', leadId), {
+    callCount: increment(delta),
+    updatedAt: serverTimestamp(),
+  })
+  await recalcLeadScore(leadId)
+}
+
+/**
  * Bumps the denormalised call counter, then rescores. Call this after logging a
  * 'call' activity — only calls count as a "connect" for scoring.
  */
 export async function registerLeadCall(leadId: string): Promise<void> {
-  await updateDoc(doc(db, 'leads', leadId), {
-    callCount: increment(1),
-    updatedAt: serverTimestamp(),
-  })
-  await recalcLeadScore(leadId)
+  await adjustLeadCallCount(leadId, 1)
 }

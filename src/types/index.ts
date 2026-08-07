@@ -611,6 +611,9 @@ export interface JobDescription {
   department: string
   employmentType: EmploymentType
   experienceLevel: ExperienceLevel
+  /** How many people are being hired for this role. Optional: JDs created before
+   *  the field existed do not have it, and are treated as a single opening. */
+  vacancies?: number
   prerequisites: string[]
   responsibilities: string[]
   compensation: JDCompensation

@@ -286,10 +286,13 @@ export function getLeadScoreBreakdown(lead: LeadScoreInput): LeadScoreBreakdown[
   if (lead.floorPlanUrl) rows.push({ label: 'Floor plan uploaded', points: w.floorPlan })
   if (lead.demoGiven) rows.push({ label: 'Demo / site visit done', points: w.demo })
 
-  const quotes = Math.min(lead.quoteCount ?? 0, w.maxQuotes)
+  // Clamped low as well as high: callCount is denormalised and decremented when an
+  // activity stops being a call, so a drifted negative must score zero rather than
+  // subtracting points and printing "Calls logged (-1)".
+  const quotes = Math.max(0, Math.min(lead.quoteCount ?? 0, w.maxQuotes))
   if (quotes) rows.push({ label: `Quotes sent (${quotes})`, points: quotes * w.perQuote })
 
-  const calls = Math.min(lead.callCount ?? 0, w.maxCalls)
+  const calls = Math.max(0, Math.min(lead.callCount ?? 0, w.maxCalls))
   if (calls) rows.push({ label: `Calls logged (${calls})`, points: calls * w.perCall })
 
   return rows

@@ -11,24 +11,49 @@ import { describeUploadError, logStage } from '../../lib/uploadDiagnostics'
 import { useAuth } from '../../contexts/AuthContext'
 import { LEAD_STATUS_CONFIG, getScoreColor, formatDate, formatDateTime, cn, calculateLeadScore } from '../../lib/utils'
 import { nextLeadCode } from '../../lib/counters'
-import { recalcLeadScore } from '../../lib/leadScore'
+import { recalcLeadScore, registerLeadCall, adjustLeadCallCount } from '../../lib/leadScore'
+import { Timestamp } from 'firebase/firestore'
 import { trashQuoteDoc } from '../../lib/trash'
 import { describeFirestoreError } from '../../lib/errorMessage'
 import toast from 'react-hot-toast'
 import type { Lead, LeadActivity, ActivityType, LeadStatus, LeadSource, QuoteDoc } from '../../types'
+
+// ─── Date <-> input value ─────────────────────────────────────────────────────
+//
+// Built from local getters, never toISOString(): that converts to UTC, so an
+// evening IST timestamp would render as the previous day in the picker and save
+// back shifted by the offset.
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Date -> "YYYY-MM-DD" for <input type="date">. */
+function toDateInput(d: Date | null): string {
+  if (!d) return ''
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Date -> "YYYY-MM-DDTHH:mm" for <input type="datetime-local">. */
+function toDateTimeInput(d: Date | null): string {
+  if (!d) return ''
+  return `${toDateInput(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 // ─── Editable Cell ────────────────────────────────────────────────────────────
 
 interface CellProps {
   value: string
   onSave: (val: string) => Promise<void>
-  type?: 'text' | 'select' | 'number'
+  type?: 'text' | 'select' | 'number' | 'date' | 'datetime-local'
   options?: { value: string; label: string }[]
   className?: string
   readOnly?: boolean
+  /** Shown instead of "click to edit" when the cell is empty. */
+  placeholder?: string
+  /** Rendered in place of the raw value when not editing (e.g. a formatted date). */
+  display?: React.ReactNode
 }
 
-function EditableCell({ value, onSave, type = 'text', options, className, readOnly }: CellProps) {
+function EditableCell({ value, onSave, type = 'text', options, className, readOnly, placeholder, display }: CellProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const [saving, setSaving] = useState(false)
@@ -56,7 +81,7 @@ function EditableCell({ value, onSave, type = 'text', options, className, readOn
   }, [editing])
 
   if (readOnly) {
-    return <span className={cn('text-gray-400', className)}>{value || '—'}</span>
+    return <span className={cn('text-gray-400', className)}>{display ?? (value || '—')}</span>
   }
 
   if (editing) {
@@ -77,7 +102,7 @@ function EditableCell({ value, onSave, type = 'text', options, className, readOn
     return (
       <input
         ref={inputRef as React.RefObject<HTMLInputElement>}
-        type={type === 'number' ? 'number' : 'text'}
+        type={type === 'number' ? 'number' : type === 'date' || type === 'datetime-local' ? type : 'text'}
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
@@ -97,7 +122,9 @@ function EditableCell({ value, onSave, type = 'text', options, className, readOn
       )}
       title={value || 'Click to edit'}
     >
-      {saving ? <Loader2 className="w-3 h-3 animate-spin inline" /> : (value || 'click to edit')}
+      {saving
+        ? <Loader2 className="w-3 h-3 animate-spin inline" />
+        : (display ?? (value || placeholder || 'click to edit'))}
     </span>
   )
 }
@@ -127,6 +154,17 @@ const SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
   { value: 'cold_call', label: 'Cold Call' },
   { value: 'breville', label: 'Breville' },
   { value: 'other', label: 'Other' },
+]
+
+// Types a person can pick in the sheet. status_change and floor_plan_upload are
+// written by the app itself, so they are not offered here.
+const ACTIVITY_TYPE_OPTIONS: { value: ActivityType; label: string }[] = [
+  { value: 'call', label: 'Call' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'note', label: 'Note' },
+  { value: 'email', label: 'Email' },
 ]
 
 const ACTIVITY_TYPE_COLOR: Record<ActivityType, string> = {
@@ -298,6 +336,7 @@ function QuoteSlots({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
 // ─── Lead Row ─────────────────────────────────────────────────────────────────
 
 function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+  const { user } = useAuth()
   const [latestActivity, setLatestActivity] = useState<LeadActivity | null>(null)
 
   useEffect(() => {
@@ -338,12 +377,95 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   const statusCfg = LEAD_STATUS_CONFIG[lead.status]
 
   const activityTs = latestActivity?.createdAt as any
-  const activityDateTimeStr = activityTs?.toDate ? formatDateTime(activityTs.toDate()) : '—'
+  const activityDate: Date | null = activityTs?.toDate ? activityTs.toDate() : null
+  const activityDateTimeStr = activityDate ? formatDateTime(activityDate) : '—'
 
   const followUpTs = latestActivity?.followUpDate as any
-  const followUpDateStr = followUpTs?.toDate
-    ? formatDate(followUpTs.toDate())
-    : lead.nextFollowUp ? formatDate(lead.nextFollowUp) : '—'
+  const followUpDate: Date | null = followUpTs?.toDate
+    ? followUpTs.toDate()
+    : (lead.nextFollowUp as any)?.toDate ? (lead.nextFollowUp as any).toDate() : null
+  const followUpDateStr = followUpDate ? formatDate(followUpDate) : '—'
+
+  /**
+   * Writes one field of the lead's most recent activity, creating the activity if
+   * the lead has none yet — so the four activity columns behave like every other
+   * cell in the sheet rather than being read-only until you open the lead.
+   *
+   * Type is the awkward one: only 'call' activities count toward the score, so
+   * switching a row into or out of 'call' has to move callCount with it.
+   */
+  const saveActivityField = useCallback(async (
+    field: 'description' | 'type' | 'followUpDate' | 'createdAt',
+    value: string,
+  ) => {
+    // "YYYY-MM-DD" is parsed as UTC midnight by Date, which lands on the previous
+    // day anywhere behind UTC. Build it from the parts so a picked date always
+    // means that date locally.
+    const asDate = (v: string): Date | null => {
+      if (!v) return null
+      const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v)
+      const d = dateOnly
+        ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+        : new Date(v)
+      return isNaN(d.getTime()) ? null : d
+    }
+
+    if (!latestActivity) {
+      // Nothing logged yet — start the lead's activity log from this cell.
+      const type = field === 'type' ? (value as ActivityType) : 'note'
+      const when = field === 'createdAt' ? asDate(value) : null
+      const followUp = field === 'followUpDate' ? asDate(value) : null
+
+      await addDoc(collection(db, 'leads', lead.id, 'activities'), {
+        leadId: lead.id,
+        type,
+        description: field === 'description' ? value : '',
+        followUpDate: followUp ? Timestamp.fromDate(followUp) : null,
+        performedBy: user?.id ?? '',
+        performedByName: user?.name ?? '',
+        createdAt: when ? Timestamp.fromDate(when) : serverTimestamp(),
+      })
+      if (followUp) {
+        await updateDoc(doc(db, 'leads', lead.id), {
+          nextFollowUp: Timestamp.fromDate(followUp), updatedAt: serverTimestamp(),
+        })
+      }
+      if (type === 'call') await registerLeadCall(lead.id)
+      return
+    }
+
+    const ref = doc(db, 'leads', lead.id, 'activities', latestActivity.id)
+
+    if (field === 'type') {
+      const before = latestActivity.type
+      const after = value as ActivityType
+      if (before === after) return
+      await updateDoc(ref, { type: after })
+      // Keep the denormalised call count honest across the switch.
+      const delta = (after === 'call' ? 1 : 0) - (before === 'call' ? 1 : 0)
+      if (delta !== 0) await adjustLeadCallCount(lead.id, delta)
+      return
+    }
+
+    if (field === 'description') {
+      await updateDoc(ref, { description: value })
+      return
+    }
+
+    const d = asDate(value)
+    if (field === 'createdAt') {
+      if (!d) return // never blank the log time — ordering depends on it
+      await updateDoc(ref, { createdAt: Timestamp.fromDate(d) })
+      return
+    }
+
+    // followUpDate — mirrored onto the lead so the Follow-ups page stays in step
+    await updateDoc(ref, { followUpDate: d ? Timestamp.fromDate(d) : null })
+    await updateDoc(doc(db, 'leads', lead.id), {
+      nextFollowUp: d ? Timestamp.fromDate(d) : null,
+      updatedAt: serverTimestamp(),
+    })
+  }, [lead.id, latestActivity, user?.id, user?.name])
 
   return (
     <tr
@@ -461,29 +583,58 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
       </td>
 
       {/* Activity Date & Time */}
-      <td className="px-2 py-2 text-xs text-gray-600 whitespace-nowrap w-32">
-        {activityDateTimeStr}
+      <td className="px-2 py-2 whitespace-nowrap w-40">
+        <EditableCell
+          value={toDateTimeInput(activityDate)}
+          onSave={v => saveActivityField('createdAt', v)}
+          type="datetime-local"
+          readOnly={!canEdit}
+          placeholder="—"
+          display={<span className="text-gray-600">{activityDateTimeStr}</span>}
+          className="text-xs"
+        />
       </td>
 
       {/* Activity Type */}
-      <td className="px-2 py-2">
-        {latestActivity ? (
-          <span className={cn('text-xs font-medium capitalize', ACTIVITY_TYPE_COLOR[latestActivity.type] ?? 'text-gray-400')}>
-            {latestActivity.type.replace('_', ' ')}
-          </span>
-        ) : (
-          <span className="text-xs text-gray-600">—</span>
-        )}
+      <td className="px-2 py-2 min-w-[100px]">
+        <EditableCell
+          value={latestActivity?.type ?? ''}
+          onSave={v => saveActivityField('type', v)}
+          type="select"
+          options={ACTIVITY_TYPE_OPTIONS}
+          readOnly={!canEdit}
+          placeholder="—"
+          display={latestActivity
+            ? <span className={cn('capitalize', ACTIVITY_TYPE_COLOR[latestActivity.type] ?? 'text-gray-400')}>
+                {latestActivity.type.replace('_', ' ')}
+              </span>
+            : <span className="text-gray-600">—</span>}
+          className="text-xs font-medium"
+        />
       </td>
 
       {/* Activity Note */}
-      <td className="px-2 py-2 text-xs text-gray-300 max-w-sm truncate" title={latestActivity?.description}>
-        {latestActivity?.description || '—'}
+      <td className="px-2 py-2 max-w-sm">
+        <EditableCell
+          value={latestActivity?.description ?? ''}
+          onSave={v => saveActivityField('description', v)}
+          readOnly={!canEdit}
+          placeholder="—"
+          className="text-xs text-gray-300"
+        />
       </td>
 
       {/* Follow-up Date */}
-      <td className="px-2 py-2 text-xs text-yellow-400/70 whitespace-nowrap w-24">
-        {followUpDateStr}
+      <td className="px-2 py-2 whitespace-nowrap w-32">
+        <EditableCell
+          value={toDateInput(followUpDate)}
+          onSave={v => saveActivityField('followUpDate', v)}
+          type="date"
+          readOnly={!canEdit}
+          placeholder="—"
+          display={<span className="text-yellow-400/70">{followUpDateStr}</span>}
+          className="text-xs"
+        />
       </td>
 
       {/* Follow-up By */}

@@ -184,7 +184,12 @@ Respond ONLY with valid JSON — no markdown, no code fences:
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-100 truncate">{jd.title}</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">{jd.department}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {jd.department}
+                        {jd.vacancies && jd.vacancies > 0 && (
+                          <> · {jd.vacancies} {jd.vacancies === 1 ? 'vacancy' : 'vacancies'}</>
+                        )}
+                      </p>
                     </div>
                     <div className="flex gap-1.5 shrink-0 flex-wrap">
                       {formatEmpTypes(jd.employmentType).map(t => (
