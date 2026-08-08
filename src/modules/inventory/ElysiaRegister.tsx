@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Plus, X, Search, NotebookPen, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import {
   db, collection, doc, getDocs, query, orderBy, limit, onSnapshot,
@@ -49,6 +49,8 @@ interface RegisterTxn {
   itemCode: string
   itemName: string
   customerName?: string
+  /** Who carried the stock — rider, courier or staff member. */
+  carrier?: string
   /** 'sent' / 'returned' as entered here. Older rows only have `type`. */
   txnKind?: 'sent' | 'returned'
   type: 'import' | 'issue'
@@ -82,6 +84,13 @@ function prettyDate(key: string): string {
   return `${d}/${m}/${y.slice(2)}`
 }
 
+/**
+ * The riders and couriers stock usually goes out with. A starting list only —
+ * anything typed into the field is remembered from then on, so the list grows
+ * with use instead of needing someone to maintain it.
+ */
+const DEFAULT_CARRIERS = ['Rapido', 'Courier', 'Dheeraj', 'Amit', 'Majid', 'Sufi', 'Shahid', 'Mahavir', 'Darshan', 'Self pickup', 'Others']
+
 type Period = 'today' | 'week' | 'month' | 'all'
 
 /** Inclusive start of the selected period; null means no date limit. */
@@ -98,19 +107,90 @@ function periodStart(period: Period): Date | null {
   return null
 }
 
+/**
+ * Pick from the list, or type a name that isn't on it yet.
+ *
+ * A plain dropdown is a dead end the first time a new client or a new rider
+ * turns up, and a plain text box invites six spellings of the same person. This
+ * is a dropdown with "+ Add new…" at the bottom that swaps itself for a text
+ * box — so the common case is one tap and the new case is still possible,
+ * without anyone having to go and set the name up somewhere else first.
+ */
+function PickOrAdd({
+  label, value, onChange, options, placeholder, required,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+  placeholder: string
+  required?: boolean
+}) {
+  const [adding, setAdding] = useState(false)
+  const ref = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (adding) ref.current?.focus() }, [adding])
+
+  // A name saved earlier that is no longer in the list must still show, or
+  // reopening a form would silently blank it.
+  const list = value && !options.includes(value) ? [value, ...options] : options
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <label className="form-label">{label}{required ? ' *' : ''}</label>
+        {adding && (
+          <button
+            type="button"
+            onClick={() => { setAdding(false); onChange('') }}
+            className="text-[10px] text-gray-500 hover:text-gray-300 underline"
+          >
+            pick from list
+          </button>
+        )}
+      </div>
+
+      {adding ? (
+        <input
+          ref={ref}
+          className="form-input"
+          placeholder={`New ${label.toLowerCase()} name`}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+        />
+      ) : (
+        <select
+          className="form-input"
+          value={value}
+          onChange={e => {
+            if (e.target.value === '__add__') { onChange(''); setAdding(true); return }
+            onChange(e.target.value)
+          }}
+        >
+          <option value="">{placeholder}</option>
+          {list.map(o => <option key={o} value={o}>{o}</option>)}
+          <option value="__add__">+ Add new…</option>
+        </select>
+      )}
+    </div>
+  )
+}
+
 // ─── New Transaction form ──────────────────────────────────────────────────────
 
 function NewTransactionModal({
-  items, customers, userId, userName, onClose,
+  items, customers, carriers, userId, userName, onClose,
 }: {
   items: InventoryItem[]
   customers: string[]
+  carriers: string[]
   userId: string
   userName: string
   onClose: () => void
 }) {
   const [date, setDate] = useState(dateKey(new Date()))
   const [customer, setCustomer] = useState('')
+  const [carrier, setCarrier] = useState('')
   const [kind, setKind] = useState<'sent' | 'returned'>('sent')
   const [itemId, setItemId] = useState('')
   const [qty, setQty] = useState('')
@@ -180,6 +260,7 @@ function NewTransactionModal({
           txnKind: kind,
           quantity,
           customerName: customer.trim(),
+          carrier: carrier.trim() || null,
           note: remarks.trim() || (kind === 'sent' ? 'Sent to customer' : 'Returned by customer'),
           txnDate: date,
           recordedBy: userId,
@@ -214,22 +295,23 @@ function NewTransactionModal({
               <label className="form-label">Date *</label>
               <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
-            <div>
-              <label className="form-label">Customer *</label>
-              {/* A list you can also type into: picking an existing name keeps the
-                  spelling consistent, and a new customer needs no setup step. */}
-              <input
-                className="form-input"
-                list="elysia-customers"
-                placeholder="Type or pick"
-                value={customer}
-                onChange={e => setCustomer(e.target.value)}
-              />
-              <datalist id="elysia-customers">
-                {customers.map(c => <option key={c} value={c} />)}
-              </datalist>
-            </div>
+            <PickOrAdd
+              label="Customer"
+              required
+              value={customer}
+              onChange={setCustomer}
+              options={customers}
+              placeholder="Select customer"
+            />
           </div>
+
+          <PickOrAdd
+            label="Carrier"
+            value={carrier}
+            onChange={setCarrier}
+            options={carriers}
+            placeholder="Who is carrying it? (optional)"
+          />
 
           <div>
             <label className="form-label">Transaction Type *</label>
@@ -359,6 +441,12 @@ export function ElysiaRegister({
     return [...new Set([...customers, ...used])].sort((a, b) => a.localeCompare(b))
   }, [customers, txns])
 
+  /** Carriers: the starting list plus every rider already used in the register. */
+  const carrierOptions = useMemo(() => {
+    const used = txns.map(t => t.carrier ?? '').filter(Boolean)
+    return [...new Set([...DEFAULT_CARRIERS, ...used])].sort((a, b) => a.localeCompare(b))
+  }, [txns])
+
   /** Only names that actually appear in the register can be filtered on. */
   const customersInLog = useMemo(
     () => [...new Set(txns.filter(t => itemIds.has(t.itemId)).map(t => t.customerName ?? '').filter(Boolean))].sort(),
@@ -378,7 +466,7 @@ export function ElysiaRegister({
       .filter(t => !customerFilter || t.customerName === customerFilter)
       .filter(t => !itemFilter || t.itemId === itemFilter)
       .filter(t => !q || [
-        t.customerName, t.itemName, t.itemCode, t.note, t.recordedByName,
+        t.customerName, t.carrier, t.itemName, t.itemCode, t.note, t.recordedByName,
         dayOf(t), prettyDate(dayOf(t)),
       ].some(v => (v ?? '').toLowerCase().includes(q)))
   }, [txns, itemIds, period, customerFilter, itemFilter, search])
@@ -484,7 +572,7 @@ export function ElysiaRegister({
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10" style={{ background: 'var(--app-bg)' }}>
             <tr className="border-b border-gray-800">
-              {['Date', 'Customer', 'Item', 'Type', 'Qty', 'Remarks', 'User', 'Time'].map(h => (
+              {['Date', 'Customer', 'Carrier', 'Item', 'Type', 'Qty', 'Remarks', 'User', 'Time'].map(h => (
                 <th key={h} className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">
                   {h}
                 </th>
@@ -493,10 +581,10 @@ export function ElysiaRegister({
           </thead>
           <tbody className="divide-y divide-gray-800">
             {loading ? (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-600">Loading register…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-600">Loading register…</td></tr>
             ) : visible.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center">
+                <td colSpan={9} className="px-4 py-10 text-center">
                   <NotebookPen className="w-8 h-8 text-gray-700 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">
                     {period === 'today' ? 'Nothing recorded today yet' : 'No entries match these filters'}
@@ -512,6 +600,7 @@ export function ElysiaRegister({
                 <tr key={t.id} className="hover:bg-gray-800/30">
                   <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap">{prettyDate(dayOf(t))}</td>
                   <td className="px-3 py-2 text-xs text-gray-200 font-medium">{t.customerName || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap">{t.carrier || '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-300">{t.itemName}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className={cn(
@@ -581,6 +670,7 @@ export function ElysiaRegister({
         <NewTransactionModal
           items={stockRows}
           customers={customerOptions}
+          carriers={carrierOptions}
           userId={userId}
           userName={userName}
           onClose={() => setShowForm(false)}
