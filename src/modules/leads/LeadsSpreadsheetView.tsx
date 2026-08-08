@@ -448,7 +448,31 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     }
 
     if (field === 'description') {
-      await updateDoc(ref, { description: value })
+      /**
+       * A note carries its own time. Before this, writing one only changed the
+       * text of whatever activity happened to be latest, so the Date & Time
+       * column kept showing when that older thing happened — a note typed today
+       * could read as last week.
+       *
+       * Which activity it belongs to depends on what is already there. Anything
+       * the app wrote itself — a status change, a floor plan upload — has a
+       * description that is the audit trail, so a person's note starts a new
+       * entry rather than overwriting it. Editing an actual note is the same
+       * note being revised, so the text and its time both move.
+       */
+      if (latestActivity.type !== 'note') {
+        await addDoc(collection(db, 'leads', lead.id, 'activities'), {
+          leadId: lead.id,
+          type: 'note',
+          description: value,
+          followUpDate: null,
+          performedBy: user?.id ?? '',
+          performedByName: user?.name ?? '',
+          createdAt: serverTimestamp(),
+        })
+        return
+      }
+      await updateDoc(ref, { description: value, createdAt: serverTimestamp() })
       return
     }
 
