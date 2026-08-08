@@ -16,6 +16,8 @@ import {
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
 import { ElysiaSpreadsheet } from './ElysiaSpreadsheet'
 import { closingOf, txnKindOf, isOutwardKind, TXN_LABEL, type TxnKind } from '../../lib/stock'
+import { parseCsv } from '../../lib/csv'
+import { SheetImportModal } from './SheetImportModal'
 import { ScannerModal } from './ScannerModal'
 import { CurtainDispatchModal } from './CurtainDispatchModal'
 import toast from 'react-hot-toast'
@@ -117,37 +119,6 @@ function csvEscape(value: string): string {
 
 function buildCsv(rows: string[][]): string {
   return rows.map(r => r.map(csvEscape).join(',')).join('\r\n')
-}
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ''
-  let inQuotes = false
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
-      } else field += c
-    } else if (c === '"') {
-      inQuotes = true
-    } else if (c === ',') {
-      row.push(field); field = ''
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++
-      row.push(field); field = ''
-      if (row.some(v => v !== '')) rows.push(row)
-      row = []
-    } else {
-      field += c
-    }
-  }
-  if (field !== '' || row.length) {
-    row.push(field)
-    if (row.some(v => v !== '')) rows.push(row)
-  }
-  return rows
 }
 
 function downloadCsv(filename: string, csv: string) {
@@ -1319,6 +1290,7 @@ export function InventoryPage() {
   const [importing, setImporting] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [showCurtainDispatch, setShowCurtainDispatch] = useState(false)
+  const [sheetImportOpen, setSheetImportOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const saveLocation = async (itemId: string, value: string) => {
@@ -1651,6 +1623,16 @@ export function InventoryPage() {
                   }}
                 />
               </>
+            )}
+            {line === 'elysia' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<FileSpreadsheet className="w-4 h-4" />}
+                onClick={() => setSheetImportOpen(true)}
+              >
+                Import Google Sheet
+              </Button>
             )}
             {line === 'elysia' && (
               <Button
@@ -2032,6 +2014,14 @@ export function InventoryPage() {
       )}
       {showCurtainDispatch && (
         <CurtainDispatchModal onClose={() => setShowCurtainDispatch(false)} />
+      )}
+      {sheetImportOpen && (
+        <SheetImportModal
+          items={lineItems}
+          userId={user?.id ?? ''}
+          userName={user?.name ?? 'Unknown'}
+          onClose={() => setSheetImportOpen(false)}
+        />
       )}
     </div>
   )
