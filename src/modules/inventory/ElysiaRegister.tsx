@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Plus, X, Search, NotebookPen, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
+import { Plus, X, Search, NotebookPen, ArrowUpCircle, ArrowDownCircle, PackagePlus } from 'lucide-react'
 import {
   db, collection, doc, getDocs, query, orderBy, limit, onSnapshot,
   runTransaction, serverTimestamp,
@@ -51,8 +51,8 @@ interface RegisterTxn {
   customerName?: string
   /** Who carried the stock — rider, courier or staff member. */
   carrier?: string
-  /** 'sent' / 'returned' as entered here. Older rows only have `type`. */
-  txnKind?: 'sent' | 'returned'
+  /** What was entered here. Older rows only have `type`. */
+  txnKind?: TxnKind
   type: 'import' | 'issue'
   quantity: number
   note?: string
@@ -62,10 +62,42 @@ interface RegisterTxn {
   createdAt?: unknown
 }
 
-/** What the row says happened, falling back to the ledger type on older rows. */
-function kindOf(t: RegisterTxn): 'sent' | 'returned' {
-  return t.txnKind ?? (t.type === 'issue' ? 'sent' : 'returned')
+/**
+ * `received` is stock arriving from a supplier; `returned` is stock a customer
+ * sent back. Both add to stock, but they are different events and the register
+ * has to be able to tell a delivery apart from a customer changing their mind.
+ */
+type TxnKind = 'sent' | 'returned' | 'received'
+
+/**
+ * What the row says happened.
+ *
+ * Rows written before this existed — Stock In, an Imported cell edited on the
+ * sheet, a CSV merge — carry no kind, only the ledger type. Those all mean
+ * stock arrived, so they read as Received. They previously showed as
+ * "Returned", which said a supplier's delivery was a customer sending goods
+ * back.
+ */
+function kindOf(t: RegisterTxn): TxnKind {
+  return t.txnKind ?? (t.type === 'issue' ? 'sent' : 'received')
 }
+
+const KIND_LABEL: Record<TxnKind, string> = { sent: 'Sent', returned: 'Returned', received: 'Received' }
+
+const KIND_CHIP: Record<TxnKind, string> = {
+  sent: 'text-red-400 bg-red-500/10',
+  returned: 'text-green-400 bg-green-500/10',
+  received: 'text-blue-400 bg-blue-500/10',
+}
+
+const DEFAULT_NOTE: Record<TxnKind, string> = {
+  sent: 'Sent to customer',
+  returned: 'Returned by customer',
+  received: 'Stock received',
+}
+
+/** Sent takes stock away; the other two bring it in. */
+const isOutward = (k: TxnKind) => k === 'sent'
 
 function dayOf(t: RegisterTxn): string {
   if (t.txnDate) return t.txnDate
@@ -179,10 +211,11 @@ function PickOrAdd({
 // ─── New Transaction form ──────────────────────────────────────────────────────
 
 function NewTransactionModal({
-  items, customers, carriers, userId, userName, onClose,
+  items, customers, suppliers, carriers, userId, userName, onClose,
 }: {
   items: InventoryItem[]
   customers: string[]
+  suppliers: string[]
   carriers: string[]
   userId: string
   userName: string
@@ -191,7 +224,7 @@ function NewTransactionModal({
   const [date, setDate] = useState(dateKey(new Date()))
   const [customer, setCustomer] = useState('')
   const [carrier, setCarrier] = useState('')
-  const [kind, setKind] = useState<'sent' | 'returned'>('sent')
+  const [kind, setKind] = useState<TxnKind>('sent')
   const [itemId, setItemId] = useState('')
   const [qty, setQty] = useState('')
   const [remarks, setRemarks] = useState('')
@@ -204,7 +237,9 @@ function NewTransactionModal({
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!itemId || !item) { toast.error('Choose an item'); return }
-    if (!customer.trim()) { toast.error('Enter the customer'); return }
+    // A delivery's supplier is useful but not always known at the counter; who
+    // a customer is, is the whole point of the entry.
+    if (kind !== 'received' && !customer.trim()) { toast.error('Enter the customer'); return }
     if (!Number.isInteger(quantity) || quantity < 1) { toast.error('Enter a quantity of 1 or more'); return }
     if (kind === 'sent' && quantity > available) {
       toast.error(`Only ${available} in stock`)
@@ -230,6 +265,9 @@ function NewTransactionModal({
           const stock = closingOf(cur)
           if (quantity > stock) throw new Error(`Only ${stock} in stock now`)
           outward = curOutward + quantity
+        } else if (kind === 'received') {
+          // A delivery is simply stock in — it cancels nothing.
+          imported = cur.importedQty + quantity
         } else {
           // A return first cancels stock that went out. Anything beyond what is
           // still outstanding is stock arriving that never left, so it counts as
@@ -259,9 +297,9 @@ function NewTransactionModal({
           type: kind === 'sent' ? 'issue' : 'import',
           txnKind: kind,
           quantity,
-          customerName: customer.trim(),
+          customerName: customer.trim() || null,
           carrier: carrier.trim() || null,
-          note: remarks.trim() || (kind === 'sent' ? 'Sent to customer' : 'Returned by customer'),
+          note: remarks.trim() || DEFAULT_NOTE[kind],
           txnDate: date,
           recordedBy: userId,
           recordedByName: userName,
@@ -269,7 +307,12 @@ function NewTransactionModal({
         })
       })
 
-      toast.success(kind === 'sent' ? `${quantity} sent to ${customer.trim()}` : `${quantity} returned by ${customer.trim()}`)
+      const who = customer.trim()
+      toast.success(
+        kind === 'sent' ? `${quantity} sent to ${who}`
+        : kind === 'returned' ? `${quantity} returned by ${who}`
+        : `${quantity} received${who ? ` from ${who}` : ''}`,
+      )
       onClose()
     } catch (err) {
       toast.error(describeFirestoreError(err, 'Could not save the entry'))
@@ -290,18 +333,47 @@ function NewTransactionModal({
         </div>
 
         <form onSubmit={save} className="space-y-4">
+          {/* Type comes first: it decides whether the next field asks for a
+              customer or a supplier, and whether stock goes up or down. */}
+          <div>
+            <label className="form-label">Transaction Type *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { v: 'sent', label: 'Sent', hint: 'Goes out', icon: ArrowUpCircle, color: '#ef4444' },
+                { v: 'returned', label: 'Returned', hint: 'Comes back', icon: ArrowDownCircle, color: '#22c55e' },
+                { v: 'received', label: 'Received', hint: 'New stock in', icon: PackagePlus, color: '#60a5fa' },
+              ] as const).map(o => (
+                <button
+                  key={o.v}
+                  type="button"
+                  onClick={() => setKind(o.v)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-2.5 rounded-xl border text-left transition-colors',
+                    kind === o.v ? 'border-gold-500 bg-gold-500/10' : 'border-gray-800 hover:border-gray-600',
+                  )}
+                >
+                  <o.icon className="w-4 h-4 shrink-0" style={{ color: o.color }} />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-gray-200 truncate">{o.label}</span>
+                    <span className="block text-[10px] text-gray-500 truncate">{o.hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label">Date *</label>
               <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
             </div>
             <PickOrAdd
-              label="Customer"
-              required
+              label={kind === 'received' ? 'Supplier' : 'Customer'}
+              required={kind !== 'received'}
               value={customer}
               onChange={setCustomer}
-              options={customers}
-              placeholder="Select customer"
+              options={kind === 'received' ? suppliers : customers}
+              placeholder={kind === 'received' ? 'Who supplied it? (optional)' : 'Select customer'}
             />
           </div>
 
@@ -312,32 +384,6 @@ function NewTransactionModal({
             options={carriers}
             placeholder="Who is carrying it? (optional)"
           />
-
-          <div>
-            <label className="form-label">Transaction Type *</label>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { v: 'sent', label: 'Sent', hint: 'Stock goes out', icon: ArrowUpCircle, color: '#ef4444' },
-                { v: 'returned', label: 'Returned', hint: 'Stock comes back', icon: ArrowDownCircle, color: '#22c55e' },
-              ] as const).map(o => (
-                <button
-                  key={o.v}
-                  type="button"
-                  onClick={() => setKind(o.v)}
-                  className={cn(
-                    'flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-colors',
-                    kind === o.v ? 'border-gold-500 bg-gold-500/10' : 'border-gray-800 hover:border-gray-600',
-                  )}
-                >
-                  <o.icon className="w-4 h-4 shrink-0" style={{ color: o.color }} />
-                  <span>
-                    <span className="block text-xs font-medium text-gray-200">{o.label}</span>
-                    <span className="block text-[10px] text-gray-500">{o.hint}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
 
           <div>
             <label className="form-label">Item *</label>
@@ -435,11 +481,20 @@ export function ElysiaRegister({
 
   const itemIds = useMemo(() => new Set(items.map(i => i.id)), [items])
 
-  /** Customer list for the form: the CRM's customers plus anyone already written in. */
+  /**
+   * Customers and suppliers are kept apart. Both are typed into the same field,
+   * but a supplier offered as a customer — and vice versa — makes both lists
+   * useless within a week.
+   */
   const customerOptions = useMemo(() => {
-    const used = txns.map(t => t.customerName ?? '').filter(Boolean)
+    const used = txns.filter(t => kindOf(t) !== 'received').map(t => t.customerName ?? '').filter(Boolean)
     return [...new Set([...customers, ...used])].sort((a, b) => a.localeCompare(b))
   }, [customers, txns])
+
+  const supplierOptions = useMemo(() => {
+    const used = txns.filter(t => kindOf(t) === 'received').map(t => t.customerName ?? '').filter(Boolean)
+    return [...new Set(used)].sort((a, b) => a.localeCompare(b))
+  }, [txns])
 
   /** Carriers: the starting list plus every rider already used in the register. */
   const carrierOptions = useMemo(() => {
@@ -471,8 +526,11 @@ export function ElysiaRegister({
       ].some(v => (v ?? '').toLowerCase().includes(q)))
   }, [txns, itemIds, period, customerFilter, itemFilter, search])
 
-  const sentUnits = visible.filter(t => kindOf(t) === 'sent').reduce((s, t) => s + (t.quantity ?? 0), 0)
-  const returnedUnits = visible.filter(t => kindOf(t) === 'returned').reduce((s, t) => s + (t.quantity ?? 0), 0)
+  const unitsOf = (k: TxnKind) =>
+    visible.filter(t => kindOf(t) === k).reduce((s, t) => s + (t.quantity ?? 0), 0)
+  const sentUnits = unitsOf('sent')
+  const returnedUnits = unitsOf('returned')
+  const receivedUnits = unitsOf('received')
 
   const stockRows = useMemo(
     () => [...items].sort((a, b) => a.itemName.localeCompare(b.itemName)),
@@ -564,7 +622,13 @@ export function ElysiaRegister({
         <h3 className="text-sm font-semibold text-gray-200">{periodLabel}</h3>
         <p className="text-[11px] text-gray-500">
           {visible.length} entr{visible.length === 1 ? 'y' : 'ies'}
-          {visible.length > 0 && <> · <span className="text-red-400">{sentUnits} sent</span> · <span className="text-green-400">{returnedUnits} returned</span></>}
+          {visible.length > 0 && (
+            <>
+              {' '}· <span className="text-red-400">{sentUnits} sent</span>
+              {' '}· <span className="text-green-400">{returnedUnits} returned</span>
+              {' '}· <span className="text-blue-400">{receivedUnits} received</span>
+            </>
+          )}
         </p>
       </div>
 
@@ -595,7 +659,8 @@ export function ElysiaRegister({
                 </td>
               </tr>
             ) : visible.map(t => {
-              const sent = kindOf(t) === 'sent'
+              const k = kindOf(t)
+              const out = isOutward(k)
               return (
                 <tr key={t.id} className="hover:bg-gray-800/30">
                   <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap">{prettyDate(dayOf(t))}</td>
@@ -603,15 +668,12 @@ export function ElysiaRegister({
                   <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap">{t.carrier || '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-300">{t.itemName}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <span className={cn(
-                      'text-[11px] font-medium px-2 py-0.5 rounded-full',
-                      sent ? 'text-red-400 bg-red-500/10' : 'text-green-400 bg-green-500/10',
-                    )}>
-                      {sent ? 'Sent' : 'Returned'}
+                    <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', KIND_CHIP[k])}>
+                      {KIND_LABEL[k]}
                     </span>
                   </td>
-                  <td className={cn('px-3 py-2 text-xs font-bold tabular-nums', sent ? 'text-red-400' : 'text-green-400')}>
-                    {sent ? '−' : '+'}{t.quantity}
+                  <td className={cn('px-3 py-2 text-xs font-bold tabular-nums', out ? 'text-red-400' : 'text-green-400')}>
+                    {out ? '−' : '+'}{t.quantity}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 max-w-[220px] truncate" title={t.note}>{t.note || '—'}</td>
                   <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{t.recordedByName || '—'}</td>
@@ -663,13 +725,14 @@ export function ElysiaRegister({
       </div>
 
       <div className="px-4 py-2 text-[11px] text-gray-600 border-t border-gray-800">
-        {stockRows.length} item{stockRows.length === 1 ? '' : 's'} · Sent reduces stock, Returned adds it back
+        {stockRows.length} item{stockRows.length === 1 ? '' : 's'} · Sent reduces stock · Returned and Received add to it
       </div>
 
       {showForm && (
         <NewTransactionModal
           items={stockRows}
           customers={customerOptions}
+          suppliers={supplierOptions}
           carriers={carrierOptions}
           userId={userId}
           userName={userName}
