@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { X, Upload, FileSpreadsheet, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
-import { db, collection, doc, writeBatch, serverTimestamp, Timestamp } from '../../lib/firebase'
+import { db, collection, doc, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from '../../lib/firebase'
 import type { InventoryItem, StockStatus } from '../../types'
 import { cn } from '../../lib/utils'
 import { describeFirestoreError } from '../../lib/errorMessage'
@@ -154,6 +154,24 @@ export function SheetImportModal({
         nameByKey.set(key, item.itemName)
       }
 
+      /**
+       * The transaction log is write-once by design: the rules allow a movement
+       * to be created and never touched again. So a re-import cannot overwrite
+       * the rows it wrote last time — it has to leave them alone. One query for
+       * what this importer has already written is enough to know which.
+       */
+      const alreadyImported = new Set<string>()
+      try {
+        const prior = await getDocs(
+          query(collection(db, 'stockTransactions'), where('importSource', '==', 'google-sheet')),
+        )
+        prior.docs.forEach(d => alreadyImported.add(d.id))
+      } catch (err) {
+        // Not fatal on a first run, and a movement that slips through is caught
+        // by the same rule that made this necessary.
+        console.error('Could not check previously imported movements:', err)
+      }
+
       let batch = writeBatch(db)
       let queued = 0
       const flush = async (force = false) => {
@@ -205,15 +223,23 @@ export function SheetImportModal({
         await flush()
       }
 
-      let history = 0, unmatched = 0
+      // Products are committed on their own, before the movements are attempted.
+      // The two halves fail for different reasons, and a problem with the log
+      // should not throw away sixty corrected stock figures.
+      await flush(true)
+
+      let history = 0, unmatched = 0, alreadyThere = 0
       for (const m of parsed.movements) {
         const itemId = idByKey.get(m.itemKey)
         if (!itemId) { unmatched++; continue }
 
+        const docId = movementDocId(m.fingerprint)
+        if (alreadyImported.has(docId)) { alreadyThere++; continue }
+
         // Dated in the past on purpose: the log is ordered by when the movement
         // happened, not when it was uploaded.
         const when = m.date ? new Date(`${m.date}T12:00:00`) : null
-        batch.set(doc(db, 'stockTransactions', movementDocId(m.fingerprint)), {
+        batch.set(doc(db, 'stockTransactions', docId), {
           itemId,
           itemCode: codeByKey.get(m.itemKey) ?? m.itemCode,
           itemName: nameByKey.get(m.itemKey) ?? m.itemName,
@@ -246,7 +272,9 @@ export function SheetImportModal({
 
       setDone(
         `${updated} products updated, ${created} added. ${history} movements loaded into the Transaction Log`
-        + (unmatched ? `, ${unmatched} skipped for having no matching product.` : '.'),
+        + (alreadyThere ? `, ${alreadyThere} were already imported and left alone` : '')
+        + (unmatched ? `, ${unmatched} skipped for having no matching product` : '')
+        + '.',
       )
       toast.success('Import finished')
     } catch (err) {
