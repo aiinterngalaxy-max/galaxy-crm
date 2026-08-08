@@ -76,6 +76,13 @@ export function SheetImportModal({
   const [reading, setReading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [done, setDone] = useState<string | null>(null)
+  /**
+   * Failures used to be a toast and nothing else. A toast disappears after a
+   * few seconds and the screen behind it looks untouched, so a refused write
+   * was indistinguishable from a button that did nothing — which is exactly how
+   * it was reported. It stays on screen now, with the real message.
+   */
+  const [failed, setFailed] = useState<string | null>(null)
 
   /** Existing products, keyed the same way the sheet rows are. */
   const existingByKey = useMemo(
@@ -134,6 +141,7 @@ export function SheetImportModal({
 
   const runImport = async () => {
     setImporting(true)
+    setFailed(null)
     try {
       // Item ids as they will be after the write, so movements can point at the
       // products created in this same run.
@@ -173,7 +181,10 @@ export function SheetImportModal({
         }
 
         if (existing) {
-          batch.update(doc(db, 'inventory', existing.id), common)
+          // merge rather than update: `update` fails the entire batch if even one
+          // of these products was deleted by someone else since the page loaded,
+          // which would abandon the whole import over a single stale row.
+          batch.set(doc(db, 'inventory', existing.id), common, { merge: true })
           updated++
         } else {
           const ref = doc(collection(db, 'inventory'))
@@ -239,7 +250,10 @@ export function SheetImportModal({
       )
       toast.success('Import finished')
     } catch (err) {
-      toast.error(describeFirestoreError(err, 'Import failed'))
+      console.error('Sheet import failed:', err)
+      const code = typeof err === 'object' && err && 'code' in err ? ` (${String((err as { code: unknown }).code)})` : ''
+      setFailed(describeFirestoreError(err, 'Import failed') + code)
+      toast.error('Import failed — see the message in the dialog')
     } finally {
       setImporting(false)
     }
@@ -323,9 +337,25 @@ export function SheetImportModal({
           </details>
         )}
 
+        {failed && (
+          <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3">
+            <p className="text-xs font-medium text-red-300 flex items-center gap-1.5 mb-1">
+              <AlertTriangle className="w-3.5 h-3.5" /> Nothing was saved
+            </p>
+            <p className="text-[11px] text-red-200/80">{failed}</p>
+            <p className="text-[11px] text-red-200/50 mt-1">
+              Your files are still loaded — fix the cause and press Import again. Nothing was half-written.
+            </p>
+          </div>
+        )}
+
         {done && (
-          <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-3">
+          <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-3 space-y-1">
             <p className="text-xs text-green-300">{done}</p>
+            <p className="text-[11px] text-green-200/60">
+              Close this and open the <span className="font-medium">Stock Table</span> tab. If a rack, colour or
+              status filter is on, clear it — the imported rows may be filtered out of view.
+            </p>
           </div>
         )}
 
