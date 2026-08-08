@@ -1,12 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getBrands, getPerformance, getSyncStatus } from '@/lib/content-studio/queries'
+import { getBrands, getPerformance, getSyncStatus, syncNow } from '@/lib/content-studio/queries'
 import { Page, PageHeader, PlatformChip, ProgressBar } from '@/components/content-studio/ui'
 import { compact, num } from '@/lib/content-studio/format'
 import { FirstRun } from '@/components/content-studio/FirstRun'
 import { SyncButton } from '@/components/content-studio/SyncButton'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import type { Brand, PerfRow, SyncStatusEntry } from '@/types/content-studio'
+import type { Brand, PerfRow, SyncLogEntry, SyncStatusEntry } from '@/types/content-studio'
+
+/** SQLite writes datetime('now') as "YYYY-MM-DD HH:MM:SS" in UTC. */
+function parseSyncTime(ts?: string): Date | null {
+  if (!ts) return null
+  const d = new Date(ts.includes('T') ? ts : `${ts.replace(' ', 'T')}Z`)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function agoLabel(d: Date): string {
+  const mins = Math.round((Date.now() - d.getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.round(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+/** How old the pulled data may get before the page fetches it again itself. */
+const STALE_AFTER_MS = 3 * 60 * 60 * 1000
 
 export function PerformancePage() {
   const [loading, setLoading] = useState(true)
@@ -17,6 +37,9 @@ export function PerformancePage() {
   const [platFilter, setPlatFilter] = useState('all')
   const [brandFilter, setBrandFilter] = useState('all')
   const [sortBy, setSortBy] = useState<'views' | 'date'>('views')
+  const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([])
+  const [autoSyncing, setAutoSyncing] = useState(false)
+  const autoSyncTried = useRef(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -27,12 +50,37 @@ export function PerformancePage() {
         setBrands(b)
         const status: SyncStatusEntry[] = sync?.status ?? []
         setConnected(status.filter((s) => s.connected).map((s) => s.label))
+        setSyncLog(sync?.log ?? [])
       })
       .catch((e) => setError(e?.message || String(e)))
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const lastSyncedAt = useMemo(() => parseSyncTime(syncLog[0]?.ts), [syncLog])
+
+  /**
+   * Nothing ever pulled from the platforms unless somebody remembered to press
+   * "Sync live data", so the page showed whatever the last person to press it
+   * had fetched — a post published this week simply was not in the database.
+   * If the data is more than a few hours old, fetch it on the way in.
+   *
+   * Once per visit: a failing platform must not turn into a retry loop against
+   * someone else's API.
+   */
+  useEffect(() => {
+    if (loading || autoSyncTried.current || !connected.length) return
+    const age = lastSyncedAt ? Date.now() - lastSyncedAt.getTime() : Infinity
+    if (age < STALE_AFTER_MS) return
+
+    autoSyncTried.current = true
+    setAutoSyncing(true)
+    syncNow()
+      .then((r) => { if (r.ok) load() })
+      .catch((e) => console.error('Auto-sync failed:', e))
+      .finally(() => setAutoSyncing(false))
+  }, [loading, connected.length, lastSyncedAt, load])
 
   const availablePlatforms = useMemo(() => [...new Set(perf.map((p) => p.platform || 'Other'))].sort(), [perf])
   const availableBrands = useMemo(() => [...new Set(perf.map((p) => p.brand_name))].sort(), [perf])
@@ -127,9 +175,20 @@ export function PerformancePage() {
             </div>
             <div className="text-sm text-gray-400 mt-0.5">
               {isLive
-                ? 'These metrics come straight from the platform APIs. Press Sync live data to refresh.'
+                ? 'These metrics come straight from the platform APIs.'
                 : 'No social account is connected yet, so these figures are illustrative — not real.'}
             </div>
+            {/* When the numbers were actually fetched. Without this, data pulled
+                weeks ago is indistinguishable from data pulled a minute ago. */}
+            {isLive && (
+              <div className="text-xs text-gray-500 mt-1">
+                {autoSyncing
+                  ? 'Fetching the latest posts…'
+                  : lastSyncedAt
+                    ? <>Last pulled {agoLabel(lastSyncedAt)}. Refreshes itself when it is more than 3 hours old.</>
+                    : <>Never pulled yet — press Sync live data.</>}
+              </div>
+            )}
           </div>
           {!connected.length && (
             <Link to="/content-studio/connections" className="btn-primary">Connect accounts →</Link>
