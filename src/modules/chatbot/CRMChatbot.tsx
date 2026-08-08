@@ -50,9 +50,13 @@ async function fetchCRMContext(): Promise<string> {
   // over every project's workflow stages (previously the single biggest read).
   const [projects, leads, customers, quotations, invoices, candidates, inventory, movements] =
     await Promise.all([
-      safe(getDocs(query(collection(db, 'projects'), limit(200)))),
-      safe(getDocs(query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(250)))),
-      safe(getDocs(query(collection(db, 'customers'), limit(200)))),
+      // Limits are the read budget, not just a safety net: this runs on every
+      // question session and the daily free-tier quota is 50,000 reads for the
+      // whole company. Each row is one line of a text blob the model skims, so
+      // the difference between 250 leads and 120 is not worth what it costs.
+      safe(getDocs(query(collection(db, 'projects'), limit(120)))),
+      safe(getDocs(query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(120)))),
+      safe(getDocs(query(collection(db, 'customers'), limit(120)))),
       safe(getDocs(query(collection(db, 'quotations'), limit(40)))),
       safe(getDocs(query(collection(db, 'invoices'), limit(40)))),
       safe(getDocs(query(collection(db, 'candidates'), limit(60)))),
@@ -60,8 +64,8 @@ async function fetchCRMContext(): Promise<string> {
       // items created before the field existed simply don't carry it, and Firestore
       // skips documents missing the field a query filters on — those rows would
       // vanish from the assistant's view entirely.
-      safe(getDocs(query(collection(db, 'inventory'), limit(500)))),
-      safe(getDocs(query(collection(db, 'stockTransactions'), orderBy('createdAt', 'desc'), limit(80)))),
+      safe(getDocs(query(collection(db, 'inventory'), limit(250)))),
+      safe(getDocs(query(collection(db, 'stockTransactions'), orderBy('createdAt', 'desc'), limit(50)))),
     ])
 
   const L: string[] = []
@@ -270,33 +274,42 @@ export function CRMChatbot() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking])
 
-  const loadContext = useCallback(async () => {
+  /** Returns the context as well as storing it, so the first question can use it. */
+  const loadContext = useCallback(async (force = false): Promise<string | null> => {
+    if (context && !force) return context
     setLoadingCtx(true)
     try {
       const ctx = await fetchCRMContext()
       setContext(ctx)
+      return ctx
     } catch {
       toast.error('Failed to load CRM data')
+      return null
     } finally {
       setLoadingCtx(false)
     }
-  }, [])
+  }, [context])
 
+  // Opening the panel no longer reads the CRM. Loading the context costs around
+  // a thousand Firestore reads, and most opens are someone glancing at the
+  // bubble and closing it again — on the free daily quota that was real money's
+  // worth of nothing. It loads on the first question instead, once per session.
   useEffect(() => {
-    if (open && !context) loadContext()
     if (open) setTimeout(() => inputRef.current?.focus(), 100)
   }, [open])
 
   const send = useCallback(async (text = input.trim()) => {
-    if (!text || thinking || !context) return
+    if (!text || thinking) return
     setInput('')
     const userMsg: Message = { role: 'user', content: text, ts: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setThinking(true)
 
     try {
+      const ctx = await loadContext()
+      if (!ctx) throw new Error('Could not read the CRM data to answer from')
       const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
-      const reply = await chatWithGroq(history, context)
+      const reply = await chatWithGroq(history, ctx)
       setMessages(prev => [...prev, { role: 'assistant', content: reply, ts: Date.now() }])
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
@@ -310,7 +323,7 @@ export function CRMChatbot() {
     } finally {
       setThinking(false)
     }
-  }, [input, thinking, context, messages])
+  }, [input, thinking, messages, loadContext])
 
   const isEmpty = messages.length === 0 && !thinking
 
@@ -383,7 +396,7 @@ export function CRMChatbot() {
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
               <button
-                onClick={loadContext}
+                onClick={() => loadContext(true)}
                 disabled={loadingCtx}
                 title="Refresh CRM data"
                 style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, lineHeight: 0 }}
@@ -523,13 +536,7 @@ export function CRMChatbot() {
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
-              placeholder={
-                loadingCtx
-                  ? 'Loading CRM data…'
-                  : context
-                    ? 'Ask about projects, payments, leads…'
-                    : 'Ready to answer…'
-              }
+              placeholder={loadingCtx ? 'Reading CRM data…' : 'Ask about stock, projects, payments, leads…'}
               disabled={loadingCtx || thinking}
               style={{
                 flex: 1, background: 'var(--input-bg)',
@@ -543,7 +550,7 @@ export function CRMChatbot() {
             />
             <button
               onClick={() => send()}
-              disabled={!input.trim() || thinking || loadingCtx || !context}
+              disabled={!input.trim() || thinking || loadingCtx}
               style={{
                 width: 36, height: 36, borderRadius: 10, flexShrink: 0,
                 background: input.trim() && !thinking && context

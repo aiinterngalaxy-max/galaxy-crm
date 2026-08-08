@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Plus, X, Search, NotebookPen, ArrowUpCircle, ArrowDownCircle, PackagePlus } from 'lucide-react'
 import {
-  db, collection, doc, getDocs, query, orderBy, limit, onSnapshot,
-  runTransaction, serverTimestamp,
+  db, collection, doc, getDocs, query, where, orderBy, limit, onSnapshot,
+  runTransaction, serverTimestamp, Timestamp,
 } from '../../lib/firebase'
 import { Button } from '../../components/ui/Button'
 import type { InventoryItem, StockStatus } from '../../types'
@@ -448,6 +448,7 @@ export function ElysiaRegister({
   const [loading, setLoading] = useState(true)
   const [customers, setCustomers] = useState<string[]>([])
   const [showForm, setShowForm] = useState(false)
+  const customersLoaded = useRef(false)
 
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState<Period>('today')
@@ -455,8 +456,20 @@ export function ElysiaRegister({
   const [itemFilter, setItemFilter] = useState('')
 
   // Live, so the register updates as other people record entries.
+  //
+  // Scoped to the last 45 days rather than the last N rows: the filters only
+  // reach back a month, so anything older was being read on every visit and
+  // then thrown away. `where` and `orderBy` are on the same field, so this
+  // needs no composite index — nothing to deploy.
   useEffect(() => {
-    const q = query(collection(db, 'stockTransactions'), orderBy('createdAt', 'desc'), limit(200))
+    const since = new Date()
+    since.setDate(since.getDate() - 45)
+    const q = query(
+      collection(db, 'stockTransactions'),
+      where('createdAt', '>=', Timestamp.fromDate(since)),
+      orderBy('createdAt', 'desc'),
+      limit(150),
+    )
     return onSnapshot(
       q,
       snap => {
@@ -473,11 +486,16 @@ export function ElysiaRegister({
     )
   }, [])
 
+  // Fetched when the form is first opened, not on every visit to the page.
+  // Most people come here to read the register, and the customer list is only
+  // needed by the one dropdown inside the dialog.
   useEffect(() => {
-    getDocs(query(collection(db, 'customers'), limit(300)))
+    if (!showForm || customersLoaded.current) return
+    customersLoaded.current = true
+    getDocs(query(collection(db, 'customers'), limit(200)))
       .then(snap => setCustomers(snap.docs.map(d => (d.data() as { name?: string }).name ?? '').filter(Boolean)))
       .catch(console.error)
-  }, [])
+  }, [showForm])
 
   const itemIds = useMemo(() => new Set(items.map(i => i.id)), [items])
 
