@@ -25,3 +25,37 @@ export interface StockLedger {
 export function closingOf(l: StockLedger): number {
   return l.openingStock + l.importedQty - l.issuedQty - (l.outwardQty ?? 0)
 }
+
+/**
+ * What a stock movement was, in the words the warehouse uses.
+ *
+ * The stored `type` only says which way the ledger moved: `issue` out, `import`
+ * in. That cannot tell a supplier's delivery from a customer's return, so
+ * entries made through the register also carry `txnKind`, which can.
+ *
+ * This mapping lives here because it is read in two places — the register and
+ * the transaction log — and a second copy would drift. It already did once:
+ * the log called every `import` a return, so deliveries read as customers
+ * sending goods back.
+ */
+export type TxnKind = 'sent' | 'returned' | 'received'
+
+export const TXN_LABEL: Record<TxnKind, string> = {
+  sent: 'Sent', returned: 'Returned', received: 'Received',
+}
+
+/**
+ * Rows written before `txnKind` existed — Stock In/Out buttons, an Imported
+ * cell edited on the sheet, a CSV merge — have only the ledger type. Those all
+ * mean stock arrived or left, so they read as Received or Sent. Returns are
+ * under-reported for that period, which is honest: nothing recorded them.
+ */
+export function txnKindOf(t: { txnKind?: string | null; type?: string | null }): TxnKind {
+  if (t.txnKind === 'sent' || t.txnKind === 'returned' || t.txnKind === 'received') return t.txnKind
+  return t.type === 'issue' ? 'sent' : 'received'
+}
+
+/** Sent takes stock away; returned and received both bring it back in. */
+export function isOutwardKind(k: TxnKind): boolean {
+  return k === 'sent'
+}

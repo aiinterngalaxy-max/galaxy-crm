@@ -7,7 +7,7 @@ import {
 import { Button } from '../../components/ui/Button'
 import type { InventoryItem, StockStatus } from '../../types'
 import { cn } from '../../lib/utils'
-import { closingOf } from '../../lib/stock'
+import { closingOf, txnKindOf, isOutwardKind, TXN_LABEL, type TxnKind } from '../../lib/stock'
 import { describeFirestoreError } from '../../lib/errorMessage'
 import toast from 'react-hot-toast'
 
@@ -62,27 +62,10 @@ interface RegisterTxn {
   createdAt?: unknown
 }
 
-/**
- * `received` is stock arriving from a supplier; `returned` is stock a customer
- * sent back. Both add to stock, but they are different events and the register
- * has to be able to tell a delivery apart from a customer changing their mind.
- */
-type TxnKind = 'sent' | 'returned' | 'received'
-
-/**
- * What the row says happened.
- *
- * Rows written before this existed — Stock In, an Imported cell edited on the
- * sheet, a CSV merge — carry no kind, only the ledger type. Those all mean
- * stock arrived, so they read as Received. They previously showed as
- * "Returned", which said a supplier's delivery was a customer sending goods
- * back.
- */
-function kindOf(t: RegisterTxn): TxnKind {
-  return t.txnKind ?? (t.type === 'issue' ? 'sent' : 'received')
-}
-
-const KIND_LABEL: Record<TxnKind, string> = { sent: 'Sent', returned: 'Returned', received: 'Received' }
+/** Shared with the Transaction Log — see lib/stock.ts for why it lives there. */
+const kindOf = (t: RegisterTxn): TxnKind => txnKindOf(t)
+const isOutward = isOutwardKind
+const KIND_LABEL = TXN_LABEL
 
 const KIND_CHIP: Record<TxnKind, string> = {
   sent: 'text-red-400 bg-red-500/10',
@@ -95,9 +78,6 @@ const DEFAULT_NOTE: Record<TxnKind, string> = {
   returned: 'Returned by customer',
   received: 'Stock received',
 }
-
-/** Sent takes stock away; the other two bring it in. */
-const isOutward = (k: TxnKind) => k === 'sent'
 
 function dayOf(t: RegisterTxn): string {
   if (t.txnDate) return t.txnDate

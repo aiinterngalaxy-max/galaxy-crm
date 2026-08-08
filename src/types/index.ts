@@ -429,6 +429,12 @@ export interface StockTransaction {
   itemCode: string
   itemName: string
   type: 'import' | 'issue'
+  /** What the entry was, when it was recorded through the daily register. */
+  txnKind?: 'sent' | 'returned' | 'received'
+  /** Customer for sent/returned, supplier for received. Register entries only. */
+  customerName?: string
+  /** Who carried the stock. Register entries only. */
+  carrier?: string
   quantity: number
   note?: string
   projectRef?: string
