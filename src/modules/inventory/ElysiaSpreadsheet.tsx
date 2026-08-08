@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Plus } from 'lucide-react'
 import {
-  db, doc, collection, runTransaction, serverTimestamp,
+  db, doc, collection, addDoc, runTransaction, serverTimestamp,
 } from '../../lib/firebase'
 import type { InventoryItem, StockStatus } from '../../types'
 import { cn } from '../../lib/utils'
 import { describeFirestoreError } from '../../lib/errorMessage'
 import { closingOf } from '../../lib/stock'
+import { normaliseKey } from '../../lib/sheetImport'
 import { ElysiaRegister } from './ElysiaRegister'
 import toast from 'react-hot-toast'
 
@@ -114,6 +115,149 @@ interface ViewProps {
   canEdit: boolean
   userId: string
   userName: string
+}
+
+/**
+ * The "Add new item…" row, the same shape the leads grid uses: a dashed line at
+ * the top of the table that turns into inputs when clicked, so adding a product
+ * happens where the products are rather than behind a button somewhere else.
+ *
+ * It refuses a name that already exists. This sheet currently carries "1 TOUCH
+ * GREY" twice at different quantities because two routes into the catalogue
+ * never checked, and nobody can tell which row is the real one. One typo here
+ * is how that happens again.
+ */
+function NewItemRow({ items, canEdit, userId, userName }: ViewProps) {
+  const [active, setActive] = useState(false)
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const [colour, setColour] = useState('')
+  const [material, setMaterial] = useState('')
+  const [rack, setRack] = useState('')
+  const [opening, setOpening] = useState('')
+  const [reorder, setReorder] = useState('')
+  const [saving, setSaving] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (active) nameRef.current?.focus() }, [active])
+
+  const reset = () => {
+    setCode(''); setName(''); setColour(''); setMaterial('')
+    setRack(''); setOpening(''); setReorder(''); setActive(false)
+  }
+
+  const save = async () => {
+    const itemName = name.trim()
+    if (!itemName) { toast.error('Item name is required'); nameRef.current?.focus(); return }
+
+    const clash = items.find(i => normaliseKey(i.itemName) === normaliseKey(itemName))
+    if (clash) {
+      toast.error(`"${clash.itemName}" already exists with ${clash.closingStock} in stock — edit that row instead`)
+      return
+    }
+
+    const open = Number(opening) || 0
+    const reorderLevel = Number(reorder) || 0
+    setSaving(true)
+    try {
+      await addDoc(collection(db, 'inventory'), {
+        itemCode: code.trim() || itemName.toUpperCase().replace(/\s+/g, '-').slice(0, 24),
+        itemName,
+        category: 'OTHER',
+        color: colour.trim(),
+        material: material.trim(),
+        location: rack.trim(),
+        productLine: 'elysia',
+        openingStock: open,
+        importedQty: 0,
+        issuedQty: 0,
+        outwardQty: 0,
+        closingStock: open,
+        reorderLevel,
+        stockStatus: computeStatus(open, reorderLevel),
+        createdBy: userId,
+        createdByName: userName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      toast.success(`"${itemName}" added`)
+      reset()
+      setActive(true) // stay open for the next one
+    } catch (err) {
+      toast.error(describeFirestoreError(err, 'Could not add the item'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') save()
+    if (e.key === 'Escape') reset()
+  }
+
+  if (!canEdit) return null
+
+  if (!active) {
+    return (
+      <tr
+        className="border-t border-dashed border-gray-800 hover:bg-gray-800/20 cursor-pointer transition-colors"
+        onClick={() => setActive(true)}
+      >
+        <td colSpan={13} className="px-2 py-2.5 text-xs text-gray-600 hover:text-gray-400 transition-colors">
+          <span className="flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Add new item…
+          </span>
+        </td>
+      </tr>
+    )
+  }
+
+  const input = 'w-full bg-gray-800 border border-gray-700 focus:border-gold-500 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600 focus:outline-none'
+
+  return (
+    <tr className="border-t-2 border-gold-500/40 bg-gray-800/10">
+      <td className="px-2 py-2 min-w-[150px]">
+        <input value={code} onChange={e => setCode(e.target.value)} onKeyDown={onKey} placeholder="Code (optional)" className={input} />
+      </td>
+      <td className="px-2 py-2 min-w-[190px]">
+        <input ref={nameRef} value={name} onChange={e => setName(e.target.value)} onKeyDown={onKey} placeholder="Item name *" className={input} />
+      </td>
+      <td className="px-2 py-2 min-w-[90px]">
+        <input value={colour} onChange={e => setColour(e.target.value)} onKeyDown={onKey} placeholder="Colour" className={input} />
+      </td>
+      <td className="px-2 py-2 min-w-[100px]">
+        <input value={material} onChange={e => setMaterial(e.target.value)} onKeyDown={onKey} placeholder="Material" className={input} />
+      </td>
+      <td className="px-2 py-2 min-w-[80px]">
+        <input value={rack} onChange={e => setRack(e.target.value)} onKeyDown={onKey} placeholder="Rack 2" className={input} />
+      </td>
+      <td className="px-2 py-2 text-xs text-gray-600">—</td>
+      <td className="px-2 py-2 w-20">
+        <input type="number" min="0" value={opening} onChange={e => setOpening(e.target.value)} onKeyDown={onKey} placeholder="0" className={cn(input, 'text-right')} />
+      </td>
+      {/* Imported, Issued, Outward and Closing all start from the opening figure. */}
+      <td className="px-2 py-2 text-xs text-gray-600 text-right">0</td>
+      <td className="px-2 py-2 text-xs text-gray-600 text-right">0</td>
+      <td className="px-2 py-2 text-xs text-gray-600 text-right">0</td>
+      <td className="px-2 py-2 text-xs text-gray-400 text-right font-bold">{Number(opening) || 0}</td>
+      <td className="px-2 py-2 w-20">
+        <input type="number" min="0" value={reorder} onChange={e => setReorder(e.target.value)} onKeyDown={onKey} placeholder="0" className={cn(input, 'text-right')} />
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="text-[11px] font-medium px-2 py-1 rounded-lg disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #C9A840, #a07820)', color: '#0A0A0F' }}
+          >
+            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Add'}
+          </button>
+          <button onClick={reset} className="text-[11px] text-gray-500 hover:text-gray-300">Cancel</button>
+        </div>
+      </td>
+    </tr>
+  )
 }
 
 /**
@@ -285,13 +429,9 @@ function SheetGrid({
     })
   }
 
-  if (!items.length) {
-    return (
-      <div className="px-4 py-10 text-center text-sm text-gray-600">
-        No items match the filters above.
-      </div>
-    )
-  }
+  // No early return on an empty list any more: the table itself carries the
+  // "Add new item…" row, and a filter matching nothing is exactly when someone
+  // is most likely to be adding the thing that is missing.
 
   const headers = ['Code', 'Item Name', 'Colour', 'Material', 'Rack', 'Client',
                    'Opening', 'Imported', 'Issued', 'Outward', 'Closing', 'Reorder', 'Status']
@@ -317,6 +457,10 @@ function SheetGrid({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
+            <NewItemRow items={items} canEdit={canEdit} userId={userId} userName={userName} />
+            {items.length === 0 && (
+              <tr><td colSpan={13} className="px-4 py-8 text-center text-sm text-gray-600">No items match the filters above.</td></tr>
+            )}
             {items.map(item => {
               const closing = item.closingStock
               const statusColor =
