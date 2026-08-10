@@ -127,21 +127,51 @@ async function openGraphTags(url: string): Promise<Reference | null> {
   }
 }
 
-const ANALYST = `You are a short-form video strategist for an Indian home-automation brand.
-Given a reference post's cover image and caption, describe in 2-3 short sentences what the video appears to be: the hook style, the format, and how it likely ends.
-Be concrete about what you can actually see. Never invent view counts, dates or dialogue.`
+const ANALYST = `You are a short-form video strategist.
+Describe the reference post in 3 short lines, labelled exactly:
+SUBJECT: what the video is actually about, in a few words.
+HOOK: how it opens and why that earns attention.
+FORMAT: the style — talking head, demo, POV skit, dance/trend, before-after, text-on-screen — and how it likely ends.
+Be concrete about what you can see. Never invent view counts, dates or dialogue.`
+
+/**
+ * The cover is downloaded here and passed as data, not as a link.
+ *
+ * Instagram's CDN serves nothing to a fetcher whose Referer it doesn't
+ * recognise, and the model's own fetcher is no exception — handing it the URL
+ * meant it silently saw no image and wrote a guess from the caption instead,
+ * which reads plausible and is exactly the failure that is hard to notice.
+ */
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GalaxyCRM/1.0)' } })
+    if (!r.ok) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    // Well past any cover, and short of the model's per-request ceiling.
+    if (buf.byteLength > 4_000_000) return null
+    const mime = r.headers.get('content-type') || 'image/jpeg'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return null
+  }
+}
 
 async function analyseReference(ref: Reference): Promise<string> {
   const brief = `Caption: ${ref.caption || '(none)'}\nAuthor: ${ref.author || '(unknown)'}\nPlatform: ${ref.provider}`
+
   if (ref.thumbnail) {
-    try {
-      return await groq(VISION_MODEL, ANALYST, [
-        { type: 'text', text: `Describe this reference post.\n${brief}` },
-        { type: 'image_url', image_url: { url: ref.thumbnail } },
-      ], 400)
-    } catch {
-      // Vision models get renamed and retired. Falling back to the caption is
-      // worse than seeing the cover, but far better than an error.
+    const dataUrl = await fetchAsDataUrl(ref.thumbnail)
+    if (dataUrl) {
+      try {
+        return await groq(VISION_MODEL, ANALYST, [
+          { type: 'text', text: `Describe this reference post.\n${brief}` },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ], 400)
+      } catch (err) {
+        // Vision model names get retired; the caption is a worse but working
+        // fallback. Logged so a rename does not silently degrade every script.
+        console.error('vision analysis failed:', err instanceof Error ? err.message : err)
+      }
     }
   }
   return groq(TEXT_MODEL, ANALYST, `Only the caption is available — do not describe imagery.\n${brief}`, 400)
@@ -150,9 +180,18 @@ async function analyseReference(ref: Reference): Promise<string> {
 // ─── Writing ──────────────────────────────────────────────────────────────────
 
 const SCRIPT_SYSTEM = `You write short-form video scripts for Galaxy Home Automation, an Indian smart-home company.
+
+When a REFERENCE is given, it is the template. Copy its structure, not its subject:
+- Open the same WAY it opens. If it opens on a question, open on a question. If it opens mid-action with no context, do that. If it is a POV caption, write a POV line. If it is a trend or dance format, say plainly in the hook that we are doing that trend with our product.
+- Keep its pacing and sentence length. A fast cutty reel gets short clipped lines, not paragraphs.
+- End the way it ends — comment bait, a reveal, a punchline.
+The topic stays ours. A dance reel about nothing becomes a dance reel about our product.
+
+Never open with a slogan like "Smart homes made easy" or "Imagine coming home to…". That is an advert, not a hook.
+
 Return ONLY valid JSON: {"hook":"...","body":"...","cta":"..."}
 hook: one line, under 12 words, earns the first 3 seconds.
-body: 2-3 sentences a presenter can say in about 20 seconds. Concrete benefits, no jargon.
+body: 2-3 sentences a presenter can say in about 20 seconds. Concrete, specific, no jargon.
 cta: one line asking for a comment or DM.
 Indian English. No emoji in the script. No markdown, no commentary outside the JSON.`
 
@@ -218,12 +257,17 @@ export default async function handler(req: Req, res: Res) {
     }
 
     if (action === 'script') {
+      const hasReference = !!(body.analysis || body.caption)
       const raw = await groq(TEXT_MODEL, SCRIPT_SYSTEM, [
         `Topic: ${body.title || 'Smart home product'}`,
         `Platform: ${body.platform || 'Instagram'}`,
-        body.analysis ? `What the reference video does: ${body.analysis}` : '',
-        body.caption ? `Reference caption: ${body.caption}` : '',
-        'Write a script for OUR product on this topic. Do not copy the reference — match its energy.',
+        hasReference ? '\nREFERENCE — copy this structure:' : '',
+        body.analysis ? body.analysis : '',
+        body.caption ? `Its caption: ${body.caption}` : '',
+        body.author ? `Its author: ${body.author}` : '',
+        hasReference
+          ? '\nNow write OUR version on the topic above, following that reference\'s hook style, pacing and ending. The hook must be recognisably the same kind of opening as the reference — not a slogan.'
+          : '\nThere is no reference. Write a strong scroll-stopping hook anyway — a question, a claim or a POV line, never a slogan.',
       ].filter(Boolean).join('\n'))
 
       const parsed = extractJson<{ hook: string; body: string; cta: string }>(raw, '{')

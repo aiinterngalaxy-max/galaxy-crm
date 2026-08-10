@@ -60,6 +60,7 @@ export function IdeaStudio({
   const [writing, setWriting] = useState(false)
   const [captioning, setCaptioning] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [coverFailed, setCoverFailed] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   async function analyse() {
@@ -67,6 +68,7 @@ export function IdeaStudio({
     setAnalysing(true)
     try {
       const r = await creative<ReferenceMeta>('analyse', { url: url.trim() })
+      setCoverFailed(false)
       setMeta(r)
       toast.success('Reference read')
     } catch (e) {
@@ -84,6 +86,7 @@ export function IdeaStudio({
         platform: idea.platform ?? '',
         analysis: meta?.analysis ?? '',
         caption: meta?.caption ?? '',
+        author: meta?.author ?? '',
       })
       setHook(r.hook); setBody(r.body); setCta(r.cta)
     } catch (e) {
@@ -181,7 +184,7 @@ export function IdeaStudio({
 
           {meta && (
             <div className="flex gap-3 pt-1">
-              {meta.thumbnail ? (
+              {meta.thumbnail && !coverFailed ? (
                 /* Through our own server: Instagram's CDN checks the Referer and
                    serves nothing to a page it does not recognise, so a direct
                    src renders an empty box even when the URL is fine. */
@@ -190,7 +193,9 @@ export function IdeaStudio({
                   alt="Reference post cover"
                   referrerPolicy="no-referrer"
                   className="w-24 h-32 object-cover rounded-lg shrink-0 bg-gray-800"
-                  onError={e => { (e.currentTarget as HTMLImageElement).src = meta.thumbnail! }}
+                  /* A broken-image icon says nothing about what went wrong.
+                     Swap to the placeholder, which at least names the problem. */
+                  onError={() => setCoverFailed(true)}
                 />
               ) : (
                 <div className="w-24 h-32 rounded-lg bg-gray-800 shrink-0 flex items-center justify-center p-2">
@@ -201,9 +206,11 @@ export function IdeaStudio({
                 <p className="text-sm font-medium text-gray-200">{meta.author || 'Unknown author'}</p>
                 {meta.caption && <p className="text-xs text-gray-500 line-clamp-3">{meta.caption}</p>}
                 {meta.analysis && <p className="text-xs text-gray-400 leading-relaxed">{meta.analysis}</p>}
-                {!meta.thumbnail && (
+                {(!meta.thumbnail || coverFailed) && (
                   <p className="text-[11px] text-amber-400/80">
-                    Instagram returned no cover for this link — the caption was still read.
+                    {coverFailed
+                      ? 'The cover could not be loaded — the caption was still read.'
+                      : 'Instagram returned no cover for this link — the caption was still read.'}
                   </p>
                 )}
               </div>
