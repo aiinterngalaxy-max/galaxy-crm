@@ -54,7 +54,11 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
   }
 
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 ${busy ? 'opacity-60' : ''}`}>
+    /* Wraps rather than overflows: these rows sit in half-width brand cards, and
+       three toggles plus a title plus two buttons have never fitted on one line
+       there — the title was being squeezed to nothing and the buttons clipped by
+       the card edge. */
+    <div className={`flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 ${busy ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-1.5 shrink-0 pt-0.5 flex-wrap">
         <Toggle
           on={pitched}
@@ -103,7 +107,7 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
         />
       </div>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[9rem] flex-1">
         <div className={`text-sm ${pitched ? 'text-gray-100 font-medium' : 'text-gray-300'} truncate`}>{idea.title}</div>
 
         {approved && <div className="text-xs text-emerald-400 font-medium mt-0.5">✓ Approved</div>}
@@ -128,14 +132,14 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
         {!approved && !rejected && pitched && <div className="text-xs text-amber-400 font-medium mt-0.5">⧗ Pending review</div>}
       </div>
 
-      <div className="shrink-0 flex items-center gap-2 pt-0.5">
-        <span className="text-xs text-gray-500">{idea.pitch_due ? `pitch by ${fmtDate(idea.pitch_due)}` : '—'}</span>
+      <div className="shrink-0 ml-auto flex items-center gap-2 pt-0.5">
+        {idea.pitch_due && <span className="text-xs text-gray-500">pitch by {fmtDate(idea.pitch_due)}</span>}
         <button
           onClick={() => setStudioOpen(true)}
           title="Reference, script and captions"
           className="rounded-lg border border-gray-800 px-2 py-1 text-[11px] text-gray-400 hover:border-gold-500/50 hover:text-gold-400 transition-colors whitespace-nowrap"
         >
-          {hasScript ? 'Script ✓' : 'Write script'}
+          {hasScript ? 'Script ✓' : 'Script'}
         </button>
         <button
           onClick={handleDelete}

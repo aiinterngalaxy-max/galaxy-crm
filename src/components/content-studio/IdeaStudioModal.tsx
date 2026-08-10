@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { updateIdea } from '@/lib/content-studio/queries'
 import type { Idea, ReferenceMeta } from '@/types/content-studio'
@@ -37,10 +37,12 @@ function parseCaptions(raw?: string): string[] {
 }
 
 export function IdeaStudioModal({
-  idea, brandName, onClose, onSaved,
+  idea, brandName, autoGenerate, onClose, onSaved,
 }: {
   idea: Idea
   brandName?: string
+  /** Opened from the script queue: write a first draft without being asked. */
+  autoGenerate?: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -101,6 +103,17 @@ export function IdeaStudioModal({
       setCaptioning(false)
     }
   }
+
+  /**
+   * Only ever on the way in, and only when there is nothing to lose. A draft
+   * that appeared over someone's edited hook would be a bug, not a feature.
+   */
+  useEffect(() => {
+    if (!autoGenerate) return
+    if (hook || body || cta) return
+    writeScript()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function save() {
     setSaving(true)

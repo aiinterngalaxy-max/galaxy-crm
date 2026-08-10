@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getAllContent, getScripts, maybeCreateScriptForContent } from '@/lib/content-studio/queries'
+import { getAllContent, getBrands, getIdeas, getScripts, maybeCreateScriptForContent } from '@/lib/content-studio/queries'
 import { STAGE_INDEX } from '@/lib/content-studio/stages'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { ScriptsView } from '@/components/content-studio/ScriptsView'
 import { FirstRun } from '@/components/content-studio/FirstRun'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import type { ContentRow, ScriptRow } from '@/types/content-studio'
+import { IdeaScriptQueue } from '@/components/content-studio/IdeaScriptQueue'
+import type { Brand, ContentRow, Idea, ScriptRow } from '@/types/content-studio'
 import { getSuperAdmins, createNotificationIfNew } from '@/lib/notifyHelpers'
 
 export function ScriptsPage() {
@@ -13,15 +14,19 @@ export function ScriptsPage() {
   const [error, setError] = useState('')
   const [scripts, setScripts] = useState<ScriptRow[]>([])
   const [allContent, setAllContent] = useState<ContentRow[]>([])
+  const [ideas, setIdeas] = useState<Idea[]>([])
+  const [brands, setBrands] = useState<Brand[]>([])
   const backfilling = useRef(false)
 
   const load = useCallback(() => {
     setLoading(true)
     setError('')
-    Promise.all([getScripts(), getAllContent()])
-      .then(([s, c]) => {
+    Promise.all([getScripts(), getAllContent(), getIdeas(), getBrands()])
+      .then(([s, c, i, b]) => {
         setScripts(s)
         setAllContent(c)
+        setIdeas(i)
+        setBrands(b)
       })
       .catch((e) => setError(e?.message || String(e)))
       .finally(() => setLoading(false))
@@ -103,6 +108,7 @@ export function ScriptsPage() {
         title="Script Management"
         subtitle={`${pending.length} in progress · ${overdue} overdue · ${scripts.filter((s) => s.status === 'Approved').length} approved`}
       />
+      <IdeaScriptQueue ideas={ideas} brands={brands} onChanged={load} />
       <div data-tour="scripts-view"><ScriptsView scripts={scripts} content={eligibleContent} onChanged={load} /></div>
     </Page>
   )
