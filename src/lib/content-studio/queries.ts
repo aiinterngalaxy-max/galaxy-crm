@@ -613,7 +613,8 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   const status = String(data.status || 'Planned')
   if (!SHOOT_STATUSES.has(status)) throw new Error('invalid status')
 
-  const content_id = data.content_id ? Number(data.content_id) : null
+  let content_id = data.content_id ? Number(data.content_id) : null
+  if (!content_id) content_id = (await findContentByTitle(brand_id, title))?.id ?? null
 
   const rs = await run(
     `INSERT INTO cmo_shoots (brand_id, content_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes)
@@ -660,6 +661,18 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   const title = row?.title ?? `#${id}`
 
+  // Still unlinked after this edit — try the same title match createShoot
+  // does, so clicking a status is what links a shoot to its content, without
+  // ever asking anyone to pick it out of the whole content list by hand.
+  if (row && !row.content_id && body.status) {
+    const match = await findContentByTitle(row.brand_id, row.title)
+    if (match) {
+      await run('UPDATE cmo_shoots SET content_id=? WHERE id=?', [match.id, id])
+      row.content_id = match.id
+      await logActivity('shoot', id, 'updated', `Shoot "${row.title}" auto-linked to its Pipeline card`)
+    }
+  }
+
   // Shoot status drives the content stage the same way script status does.
   // Uses the shoot's status even when only content_id changed in this call —
   // a shoot that was already "Scheduled" before it got linked to a content
@@ -695,6 +708,32 @@ export async function deleteShoot(id: number): Promise<void> {
   const shoot = await one<{ title: string }>('SELECT title FROM cmo_shoots WHERE id=?', [id])
   await run('DELETE FROM cmo_shoots WHERE id=?', [id])
   await logActivity('shoot', id, 'deleted', `Shoot deleted: ${shoot?.title ?? `#${id}`}`)
+}
+
+/**
+ * Catch-up pass for shoots that were already unlinked before auto-linking-by-
+ * title existed (or whose title didn't match anything yet at the time). The
+ * updateShoot path only tries a match when a status changes — a shoot sitting
+ * unchanged at its current status would otherwise stay unlinked forever with
+ * no click left to trigger it. Called from the Shoots page on load.
+ */
+export async function backfillShootLinks(): Promise<number> {
+  const unlinked = await all<{ id: number; brand_id: number; title: string; status: string }>(
+    'SELECT id, brand_id, title, status FROM cmo_shoots WHERE content_id IS NULL',
+  )
+  let linked = 0
+  for (const s of unlinked) {
+    const match = await findContentByTitle(s.brand_id, s.title)
+    if (!match) continue
+    await run('UPDATE cmo_shoots SET content_id=? WHERE id=?', [match.id, s.id])
+    await logActivity('shoot', s.id, 'updated', `Shoot "${s.title}" auto-linked to its Pipeline card`)
+    if (s.status === 'Planned') await syncContentStage(match.id, 'Shoot Planning', { reason: 'shoot planned' })
+    else if (s.status === 'Scheduled') await syncContentStage(match.id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    else if (s.status === 'Shooting') await syncContentStage(match.id, 'Shooting', { reason: 'shoot in progress' })
+    else if (s.status === 'Completed') await syncContentStage(match.id, 'Editing', { reason: 'shoot completed' })
+    linked++
+  }
+  return linked
 }
 
 // ---------- performance ----------
@@ -946,6 +985,25 @@ export async function search(query: string): Promise<{ results: SearchResultRow[
 }
 
 // ---------- side-effect helpers ----------
+
+/**
+ * The manual "link to a Pipeline card" picker asked the team to pick out of
+ * every piece of content the brand has ever made — most of it long since
+ * Published and irrelevant to a shoot being scheduled today. That's not a
+ * choice worth asking someone to make when their shoot is already named
+ * after the content it's for. This finds that match automatically: same
+ * brand, same title (case/whitespace-insensitive), not already Published —
+ * so clicking a status just works, and the picker becomes a fallback for the
+ * rare case a title doesn't match rather than the everyday path.
+ */
+async function findContentByTitle(brandId: number, title: string): Promise<{ id: number } | null> {
+  const t = title.trim()
+  if (!t) return null
+  return one<{ id: number }>(
+    `SELECT id FROM cmo_content WHERE brand_id=? AND LOWER(TRIM(title))=LOWER(?) AND stage != 'Published' ORDER BY id DESC LIMIT 1`,
+    [brandId, t],
+  )
+}
 
 /**
  * Move a content piece to `target` because work finished on a record linked to

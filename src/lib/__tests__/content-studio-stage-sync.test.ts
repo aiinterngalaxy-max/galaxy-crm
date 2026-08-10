@@ -35,6 +35,8 @@ interface World {
   shootExists?: boolean
   shootContentId?: number | null
   shootStatus?: string
+  /** What findContentByTitle should report as the matching content, if any. */
+  titleMatchId?: number | null
 }
 
 function stubDb(world: World) {
@@ -64,9 +66,12 @@ function stubDb(world: World) {
     if (sql.includes('SELECT id FROM cmo_shoots WHERE content_id')) {
       return world.shootExists ? { id: 3 } : null
     }
+    if (sql.includes('SELECT id FROM cmo_content WHERE brand_id')) {
+      return world.titleMatchId ? { id: world.titleMatchId } : null
+    }
     if (sql.includes('FROM cmo_shoots WHERE id')) {
       const content_id = world.shootContentId === undefined ? 7 : world.shootContentId
-      return { id: 3, title: 'Shoot', content_id, status: world.shootStatus ?? 'Planned' }
+      return { id: 3, brand_id: 1, title: 'Shoot', content_id, status: world.shootStatus ?? 'Planned' }
     }
 
     if (sql.includes('FROM cmo_ideas WHERE id')) {
@@ -213,6 +218,20 @@ describe('shoot status', () => {
     stubDb({ contentStage: 'Approved', shootExists: true, scriptExists: true, shootStatus: 'Scheduled' })
     await updateShoot(3, { content_id: 7 })
     expect(stageWrites()).toContain('Shoot Scheduled')
+  })
+
+  it('clicking a status on an unlinked shoot auto-links it by matching title, then syncs — no picker needed', async () => {
+    stubDb({ contentStage: 'Approved', shootExists: true, scriptExists: true, shootContentId: null, titleMatchId: 7 })
+    await updateShoot(3, { status: 'Scheduled' })
+    expect(mockRun.mock.calls.some(([sql]) => sql.includes('UPDATE cmo_shoots SET content_id=?'))).toBe(true)
+    expect(stageWrites()).toContain('Shoot Scheduled')
+  })
+
+  it('leaves a status-only click alone when no title match exists — no false link', async () => {
+    stubDb({ contentStage: 'Approved', shootExists: true, scriptExists: true, shootContentId: null, titleMatchId: null })
+    await updateShoot(3, { status: 'Scheduled' })
+    expect(mockRun.mock.calls.some(([sql]) => sql.includes('UPDATE cmo_shoots SET content_id=?'))).toBe(false)
+    expect(stageWrites()).toEqual([])
   })
 })
 

@@ -168,17 +168,15 @@ export function ShootModal({ shoot, brands, content, onClose, onSaved }: Props) 
           <div>
             <label className="form-label">Link to a Pipeline card</label>
             <select className="form-input" value={form.content_id} onChange={set('content_id')} disabled={busy}>
-              <option value="">— not linked —</option>
+              <option value="">— auto, by matching title —</option>
               {content
-                .filter((c) => c.brand_id === (isEdit ? shoot!.brand_id : Number(form.brand_id)))
+                .filter((c) => c.brand_id === (isEdit ? shoot!.brand_id : Number(form.brand_id)) && c.stage !== 'Published')
                 .map((c) => (
                   <option key={c.id} value={c.id}>{c.title} — {c.stage}</option>
                 ))}
             </select>
             <p className="text-[11px] text-gray-600 mt-1">
-              {form.content_id
-                ? 'Its status here moves that card on the Pipeline board.'
-                : "Without this, changing this shoot's status won't move anything on the Pipeline board."}
+              Usually nothing to do here — saving a status matches this shoot to a Pipeline card with the same title on its own. Only pick one by hand if the titles don't match exactly.
             </p>
           </div>
 
