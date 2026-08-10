@@ -106,6 +106,27 @@ async function instagramOEmbed(url: string): Promise<Reference | null> {
 }
 
 /**
+ * The page source has these HTML-escaped (content lives inside a `content="…"`
+ * attribute). Left alone, the thumbnail URL still had `&amp;` in place of `&`
+ * between its query params — which Instagram's CDN then rejects as a bad
+ * signature, so fetchAsDataUrl() silently got nothing and every reel fell
+ * back to guessing from the caption alone, never actually seeing the frame.
+ * Captions carry the same damage: numeric refs like `&#xe9;` or `&#x1f621;`
+ * (an accented letter, an emoji) went into the model as literal text instead
+ * of the character they encode.
+ */
+export function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+/**
  * Last resort: read the page's own preview tags. Instagram serves these to
  * link-preview crawlers, so it works often enough to be worth trying, and
  * costs nothing when it doesn't.
@@ -116,13 +137,13 @@ async function openGraphTags(url: string): Promise<Reference | null> {
   const html = await res.text()
   const meta = (prop: string) =>
     html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, 'i'))?.[1] ?? ''
-  const thumbnail = meta('image')
-  const caption = meta('description')
+  const thumbnail = decodeHtmlEntities(meta('image'))
+  const caption = decodeHtmlEntities(meta('description'))
   if (!thumbnail && !caption) return null
   return {
-    author: meta('title').split(' on ')[0] || '',
+    author: decodeHtmlEntities(meta('title')).split(' on ')[0] || '',
     thumbnail,
-    caption: caption.replace(/&quot;/g, '"').replace(/&amp;/g, '&'),
+    caption,
     provider: url.includes('youtu') ? 'YouTube' : url.includes('facebook') ? 'Facebook' : 'Instagram',
   }
 }
