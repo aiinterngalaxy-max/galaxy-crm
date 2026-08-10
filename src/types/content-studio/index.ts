@@ -96,6 +96,8 @@ export interface ReferenceMeta {
   provider?: string;
   /** What the AI made of the cover and caption. */
   analysis?: string;
+  /** What the AI found trending in this niche right now, via a live web search — not just this one post. */
+  trends?: string;
 }
 
 export interface Shoot {

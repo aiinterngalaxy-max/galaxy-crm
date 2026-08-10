@@ -15,6 +15,12 @@ import type { Idea, ReferenceMeta } from '@/types/content-studio'
  * team edits, and nothing is written again unless someone asks — a regenerate
  * that discarded a rewritten hook would be worse than no button at all. Saving
  * is explicit for the same reason: this holds a working copy until Save.
+ *
+ * Analyse does two things at once: it reads the one link that was pasted, and
+ * it has the model search the web for what else is trending in that niche
+ * right now. Regenerate then picks whichever pattern — the pasted reference
+ * or one of the trending ones — is the strongest fit, rather than being stuck
+ * cloning a single post.
  */
 
 async function creative<T>(action: string, payload: Record<string, string>): Promise<T> {
@@ -67,7 +73,7 @@ export function IdeaStudio({
     if (!url.trim()) { toast.error('Paste a post link first'); return }
     setAnalysing(true)
     try {
-      const r = await creative<ReferenceMeta>('analyse', { url: url.trim() })
+      const r = await creative<ReferenceMeta>('analyse', { url: url.trim(), title: idea.title })
       setCoverFailed(false)
       setMeta(r)
       toast.success('Reference read')
@@ -87,6 +93,7 @@ export function IdeaStudio({
         analysis: meta?.analysis ?? '',
         caption: meta?.caption ?? '',
         author: meta?.author ?? '',
+        trends: meta?.trends ?? '',
       })
       setHook(r.hook); setBody(r.body); setCta(r.cta)
     } catch (e) {
@@ -108,6 +115,7 @@ export function IdeaStudio({
         scriptBody: body,
         cta,
         analysis: meta?.analysis ?? '',
+        trends: meta?.trends ?? '',
       })
       setCaptions(r.captions)
     } catch (e) {
@@ -185,7 +193,7 @@ export function IdeaStudio({
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); analyse() } }}
             />
             <button className="btn-primary whitespace-nowrap" onClick={analyse} disabled={analysing}>
-              {analysing ? 'Reading…' : 'Analyse'}
+              {analysing ? 'Reading & researching…' : 'Analyse'}
             </button>
           </div>
 
@@ -221,6 +229,13 @@ export function IdeaStudio({
                   </p>
                 )}
               </div>
+            </div>
+          )}
+
+          {meta?.trends && (
+            <div className="rounded-lg bg-gray-950/60 border border-gray-800 p-3">
+              <p className="text-[11px] font-semibold text-gold-400 mb-1">Also trending in this niche right now</p>
+              <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-line">{meta.trends}</p>
             </div>
           )}
         </section>

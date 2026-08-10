@@ -16,6 +16,11 @@ const GRAPH = 'https://graph.facebook.com/v21.0'
 /** Vision-capable by default; override if the model name moves on. */
 const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
 const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
+/** Groq's own compound system — it decides on its own when to run a real web
+ * search (via Tavily) before answering. The "-mini" variant does at most one
+ * search per call, which is all a single trend lookup needs, and is faster
+ * and cheaper than the full compound model. */
+const RESEARCH_MODEL = process.env.GROQ_RESEARCH_MODEL || 'groq/compound-mini'
 
 function groqKey(): string {
   // The VITE_ copy is what the project has today. Set GROQ_API_KEY in Vercel and
@@ -198,11 +203,43 @@ async function analyseReference(ref: Reference): Promise<string> {
   return groq(TEXT_MODEL, ANALYST, `Only the caption is available — do not describe imagery.\n${brief}`, 400)
 }
 
+const RESEARCHER = `You are a short-form video trend researcher with live web search.
+Search the web for what is CURRENTLY trending in short-form video (Instagram Reels, TikTok, YouTube Shorts) in the given niche — real posts, articles or roundups about viral formats in that space, not general advice.
+
+Return 3-5 short lines, each one a CONCRETE hook or format pattern you found other creators actually using right now in this niche — e.g. "POV skit where the payoff is the product doing something unexpected" or "before/after with a 1-second transition on a loud sound cue". Not generic tips like "use humor" or "hook them early".
+
+If the search turns up nothing specific to this niche, say plainly "No current trend data found for this niche" — never invent examples to fill the list.`
+
+/**
+ * One reference post is one data point. The brief was for the AI to go find
+ * what ELSE is working in this niche right now — via a real web search, not
+ * a guess — so the script is built from a pattern several creators are
+ * currently using, not a clone of the single link that was pasted.
+ *
+ * Runs on Groq's own compound system, which decides for itself whether and
+ * when to search rather than being handed a fixed query. Failures here must
+ * never break Analyse — a working single-reference analysis with no trend
+ * context is strictly better than the whole step failing.
+ */
+async function researchTrends(topic: string, ref: Reference): Promise<string> {
+  const seed = [
+    topic ? `Product/topic: ${topic}` : '',
+    ref.caption ? `A reference post's caption, for the niche: ${ref.caption}` : '',
+  ].filter(Boolean).join('\n')
+  if (!seed) return ''
+  try {
+    return await groq(RESEARCH_MODEL, RESEARCHER, `${seed}\n\nWhat's trending in short-form video for this niche right now?`, 500)
+  } catch (err) {
+    console.error('trend research failed:', err instanceof Error ? err.message : err)
+    return ''
+  }
+}
+
 // ─── Writing ──────────────────────────────────────────────────────────────────
 
 const SCRIPT_SYSTEM = `You write short-form video scripts for Galaxy Home Automation, an Indian smart-home company.
 
-A REFERENCE is a template to copy the STRUCTURE of. All three parts follow it, not just the hook:
+A REFERENCE is a template to copy the STRUCTURE of. If a list of what's currently trending in the niche is also given, you are not limited to the single reference — pick whichever pattern (the reference, or one of the trending ones) is the strongest fit for our product, and copy that one's structure instead. Say in your own head which one you picked; don't blend two different hook styles into one script. All three parts follow whichever pattern was picked, not just the hook:
 
 HOOK — open the same WAY the reference opens. Question, mid-action, POV line, comedy setup, trend. Under 12 words.
 
@@ -284,13 +321,20 @@ export default async function handler(req: Req, res: Res) {
         })
         return
       }
-      const analysis = await analyseReference(ref).catch(() => '')
-      res.status(200).json({ ...ref, analysis })
+      // The single-post analysis and the wider trend search are independent —
+      // run them together so asking "what else is trending here" doesn't add
+      // its own sequential round trip on top of an already-slow vision call.
+      const [analysis, trends] = await Promise.all([
+        analyseReference(ref).catch(() => ''),
+        researchTrends(String(body.title || ''), ref).catch(() => ''),
+      ])
+      res.status(200).json({ ...ref, analysis, trends })
       return
     }
 
     if (action === 'script') {
       const hasReference = !!(body.analysis || body.caption)
+      const hasTrends = !!body.trends
       const raw = await groq(TEXT_MODEL, SCRIPT_SYSTEM, [
         `Topic: ${body.title || 'Smart home product'}`,
         `Platform: ${body.platform || 'Instagram'}`,
@@ -298,6 +342,7 @@ export default async function handler(req: Req, res: Res) {
         body.analysis ? body.analysis : '',
         body.caption ? `Its caption: ${body.caption}` : '',
         body.author ? `Its author: ${body.author}` : '',
+        hasTrends ? `\nWhat else is trending in this niche right now — use whichever of these is the strongest fit, not necessarily the single reference above:\n${body.trends}` : '',
         hasReference
           ? '\nNow write OUR version on the topic above, following that reference\'s hook style, pacing and ending. The hook must be recognisably the same kind of opening as the reference — not a slogan.'
           : '\nThere is no reference. Write a strong scroll-stopping hook anyway — a question, a claim or a POV line, never a slogan.',
@@ -319,6 +364,7 @@ export default async function handler(req: Req, res: Res) {
           ? `EXAMPLES — copy this length and style exactly:\n${examples}\n\nThe longest example is ${Math.max(...examples.split('\n').map(l => l.trim().length))} characters. Yours must be about that long, not longer.`
           : 'No examples given — keep them short, human and specific.',
         body.analysis ? `The reference video this is modelled on:\n${body.analysis}` : '',
+        body.trends ? `What's trending in this niche right now:\n${body.trends}` : '',
         body.hook ? `Our video opens with: ${body.hook}` : '',
         body.scriptBody ? `Then: ${body.scriptBody}` : '',
         body.cta ? `And ends with: ${body.cta}` : '',
