@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAllContent, getBrands, getIdeas, getScripts, maybeCreateScriptForContent } from '@/lib/content-studio/queries'
 import { STAGE_INDEX } from '@/lib/content-studio/stages'
 import { Page, PageHeader } from '@/components/content-studio/ui'
-import { ScriptsView } from '@/components/content-studio/ScriptsView'
 import { FirstRun } from '@/components/content-studio/FirstRun'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IdeaScriptQueue } from '@/components/content-studio/IdeaScriptQueue'
@@ -84,16 +83,6 @@ export function ScriptsPage() {
   if (loading) return <div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div>
   if (error) return <FirstRun error={error} onSeeded={load} />
 
-  const scriptWritingIdx = STAGE_INDEX['Script Writing'] ?? 2
-  const publishedIdx = STAGE_INDEX['Published'] ?? 11
-  const scriptedIds = new Set(scripts.map((s) => s.content_id))
-  const eligibleContent = allContent
-    .filter((c) => {
-      const idx = STAGE_INDEX[c.stage] ?? 0
-      return idx >= scriptWritingIdx && idx < publishedIdx && !scriptedIds.has(c.id)
-    })
-    .map((c) => ({ id: c.id, title: c.title, brand_name: c.brand_name }))
-
   const pending = scripts.filter((s) => s.status !== 'Approved')
   const overdue = pending.filter((s) => {
     if (!s.deadline) return false
@@ -108,8 +97,9 @@ export function ScriptsPage() {
         title="Script Management"
         subtitle={`${pending.length} in progress · ${overdue} overdue · ${scripts.filter((s) => s.status === 'Approved').length} approved`}
       />
-      <IdeaScriptQueue ideas={ideas} brands={brands} onChanged={load} />
-      <div data-tour="scripts-view"><ScriptsView scripts={scripts} content={eligibleContent} onChanged={load} /></div>
+      <div data-tour="scripts-view">
+        <IdeaScriptQueue ideas={ideas} brands={brands} onChanged={load} />
+      </div>
     </Page>
   )
 }

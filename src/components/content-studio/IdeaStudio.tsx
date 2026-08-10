@@ -1,19 +1,20 @@
-import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { updateIdea } from '@/lib/content-studio/queries'
 import type { Idea, ReferenceMeta } from '@/types/content-studio'
 
 /**
- * Reference → script → captions, on one screen.
+ * Reference → script → captions, opened underneath the idea it belongs to.
+ *
+ * In the flow of the page rather than over it: a dialog here sat on top of the
+ * very list you were working down, and every card in Content Studio carries a
+ * backdrop-filter, which quietly makes it the containing block for anything
+ * fixed inside it. Expanding in place has neither problem.
  *
  * Everything the model writes lands in an ordinary text box. It drafts, the
- * team edits, and nothing is generated again unless someone asks — a
- * regenerate that quietly discarded a rewritten hook would be worse than no
- * button at all.
- *
- * Saving is explicit for the same reason. The dialog holds a working copy; the
- * idea row only changes when Save is pressed.
+ * team edits, and nothing is written again unless someone asks — a regenerate
+ * that discarded a rewritten hook would be worse than no button at all. Saving
+ * is explicit for the same reason: this holds a working copy until Save.
  */
 
 async function creative<T>(action: string, payload: Record<string, string>): Promise<T> {
@@ -37,7 +38,7 @@ function parseCaptions(raw?: string): string[] {
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
-export function IdeaStudioModal({
+export function IdeaStudio({
   idea, brandName, autoGenerate, onClose, onSaved,
 }: {
   idea: Idea
@@ -59,6 +60,7 @@ export function IdeaStudioModal({
   const [writing, setWriting] = useState(false)
   const [captioning, setCaptioning] = useState(false)
   const [saving, setSaving] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
 
   async function analyse() {
     if (!url.trim()) { toast.error('Paste a post link first'); return }
@@ -140,25 +142,23 @@ export function IdeaStudioModal({
 
   const step = 'text-[11px] font-medium px-2 py-0.5 rounded-full bg-gold-500/15 text-gold-400'
 
-  /**
-   * Rendered into <body>, not where it is written. Every card in Content Studio
-   * is a .glass-card with a backdrop-filter, and a filtered element becomes the
-   * containing block for fixed-position descendants — so the dialog was being
-   * centred inside whichever card opened it and clipped by its edges, with the
-   * page showing through.
-   */
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
-      <div className="glass-card w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-gray-100">{idea.title}</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {brandName ?? `Brand ${idea.brand_id}`}{idea.platform ? ` · ${idea.platform}` : ''} · {idea.month}
-            </p>
-          </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">×</button>
+  // Brings the panel into view when it opens, so pressing Add script on a row
+  // near the fold does not leave the work off-screen.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [])
+
+  return (
+    <div ref={ref} className="rounded-xl border border-gold-500/25 bg-gray-900/40 p-4 space-y-4 mt-2 mb-1">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-100">{idea.title}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {brandName ?? `Brand ${idea.brand_id}`}{idea.platform ? ` · ${idea.platform}` : ''} · {idea.month}
+          </p>
         </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xs">Collapse</button>
+      </div>
 
         {/* ── Reference ─────────────────────────────────────────────────── */}
         <section className="rounded-xl border border-gray-800 p-4 space-y-3">
@@ -262,14 +262,12 @@ export function IdeaStudioModal({
           ))}
         </section>
 
-        <div className="flex gap-3">
-          <button className="btn-secondary flex-1" onClick={onClose}>Close</button>
-          <button className="btn-primary flex-1" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+      <div className="flex justify-end gap-3">
+        <button className="btn-secondary text-xs" onClick={onClose}>Collapse</button>
+        <button className="btn-primary text-xs" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save script'}
+        </button>
       </div>
-    </div>,
-    document.body,
+    </div>
   )
 }
