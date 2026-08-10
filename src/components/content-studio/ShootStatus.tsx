@@ -2,7 +2,7 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { updateShoot } from '@/lib/content-studio/queries'
 
-const OPTIONS = ['Planned', 'Scheduled', 'Completed', 'Cancelled'] as const
+const OPTIONS = ['Planned', 'Scheduled', 'Shooting', 'Completed', 'Cancelled'] as const
 
 export function ShootStatus({ id, status, onChanged }: { id: number; status: string; onChanged: () => void }) {
   const [val, setVal] = useState(status)
@@ -27,8 +27,9 @@ export function ShootStatus({ id, status, onChanged }: { id: number; status: str
   const tone: Record<string, string> = {
     Planned: 'bg-gray-800 text-gray-300',
     Scheduled: 'bg-sky-600 text-white',
+    Shooting: 'bg-rose-500 text-white',
     Completed: 'bg-emerald-600 text-white',
-    Cancelled: 'bg-rose-600 text-white',
+    Cancelled: 'bg-rose-800 text-white',
   }
 
   return (

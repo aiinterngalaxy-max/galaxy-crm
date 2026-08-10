@@ -592,7 +592,7 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
 
 // ---------- shoots ----------
 const SHOOT_COLS = 'id, brand_id, content_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes'
-const SHOOT_STATUSES = new Set(['Planned', 'Scheduled', 'Completed', 'Cancelled'])
+const SHOOT_STATUSES = new Set(['Planned', 'Scheduled', 'Shooting', 'Completed', 'Cancelled'])
 
 export function getShoots(): Promise<ShootRow[]> {
   return all<ShootRow>(
@@ -652,6 +652,8 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
       await syncContentStage(row.content_id, 'Shoot Planning', { reason: 'shoot planned' })
     } else if (body.status === 'Scheduled') {
       await syncContentStage(row.content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    } else if (body.status === 'Shooting') {
+      await syncContentStage(row.content_id, 'Shooting', { reason: 'shoot in progress' })
     } else if (body.status === 'Completed') {
       await syncContentStage(row.content_id, 'Editing', { reason: 'shoot completed' })
     }
@@ -661,6 +663,8 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
     await logActivity('shoot', id, 'status-change', `Shoot completed: ${title}`)
   } else if (body.status === 'Cancelled') {
     await logActivity('shoot', id, 'status-change', `Shoot cancelled: ${title}`)
+  } else if (body.status === 'Shooting') {
+    await logActivity('shoot', id, 'status-change', `Shoot started: ${title}`)
   } else if (body.status) {
     await logActivity('shoot', id, 'status-change', `Shoot ${String(body.status).toLowerCase()}: ${title}`)
   } else {

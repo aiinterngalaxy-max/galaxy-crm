@@ -177,8 +177,14 @@ describe('shoot status', () => {
     expect(stageWrites()).toContain('Shoot Scheduled')
   })
 
-  it('wrapping the shoot moves content to Editing', async () => {
+  it('starting to shoot moves content to Shooting', async () => {
     stubDb({ contentStage: 'Shoot Scheduled', shootExists: true, scriptExists: true })
+    await updateShoot(3, { status: 'Shooting' })
+    expect(stageWrites()).toContain('Shooting')
+  })
+
+  it('wrapping the shoot moves content to Editing', async () => {
+    stubDb({ contentStage: 'Shooting', shootExists: true, scriptExists: true })
     await updateShoot(3, { status: 'Completed' })
     expect(stageWrites()).toContain('Editing')
   })
