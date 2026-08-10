@@ -164,6 +164,20 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_team ADD COLUMN is_owner INTEGER DEFAULT 0",
   "UPDATE cmo_team SET is_owner=1 WHERE name='Krish Shah'",
   "ALTER TABLE cmo_ideas ADD COLUMN content_id INTEGER",
+
+  // Idea → reference → script → captions. All of it hangs off the idea rather
+  // than a new table: it is one row's worth of fields, and a join would buy
+  // nothing but an extra query on every list.
+  "ALTER TABLE cmo_ideas ADD COLUMN platform TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN reference_url TEXT DEFAULT ''",
+  // JSON: what the reference post turned out to be — author, cover, caption.
+  "ALTER TABLE cmo_ideas ADD COLUMN reference_meta TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN script_hook TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN script_body TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN script_cta TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN caption_examples TEXT DEFAULT ''",
+  // JSON array of generated captions.
+  "ALTER TABLE cmo_ideas ADD COLUMN captions TEXT DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS cmo_activity_log (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      entity_type TEXT NOT NULL,

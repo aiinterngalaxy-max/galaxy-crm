@@ -18,7 +18,7 @@ export function IdeaModal({ brands, onClose, onSaved }: Props) {
   const { user } = useAuth()
   const firstRef = useRef<HTMLSelectElement>(null)
 
-  const [form, setForm] = useState({ brand_id: '', month: currentMonth(), title: '' })
+  const [form, setForm] = useState({ brand_id: '', platform: 'Instagram', month: currentMonth(), title: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -53,7 +53,12 @@ export function IdeaModal({ brands, onClose, onSaved }: Props) {
 
     setBusy(true)
     try {
-      const idea = await createIdea({ brand_id: Number(form.brand_id), month: form.month, title: form.title.trim() })
+      const idea = await createIdea({
+        brand_id: Number(form.brand_id),
+        platform: form.platform,
+        month: form.month,
+        title: form.title.trim(),
+      })
       const brandName = brands.find(b => b.id === Number(form.brand_id))?.name
       notifySuperAdminsOfNewIdea({
         ideaId: idea.id,
@@ -91,6 +96,15 @@ export function IdeaModal({ brands, onClose, onSaved }: Props) {
               <option value="">— select a brand —</option>
               {brands.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="form-label">Platform</label>
+            <select className="form-input" value={form.platform} onChange={set('platform')} disabled={busy}>
+              {['Instagram', 'YouTube', 'Facebook', 'LinkedIn', 'Other'].map((p) => (
+                <option key={p} value={p}>{p}</option>
               ))}
             </select>
           </div>

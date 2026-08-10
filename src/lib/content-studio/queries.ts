@@ -376,14 +376,14 @@ export async function createComment(contentId: number, text: string, author?: st
 }
 
 // ---------- ideas ----------
-const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at'
+const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at, platform, reference_url, reference_meta, script_hook, script_body, script_cta, caption_examples, captions'
 
 export function getIdeas(brandId?: number): Promise<Idea[]> {
   if (brandId) return all<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE brand_id=? ORDER BY pitched, pitch_due`, [brandId])
   return all<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas ORDER BY brand_id, pitched, pitch_due`)
 }
 
-export async function createIdea(data: { brand_id: number; month?: string; title: string }): Promise<Idea> {
+export async function createIdea(data: { brand_id: number; month?: string; title: string; platform?: string }): Promise<Idea> {
   const brand_id = Number(data.brand_id)
   if (!brand_id) throw new Error('brand_id is required')
   const title = String(data.title || '').trim()
@@ -391,14 +391,22 @@ export async function createIdea(data: { brand_id: number; month?: string; title
   const month = String(data.month || new Date().toISOString().slice(0, 7))
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('month must be YYYY-MM')
 
-  const rs = await run(`INSERT INTO cmo_ideas (brand_id, month, title) VALUES (?, ?, ?)`, [brand_id, month, title])
+  const platform = String(data.platform || '').trim()
+  const rs = await run(
+    `INSERT INTO cmo_ideas (brand_id, month, title, platform) VALUES (?, ?, ?, ?)`,
+    [brand_id, month, title, platform],
+  )
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE id=?`, [id])
   await logActivity('idea', id, 'created', `Idea added: ${title}`)
   return row as Idea
 }
 
-const IDEA_EDITABLE = new Set(['title', 'pitched', 'pitch_due', 'approved', 'rejected', 'review_note', 'month'])
+const IDEA_EDITABLE = new Set([
+  'title', 'pitched', 'pitch_due', 'approved', 'rejected', 'review_note', 'month',
+  'platform', 'reference_url', 'reference_meta',
+  'script_hook', 'script_body', 'script_cta', 'caption_examples', 'captions',
+])
 
 export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea> {
   const body: Record<string, any> = { ...data }

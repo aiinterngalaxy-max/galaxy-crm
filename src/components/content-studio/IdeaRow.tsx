@@ -5,6 +5,7 @@ import { useViewer } from '@/lib/content-studio/viewer-context'
 import type { Idea } from '@/types/content-studio'
 import { deleteIdea as apiDeleteIdea, updateIdea } from '@/lib/content-studio/queries'
 import { notifyTeamOfIdeaApproved, notifyTeamOfIdeaRejected } from '@/lib/notifyHelpers'
+import { IdeaStudioModal } from './IdeaStudioModal'
 
 export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?: string; onChanged: () => void }) {
   const { viewer } = useViewer()
@@ -14,7 +15,9 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
   const [rejected, setRejected] = useState(!!idea.rejected)
   const [reviewNote, setReviewNote] = useState(idea.review_note ?? '')
   const [busy, setBusy] = useState(false)
+  const [studioOpen, setStudioOpen] = useState(false)
   const noteRef = useRef<HTMLInputElement>(null)
+  const hasScript = !!(idea.script_hook || idea.script_body || idea.script_cta)
 
   async function patch(body: Record<string, any>): Promise<boolean> {
     setBusy(true)
@@ -128,6 +131,13 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
       <div className="shrink-0 flex items-center gap-2 pt-0.5">
         <span className="text-xs text-gray-500">{idea.pitch_due ? `pitch by ${fmtDate(idea.pitch_due)}` : '—'}</span>
         <button
+          onClick={() => setStudioOpen(true)}
+          title="Reference, script and captions"
+          className="rounded-lg border border-gray-800 px-2 py-1 text-[11px] text-gray-400 hover:border-gold-500/50 hover:text-gold-400 transition-colors whitespace-nowrap"
+        >
+          {hasScript ? 'Script ✓' : 'Write script'}
+        </button>
+        <button
           onClick={handleDelete}
           disabled={busy}
           title="Delete idea"
@@ -136,6 +146,15 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
           ✕
         </button>
       </div>
+
+      {studioOpen && (
+        <IdeaStudioModal
+          idea={idea}
+          brandName={brandName}
+          onClose={() => setStudioOpen(false)}
+          onSaved={onChanged}
+        />
+      )}
     </div>
   )
 }
