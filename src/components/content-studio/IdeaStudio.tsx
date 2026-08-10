@@ -44,6 +44,30 @@ function parseCaptions(raw?: string): string[] {
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
+/**
+ * One handoff sheet, not four separate boxes to read from — this is what
+ * gets pasted to whoever is shooting the reel, so it needs the funnel stage
+ * and every part of the script in one place, in the order they'll say it.
+ */
+function buildScriptSheet(idea: Idea, hook: string, body: string, cta: string, caption?: string): string {
+  const lines = [
+    '🎬 REEL SCRIPT',
+    '',
+    `Funnel: ${idea.funnel_stage || '—'}`,
+    '',
+    'HOOK',
+    hook || '(not written yet)',
+    '',
+    'BODY',
+    body || '(not written yet)',
+    '',
+    'CTA',
+    cta || '(not written yet)',
+  ]
+  if (caption) lines.push('', '📱 INSTAGRAM CAPTION', caption)
+  return lines.join('\n')
+}
+
 export function IdeaStudio({
   idea, brandName, autoGenerate, onClose, onSaved,
 }: {
@@ -247,9 +271,19 @@ export function IdeaStudio({
               <span className={step}>Step 3</span>
               <span className="text-sm font-medium text-gray-200">Script — every box editable</span>
             </div>
-            <button className="btn-secondary text-xs" onClick={writeScript} disabled={writing}>
-              {writing ? 'Writing…' : hook || body || cta ? '⟳ Regenerate' : '⚡ Generate'}
-            </button>
+            <div className="flex items-center gap-2">
+              {(hook || body || cta) && (
+                <button
+                  className="text-[11px] text-gray-500 hover:text-gold-400"
+                  onClick={() => { navigator.clipboard.writeText(buildScriptSheet(idea, hook, body, cta)); toast.success('Copied') }}
+                >
+                  📋 Copy script
+                </button>
+              )}
+              <button className="btn-secondary text-xs" onClick={writeScript} disabled={writing}>
+                {writing ? 'Writing…' : hook || body || cta ? '⟳ Regenerate' : '⚡ Generate'}
+              </button>
+            </div>
           </div>
 
           {[
@@ -305,6 +339,13 @@ export function IdeaStudio({
                 onClick={() => { navigator.clipboard.writeText(c); toast.success('Copied') }}
               >
                 Copy
+              </button>
+              <button
+                className="text-[11px] text-gray-500 hover:text-gold-400 shrink-0"
+                title="Copy the full handoff sheet — funnel, hook, body, CTA and this caption"
+                onClick={() => { navigator.clipboard.writeText(buildScriptSheet(idea, hook, body, cta, c)); toast.success('Copied full script') }}
+              >
+                📋 Copy full script
               </button>
             </div>
           ))}
