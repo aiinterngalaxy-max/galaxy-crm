@@ -181,24 +181,36 @@ async function analyseReference(ref: Reference): Promise<string> {
 
 const SCRIPT_SYSTEM = `You write short-form video scripts for Galaxy Home Automation, an Indian smart-home company.
 
-When a REFERENCE is given, it is the template. Copy its structure, not its subject:
-- Open the same WAY it opens. If it opens on a question, open on a question. If it opens mid-action with no context, do that. If it is a POV caption, write a POV line. If it is a trend or dance format, say plainly in the hook that we are doing that trend with our product.
-- Keep its pacing and sentence length. A fast cutty reel gets short clipped lines, not paragraphs.
-- End the way it ends — comment bait, a reveal, a punchline.
-The topic stays ours. A dance reel about nothing becomes a dance reel about our product.
+A REFERENCE is a template to copy the STRUCTURE of. All three parts follow it, not just the hook:
 
-Never open with a slogan like "Smart homes made easy" or "Imagine coming home to…". That is an advert, not a hook.
+HOOK — open the same WAY the reference opens. Question, mid-action, POV line, comedy setup, trend. Under 12 words.
+
+BODY — continue the hook you just wrote. If the hook set up a joke, the body plays the joke out with our product in it. If it set up a scene, stay in that scene. Keep the reference's pacing: a fast comedy reel gets short clipped lines, not paragraphs. 2-3 sentences, about 20 seconds spoken. Name specific things — a fan, a lock, a light, a voice command — never "your appliances" or "your space".
+
+CTA — end the way the reference ends. Comedy ends on a punchline that also asks something. A demo ends on a reveal. Never a survey question.
+
+BANNED in every part, not just the hook. These are advert copy, not scripts:
+"Imagine walking into…", "Imagine coming home…", "Experience the…", "Transform your…", "Smart homes made easy", "the future of living", "your own personal assistant", "with just your voice" as a closing flourish.
+If the sentence would fit on a brochure, rewrite it as something a person would actually say to camera.
+
+The topic stays ours. A comedy clip about a prank becomes a comedy clip about a prank involving our product.
 
 Return ONLY valid JSON: {"hook":"...","body":"...","cta":"..."}
-hook: one line, under 12 words, earns the first 3 seconds.
-body: 2-3 sentences a presenter can say in about 20 seconds. Concrete, specific, no jargon.
-cta: one line asking for a comment or DM.
 Indian English. No emoji in the script. No markdown, no commentary outside the JSON.`
 
 const CAPTION_SYSTEM = `You write Instagram captions for Galaxy Home Automation, an Indian smart-home company.
-Study the example captions and match their voice, length and emoji habits.
-Return ONLY a JSON array of 3 caption strings. Each ends with 2-4 relevant hashtags.
-No markdown, no numbering, no commentary outside the array.`
+
+The examples are the format, and you copy it rather than improve on it:
+- Match their LENGTH. If the examples are a few words or only hashtags, yours are a few words or only hashtags. Never answer a two-word example with two lines of brochure copy.
+- Match their EMOJI COUNT. No emoji in the examples means no emoji in yours.
+- Match their HASHTAG STYLE — how many, and whether they are niche or broad.
+- Match their TONE. Jokey examples get jokes, not product benefits.
+
+The caption is about the video that was written, so refer to what actually happens in it.
+
+BANNED, whatever the examples say: "Experience the…", "Transform your…", "the future of living", "where technology meets…", "smart haven", "innovative solutions". Those are advertising, and no one writes them on their own posts.
+
+Return ONLY a JSON array of 3 caption strings. No markdown, no numbering, no commentary outside the array.`
 
 /** Models wrap JSON in prose or fences no matter how firmly they are told not to. */
 function extractJson<T>(raw: string, opener: '{' | '['): T | null {
@@ -277,11 +289,18 @@ export default async function handler(req: Req, res: Res) {
     }
 
     if (action === 'captions') {
+      const examples = String(body.examples || '').trim()
       const raw = await groq(TEXT_MODEL, CAPTION_SYSTEM, [
         `Topic: ${body.title || ''}`,
-        body.examples ? `Example captions to match:\n${body.examples}` : 'No examples given — keep it short and warm.',
-        body.hook ? `The video opens with: ${body.hook}` : '',
-        body.cta ? `The video ends with: ${body.cta}` : '',
+        examples
+          // Spelled out because the model reads a short example as a hint to be
+          // brief and then writes three lines anyway.
+          ? `EXAMPLES — copy this length and style exactly:\n${examples}\n\nThe longest example is ${Math.max(...examples.split('\n').map(l => l.trim().length))} characters. Yours must be about that long, not longer.`
+          : 'No examples given — keep them short, human and specific.',
+        body.analysis ? `The reference video this is modelled on:\n${body.analysis}` : '',
+        body.hook ? `Our video opens with: ${body.hook}` : '',
+        body.scriptBody ? `Then: ${body.scriptBody}` : '',
+        body.cta ? `And ends with: ${body.cta}` : '',
       ].filter(Boolean).join('\n'))
 
       const parsed = extractJson<string[]>(raw, '[')

@@ -100,7 +100,14 @@ export function IdeaStudio({
     setCaptioning(true)
     try {
       const r = await creative<{ captions: string[] }>('captions', {
-        title: idea.title, examples, hook, cta,
+        title: idea.title,
+        examples,
+        hook,
+        // The caption is for this video, so it needs the whole script and the
+        // reference it was modelled on — not just the opening line.
+        scriptBody: body,
+        cta,
+        analysis: meta?.analysis ?? '',
       })
       setCaptions(r.captions)
     } catch (e) {
