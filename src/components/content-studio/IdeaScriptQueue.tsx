@@ -23,7 +23,7 @@ export function IdeaScriptQueue({
 }) {
   const [openId, setOpenId] = useState<number | null>(null)
 
-  const waiting = ideas.filter(i => !i.script_hook && !i.script_body && !i.script_cta && !i.rejected)
+  const waiting = ideas.filter(i => !i.script_hook && !i.script_body && !i.script_cta && !i.script_full_en && !i.script_full_hi && !i.rejected)
   const brandName = (id: number) => brands.find(b => b.id === id)?.name
 
   if (waiting.length === 0) {

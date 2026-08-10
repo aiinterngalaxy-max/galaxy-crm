@@ -5,6 +5,7 @@ import { Page, PageHeader } from '@/components/content-studio/ui'
 import { FirstRun } from '@/components/content-studio/FirstRun'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IdeaScriptQueue } from '@/components/content-studio/IdeaScriptQueue'
+import { IdeaScriptList } from '@/components/content-studio/IdeaScriptList'
 import type { Brand, ContentRow, Idea, ScriptRow } from '@/types/content-studio'
 import { getSuperAdmins, createNotificationIfNew } from '@/lib/notifyHelpers'
 
@@ -97,8 +98,9 @@ export function ScriptsPage() {
         title="Script Management"
         subtitle={`${pending.length} in progress · ${overdue} overdue · ${scripts.filter((s) => s.status === 'Approved').length} approved`}
       />
-      <div data-tour="scripts-view">
+      <div data-tour="scripts-view" className="space-y-5">
         <IdeaScriptQueue ideas={ideas} brands={brands} onChanged={load} />
+        <IdeaScriptList ideas={ideas} brands={brands} onChanged={load} />
       </div>
     </Page>
   )
