@@ -75,6 +75,8 @@ export interface Idea {
   created_at: string;
   // Creative workflow: reference post → script → captions.
   platform?: string;
+  /** TOFU / MOFU / BOFU — see FUNNEL_STAGES in stages.ts. */
+  funnel_stage?: string;
   reference_url?: string;
   /** JSON string — see ReferenceMeta. */
   reference_meta?: string;

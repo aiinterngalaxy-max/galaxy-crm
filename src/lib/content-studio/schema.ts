@@ -178,6 +178,8 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_ideas ADD COLUMN caption_examples TEXT DEFAULT ''",
   // JSON array of generated captions.
   "ALTER TABLE cmo_ideas ADD COLUMN captions TEXT DEFAULT ''",
+  // TOFU / MOFU / BOFU — see FUNNEL_STAGES in stages.ts.
+  "ALTER TABLE cmo_ideas ADD COLUMN funnel_stage TEXT DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS cmo_activity_log (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      entity_type TEXT NOT NULL,

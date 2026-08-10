@@ -5,6 +5,7 @@ import { useViewer } from '@/lib/content-studio/viewer-context'
 import type { Idea } from '@/types/content-studio'
 import { deleteIdea as apiDeleteIdea, updateIdea } from '@/lib/content-studio/queries'
 import { notifyTeamOfIdeaApproved, notifyTeamOfIdeaRejected } from '@/lib/notifyHelpers'
+import { FUNNEL_STAGE_STYLE } from '@/lib/content-studio/stages'
 
 export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?: string; onChanged: () => void }) {
   const { viewer } = useViewer()
@@ -105,7 +106,14 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
       </div>
 
       <div className="min-w-[9rem] flex-1">
-        <div className={`text-sm ${pitched ? 'text-gray-100 font-medium' : 'text-gray-300'} truncate`}>{idea.title}</div>
+        <div className="flex items-center gap-1.5">
+          <div className={`text-sm ${pitched ? 'text-gray-100 font-medium' : 'text-gray-300'} truncate`}>{idea.title}</div>
+          {idea.funnel_stage && (
+            <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded ${FUNNEL_STAGE_STYLE[idea.funnel_stage] ?? 'bg-gray-800 text-gray-300'}`}>
+              {idea.funnel_stage}
+            </span>
+          )}
+        </div>
 
         {approved && <div className="text-xs text-emerald-400 font-medium mt-0.5">✓ Approved</div>}
         {rejected && (
