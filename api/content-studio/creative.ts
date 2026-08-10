@@ -60,6 +60,24 @@ interface Reference {
 }
 
 /**
+ * oEmbed matches on the canonical post URL and returns nothing for anything
+ * else — a share link carrying ?igsh=… , a missing trailing slash, or the
+ * mobile host are all enough to come back empty. Posts (/p/), reels (/reel/ and
+ * /reels/) and IGTV (/tv/) all resolve the same way.
+ */
+function canonicalInstagramUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim())
+    const m = u.pathname.match(/\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/)
+    if (!m) return raw.trim()
+    const kind = m[1] === 'reels' ? 'reel' : m[1]
+    return `https://www.instagram.com/${kind}/${m[2]}/`
+  } catch {
+    return raw.trim()
+  }
+}
+
+/**
  * Instagram's official route. Needs an app id and secret, which this project
  * already has for the Graph sync — no new credential, no scraping, and nothing
  * that risks the account.
@@ -69,9 +87,14 @@ async function instagramOEmbed(url: string): Promise<Reference | null> {
   const appSecret = process.env.VITE_FB_APP_SECRET || process.env.FB_APP_SECRET
   if (!appId || !appSecret) return null
 
-  const endpoint = `${GRAPH}/instagram_oembed?url=${encodeURIComponent(url)}&omitscript=true&access_token=${appId}|${appSecret}`
+  const endpoint = `${GRAPH}/instagram_oembed?url=${encodeURIComponent(url)}&omitscript=true&fields=author_name,thumbnail_url,title&access_token=${appId}|${appSecret}`
   const res = await fetch(endpoint)
-  if (!res.ok) return null
+  if (!res.ok) {
+    // The message says whether the app lacks oEmbed Read or the post is simply
+    // private, and guessing between those wastes an afternoon.
+    console.error('instagram_oembed failed:', res.status, (await res.text()).slice(0, 300))
+    return null
+  }
   const j = await res.json()
   if (!j?.thumbnail_url && !j?.title) return null
   return {
@@ -165,13 +188,27 @@ export default async function handler(req: Req, res: Res) {
 
   try {
     if (action === 'analyse') {
-      const url = String(body.url || '').trim()
-      if (!/^https?:\/\//i.test(url)) { res.status(400).json({ error: 'Paste a full post link starting with https://' }); return }
+      const raw = String(body.url || '').trim()
+      if (!/^https?:\/\//i.test(raw)) { res.status(400).json({ error: 'Paste a full post link starting with https://' }); return }
+      const url = canonicalInstagramUrl(raw)
 
-      const ref = (await instagramOEmbed(url).catch(() => null)) ?? (await openGraphTags(url).catch(() => null))
+      // Both routes are tried whatever the outcome of the first: oEmbed often
+      // returns the caption but no cover, and the page's own preview tags
+      // usually have the cover. Between them there is normally a full picture.
+      const viaOEmbed = await instagramOEmbed(url).catch(() => null)
+      const viaTags = viaOEmbed?.thumbnail ? null : await openGraphTags(url).catch(() => null)
+      const ref: Reference | null = viaOEmbed || viaTags
+        ? {
+            author: viaOEmbed?.author || viaTags?.author || '',
+            thumbnail: viaOEmbed?.thumbnail || viaTags?.thumbnail || '',
+            caption: viaOEmbed?.caption || viaTags?.caption || '',
+            provider: viaOEmbed?.provider || viaTags?.provider || 'Instagram',
+          }
+        : null
+
       if (!ref) {
         res.status(422).json({
-          error: 'Could not read that post. It may be private, deleted, or the link may not be a public post.',
+          error: 'Could not read that post. It may be private or deleted — or the Facebook app may not have oEmbed Read enabled.',
         })
         return
       }

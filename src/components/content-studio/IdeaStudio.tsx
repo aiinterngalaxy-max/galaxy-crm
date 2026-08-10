@@ -169,9 +169,10 @@ export function IdeaStudio({
           <div className="flex gap-2">
             <input
               className="form-input flex-1"
-              placeholder="https://instagram.com/reel/…"
+              placeholder="Reel or post link — https://instagram.com/p/… or /reel/…"
               value={url}
               onChange={e => setUrl(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); analyse() } }}
             />
             <button className="btn-primary whitespace-nowrap" onClick={analyse} disabled={analysing}>
               {analysing ? 'Reading…' : 'Analyse'}
@@ -180,13 +181,31 @@ export function IdeaStudio({
 
           {meta && (
             <div className="flex gap-3 pt-1">
-              {meta.thumbnail
-                ? <img src={meta.thumbnail} alt="" className="w-20 h-28 object-cover rounded-lg shrink-0 bg-gray-800" />
-                : <div className="w-20 h-28 rounded-lg bg-gray-800 shrink-0" />}
+              {meta.thumbnail ? (
+                /* Through our own server: Instagram's CDN checks the Referer and
+                   serves nothing to a page it does not recognise, so a direct
+                   src renders an empty box even when the URL is fine. */
+                <img
+                  src={`/api/content-studio/thumb?u=${encodeURIComponent(meta.thumbnail)}`}
+                  alt="Reference post cover"
+                  referrerPolicy="no-referrer"
+                  className="w-24 h-32 object-cover rounded-lg shrink-0 bg-gray-800"
+                  onError={e => { (e.currentTarget as HTMLImageElement).src = meta.thumbnail! }}
+                />
+              ) : (
+                <div className="w-24 h-32 rounded-lg bg-gray-800 shrink-0 flex items-center justify-center p-2">
+                  <span className="text-[10px] text-gray-600 text-center leading-tight">No cover available</span>
+                </div>
+              )}
               <div className="min-w-0 space-y-1">
                 <p className="text-sm font-medium text-gray-200">{meta.author || 'Unknown author'}</p>
                 {meta.caption && <p className="text-xs text-gray-500 line-clamp-3">{meta.caption}</p>}
                 {meta.analysis && <p className="text-xs text-gray-400 leading-relaxed">{meta.analysis}</p>}
+                {!meta.thumbnail && (
+                  <p className="text-[11px] text-amber-400/80">
+                    Instagram returned no cover for this link — the caption was still read.
+                  </p>
+                )}
               </div>
             </div>
           )}
