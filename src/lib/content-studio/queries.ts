@@ -613,11 +613,14 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   const status = String(data.status || 'Planned')
   if (!SHOOT_STATUSES.has(status)) throw new Error('invalid status')
 
+  const content_id = data.content_id ? Number(data.content_id) : null
+
   const rs = await run(
-    `INSERT INTO cmo_shoots (brand_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cmo_shoots (brand_id, content_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       brand_id,
+      content_id,
       title,
       data.shoot_date || null,
       String(data.shoot_time || '').trim() || null,
@@ -632,13 +635,24 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   await logActivity('shoot', id, 'created', `Shoot scheduled: ${title}${data.shoot_date ? ` on ${data.shoot_date}` : ''}`)
+
+  // The status picked at creation (e.g. adding an already-Scheduled shoot)
+  // should sync the pipeline too, same as if it were set via an edit.
+  if (content_id) {
+    if (status === 'Planned') await syncContentStage(content_id, 'Shoot Planning', { reason: 'shoot planned' })
+    else if (status === 'Scheduled') await syncContentStage(content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    else if (status === 'Shooting') await syncContentStage(content_id, 'Shooting', { reason: 'shoot in progress' })
+    else if (status === 'Completed') await syncContentStage(content_id, 'Editing', { reason: 'shoot completed' })
+  }
+
   return row as ShootRow
 }
 
 export async function updateShoot(id: number, data: Record<string, any>): Promise<ShootRow> {
   const body = { ...data }
   if (body.status && !SHOOT_STATUSES.has(body.status)) throw new Error('bad status')
-  const editable = new Set(['title', 'shoot_date', 'shoot_time', 'location', 'talent', 'team', 'equipment', 'status', 'notes'])
+  if ('content_id' in body) body.content_id = body.content_id ? Number(body.content_id) : null
+  const editable = new Set(['title', 'shoot_date', 'shoot_time', 'location', 'talent', 'team', 'equipment', 'status', 'notes', 'content_id'])
   const { sets, args } = applyEditable(body, editable)
   if (!sets.length) throw new Error('no editable fields')
   args.push(id)
@@ -647,14 +661,18 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   const title = row?.title ?? `#${id}`
 
   // Shoot status drives the content stage the same way script status does.
-  if (body.status && row?.content_id) {
-    if (body.status === 'Planned') {
+  // Uses the shoot's status even when only content_id changed in this call —
+  // a shoot that was already "Scheduled" before it got linked to a content
+  // piece should sync immediately, not sit stale until the next status click.
+  const effectiveStatus = body.status || row?.status
+  if (effectiveStatus && row?.content_id && ('status' in body || 'content_id' in body)) {
+    if (effectiveStatus === 'Planned') {
       await syncContentStage(row.content_id, 'Shoot Planning', { reason: 'shoot planned' })
-    } else if (body.status === 'Scheduled') {
+    } else if (effectiveStatus === 'Scheduled') {
       await syncContentStage(row.content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
-    } else if (body.status === 'Shooting') {
+    } else if (effectiveStatus === 'Shooting') {
       await syncContentStage(row.content_id, 'Shooting', { reason: 'shoot in progress' })
-    } else if (body.status === 'Completed') {
+    } else if (effectiveStatus === 'Completed') {
       await syncContentStage(row.content_id, 'Editing', { reason: 'shoot completed' })
     }
   }

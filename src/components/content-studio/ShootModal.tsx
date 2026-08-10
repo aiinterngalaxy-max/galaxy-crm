@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Brand, Shoot } from '@/types/content-studio'
+import type { Brand, ContentRow, Shoot } from '@/types/content-studio'
 import { createShoot, deleteShoot, updateShoot } from '@/lib/content-studio/queries'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 
-const STATUSES = ['Planned', 'Scheduled', 'Completed', 'Cancelled'] as const
+const STATUSES = ['Planned', 'Scheduled', 'Shooting', 'Completed', 'Cancelled'] as const
 
 type ShootRow = Shoot & { brand_name: string }
 
 interface Props {
   shoot?: ShootRow | null
   brands: Brand[]
+  /** For the "link to content" picker — only pieces in the same brand are offered. */
+  content: ContentRow[]
   onClose: () => void
   onSaved: () => void
 }
@@ -17,6 +19,7 @@ interface Props {
 function blank() {
   return {
     brand_id: '',
+    content_id: '',
     title: '',
     shoot_date: '',
     shoot_time: '',
@@ -32,6 +35,7 @@ function blank() {
 function fromShoot(s: ShootRow) {
   return {
     brand_id: String(s.brand_id),
+    content_id: s.content_id ? String(s.content_id) : '',
     title: s.title ?? '',
     shoot_date: s.shoot_date ?? '',
     shoot_time: s.shoot_time ?? '',
@@ -44,7 +48,7 @@ function fromShoot(s: ShootRow) {
   }
 }
 
-export function ShootModal({ shoot, brands, onClose, onSaved }: Props) {
+export function ShootModal({ shoot, brands, content, onClose, onSaved }: Props) {
   const { viewer } = useViewer()
   const canDelete = !!viewer?.is_owner
   const firstRef = useRef<HTMLInputElement>(null)
@@ -90,6 +94,7 @@ export function ShootModal({ shoot, brands, onClose, onSaved }: Props) {
 
     const payload: Record<string, any> = {
       title: form.title.trim(),
+      content_id: form.content_id || null,
       shoot_date: form.shoot_date || null,
       shoot_time: form.shoot_time.trim() || null,
       location: form.location.trim() || null,
@@ -158,6 +163,23 @@ export function ShootModal({ shoot, brands, onClose, onSaved }: Props) {
           <div>
             <label className="form-label">Title <span className="text-rose-400">*</span></label>
             <input ref={firstRef} type="text" className="form-input" placeholder="Shoot title…" value={form.title} onChange={set('title')} disabled={busy} required />
+          </div>
+
+          <div>
+            <label className="form-label">Link to a Pipeline card</label>
+            <select className="form-input" value={form.content_id} onChange={set('content_id')} disabled={busy}>
+              <option value="">— not linked —</option>
+              {content
+                .filter((c) => c.brand_id === (isEdit ? shoot!.brand_id : Number(form.brand_id)))
+                .map((c) => (
+                  <option key={c.id} value={c.id}>{c.title} — {c.stage}</option>
+                ))}
+            </select>
+            <p className="text-[11px] text-gray-600 mt-1">
+              {form.content_id
+                ? 'Its status here moves that card on the Pipeline board.'
+                : "Without this, changing this shoot's status won't move anything on the Pipeline board."}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

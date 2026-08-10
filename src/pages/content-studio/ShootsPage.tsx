@@ -65,7 +65,7 @@ export function ShootsPage() {
   return (
     <Page>
       <PageHeader title="Shoot Management" subtitle={`${upcoming.length} upcoming · ${next14} in next 14 days · ${done} completed`} />
-      <div data-tour="shoots-view"><ShootsView shoots={shoots} brands={brands} onChanged={load} /></div>
+      <div data-tour="shoots-view"><ShootsView shoots={shoots} brands={brands} content={allContent} onChanged={load} /></div>
     </Page>
   )
 }

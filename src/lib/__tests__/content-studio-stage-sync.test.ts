@@ -34,6 +34,7 @@ interface World {
   scriptExists?: boolean
   shootExists?: boolean
   shootContentId?: number | null
+  shootStatus?: string
 }
 
 function stubDb(world: World) {
@@ -64,7 +65,8 @@ function stubDb(world: World) {
       return world.shootExists ? { id: 3 } : null
     }
     if (sql.includes('FROM cmo_shoots WHERE id')) {
-      return { id: 3, title: 'Shoot', content_id: world.shootContentId ?? 7 }
+      const content_id = world.shootContentId === undefined ? 7 : world.shootContentId
+      return { id: 3, title: 'Shoot', content_id, status: world.shootStatus ?? 'Planned' }
     }
 
     if (sql.includes('FROM cmo_ideas WHERE id')) {
@@ -199,6 +201,18 @@ describe('shoot status', () => {
     stubDb({ contentStage: 'Shoot Scheduled', shootExists: true, scriptExists: true })
     await updateShoot(3, { status: 'Cancelled' })
     expect(stageWrites()).toEqual([])
+  })
+
+  it('does nothing for a shoot with no linked content — status alone cannot sync a Pipeline card that was never connected', async () => {
+    stubDb({ contentStage: 'Shoot Planning', shootExists: true, scriptExists: true, shootContentId: null })
+    await updateShoot(3, { status: 'Scheduled' })
+    expect(stageWrites()).toEqual([])
+  })
+
+  it('linking an already-Scheduled shoot to content syncs immediately, without waiting for another status click', async () => {
+    stubDb({ contentStage: 'Approved', shootExists: true, scriptExists: true, shootStatus: 'Scheduled' })
+    await updateShoot(3, { content_id: 7 })
+    expect(stageWrites()).toContain('Shoot Scheduled')
   })
 })
 
