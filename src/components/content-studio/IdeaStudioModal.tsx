@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
 import { updateIdea } from '@/lib/content-studio/queries'
 import type { Idea, ReferenceMeta } from '@/types/content-studio'
@@ -139,7 +140,14 @@ export function IdeaStudioModal({
 
   const step = 'text-[11px] font-medium px-2 py-0.5 rounded-full bg-gold-500/15 text-gold-400'
 
-  return (
+  /**
+   * Rendered into <body>, not where it is written. Every card in Content Studio
+   * is a .glass-card with a backdrop-filter, and a filtered element becomes the
+   * containing block for fixed-position descendants — so the dialog was being
+   * centred inside whichever card opened it and clipped by its edges, with the
+   * page showing through.
+   */
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
       <div className="glass-card w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
@@ -261,6 +269,7 @@ export function IdeaStudioModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
