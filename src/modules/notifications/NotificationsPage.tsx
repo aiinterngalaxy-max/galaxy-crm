@@ -27,6 +27,9 @@ const TYPE_CONFIG: Record<NotificationType, { label: string; color: string; bg: 
   content_studio_idea_rejected: { label: 'Idea Rejected', color: 'text-rose-400', bg: 'bg-rose-900/30' },
   content_studio_script_changes: { label: 'Script Changes', color: 'text-orange-400', bg: 'bg-orange-900/30' },
   content_studio_content_published: { label: 'Published', color: 'text-teal-400', bg: 'bg-teal-900/30' },
+  content_studio_content_review: { label: 'Ready for Review', color: 'text-amber-400', bg: 'bg-amber-900/30' },
+  content_studio_ready_to_publish: { label: 'Ready to Publish', color: 'text-emerald-400', bg: 'bg-emerald-900/30' },
+  content_studio_publish_due: { label: 'Video Due Soon', color: 'text-rose-400', bg: 'bg-rose-900/30' },
   general:            { label: 'General',            color: 'text-gray-400',    bg: 'bg-gray-800' },
 }
 

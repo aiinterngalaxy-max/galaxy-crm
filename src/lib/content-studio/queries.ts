@@ -504,6 +504,20 @@ export function getScripts(): Promise<ScriptRow[]> {
   )
 }
 
+/** For the script-review control in IdeaStudio — the one script row linked to this content, if any. */
+export function getScriptByContentId(contentId: number): Promise<ScriptRow | null> {
+  return one<ScriptRow>(
+    `SELECT sc.id, sc.content_id, sc.writer, sc.status, sc.deadline,
+            sc.revision_count, sc.review_comments, sc.approved, sc.approved_at, sc.created_at,
+            ct.title, br.name AS brand_name
+     FROM cmo_scripts sc
+     JOIN cmo_content ct ON ct.id = sc.content_id
+     JOIN cmo_brands br ON br.id = ct.brand_id
+     WHERE sc.content_id=?`,
+    [contentId],
+  )
+}
+
 export async function createScript(data: {
   content_id: number
   writer?: string

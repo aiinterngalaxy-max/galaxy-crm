@@ -6,6 +6,18 @@ import type { ContentRow } from '@/types/content-studio'
 import { ContentModal } from './ContentModal'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { deleteContent, updateContent } from '@/lib/content-studio/queries'
+import { notifySuperAdminsOfContentReadyForReview, notifyTeamOfContentReadyToPublish } from '@/lib/notifyHelpers'
+
+// Review and Ready To Publish are approval gates that previously had nobody
+// notified when a card landed there — mirrors the idea/script submit pattern.
+// Shared by move() and bulkMove() rather than duplicated in each.
+function notifyStageEntry(stage: string, contentId: number, title: string, brandName?: string) {
+  if (stage === 'Review') {
+    notifySuperAdminsOfContentReadyForReview({ contentId, title, brandName }).catch(console.error)
+  } else if (stage === 'Ready To Publish') {
+    notifyTeamOfContentReadyToPublish({ contentId, title, brandName }).catch(console.error)
+  }
+}
 
 function daysUntil(d: string | null): number | null {
   if (!d) return null
@@ -74,6 +86,7 @@ export function KanbanBoard({
     try {
       const updated = await updateContent(id, { stage }, actor)
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...updated } : r)))
+      notifyStageEntry(stage, id, cur.title, cur.brand_name)
       onChanged()
     } catch (err: any) {
       setRows(prev)
@@ -93,6 +106,8 @@ export function KanbanBoard({
       try {
         const updated = await updateContent(id, { stage }, actor)
         setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...updated } : r)))
+        const cur = rows.find((r) => r.id === id)
+        notifyStageEntry(stage, id, cur?.title ?? `#${id}`, cur?.brand_name)
       } catch (e: any) {
         const title = rows.find((r) => r.id === id)?.title ?? `#${id}`
         errors.push(`"${title.slice(0, 30)}": ${e?.message || 'failed'}`)

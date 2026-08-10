@@ -4,6 +4,7 @@ import { fmtDate } from '@/lib/content-studio/format'
 import { stageProgress, STAGE_INDEX, STAGES, STAGE_STYLE } from '@/lib/content-studio/stages'
 import type { ContentRow } from '@/types/content-studio'
 import { updateContent } from '@/lib/content-studio/queries'
+import { notifySuperAdminsOfContentReadyForReview, notifyTeamOfContentReadyToPublish } from '@/lib/notifyHelpers'
 
 interface Props {
   rows: ContentRow[]
@@ -108,6 +109,13 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
       if (body.stage) setStage(body.stage)
       if ('approved' in body) setApproved(!!body.approved)
       void updated
+      // These two stages had no signal that anything needed doing — mirrors
+      // the notify-on-gate pattern already used for idea/script approval.
+      if (body.stage === 'Review') {
+        notifySuperAdminsOfContentReadyForReview({ contentId: row.id, title: row.title, brandName: row.brand_name }).catch(console.error)
+      } else if (body.stage === 'Ready To Publish') {
+        notifyTeamOfContentReadyToPublish({ contentId: row.id, title: row.title, brandName: row.brand_name }).catch(console.error)
+      }
       onChanged()
     } finally {
       setBusy(false)

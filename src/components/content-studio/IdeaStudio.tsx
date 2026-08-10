@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { updateIdea } from '@/lib/content-studio/queries'
-import type { Idea, ReferenceMeta } from '@/types/content-studio'
+import { updateIdea, getScriptByContentId, updateScript } from '@/lib/content-studio/queries'
+import { useViewer } from '@/lib/content-studio/viewer-context'
+import { notifySuperAdminsOfScriptSubmitted, notifyTeamOfScriptChangesRequired } from '@/lib/notifyHelpers'
+import type { Idea, ReferenceMeta, ScriptRow } from '@/types/content-studio'
 
 /**
  * Reference → script → captions, opened underneath the idea it belongs to.
@@ -26,6 +28,13 @@ import type { Idea, ReferenceMeta } from '@/types/content-studio'
  * separate Explainer format writes the long structured, bilingual (English +
  * Hinglish) presenter script used for deep-dive product videos. They store to
  * different fields so switching formats never overwrites the other.
+ *
+ * The Script review block below Step 3 is the only thing in the app that can
+ * move the underlying cmo_scripts row to Approved — and updateContent()
+ * refuses to advance a card past Script Review until that row says Approved.
+ * Without this control that gate had no key: nothing else in the UI ever
+ * touches script status, so a card could reach Script Review and then simply
+ * never leave.
  */
 
 async function creative<T>(action: string, payload: Record<string, string>): Promise<T> {
@@ -106,7 +115,41 @@ export function IdeaStudio({
   const [captioning, setCaptioning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [coverFailed, setCoverFailed] = useState(false)
+  const [script, setScript] = useState<ScriptRow | null>(null)
+  const [scriptBusy, setScriptBusy] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const { viewer } = useViewer()
+  const canApprove = !!viewer?.is_owner
+
+  // The script row only exists once the idea is approved (content_id set) —
+  // fetch it so there's something to review, rather than a dead-end blank.
+  useEffect(() => {
+    if (!idea.content_id) return
+    getScriptByContentId(idea.content_id).then(setScript).catch(() => setScript(null))
+  }, [idea.content_id])
+
+  async function scriptAction(status: 'Submitted' | 'Approved' | 'Changes Required') {
+    if (!script) return
+    setScriptBusy(true)
+    try {
+      const updated = await updateScript(script.id, { status, approved: status === 'Approved' ? 1 : 0 })
+      setScript(updated)
+      if (status === 'Submitted') {
+        notifySuperAdminsOfScriptSubmitted({ scriptId: script.id, contentTitle: idea.title, brandName }).catch(console.error)
+        toast.success('Submitted for review')
+      } else if (status === 'Approved') {
+        toast.success('Script approved — moved to Shoot Planning')
+      } else {
+        notifyTeamOfScriptChangesRequired({ scriptId: script.id, contentTitle: idea.title, brandName }).catch(console.error)
+        toast.success('Sent back for changes')
+      }
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update script status')
+    } finally {
+      setScriptBusy(false)
+    }
+  }
 
   async function analyse() {
     if (!url.trim()) { toast.error('Paste a post link first'); return }
@@ -382,6 +425,49 @@ export function IdeaStudio({
             </div>
           )}
         </section>
+
+        {/* ── Script review ─────────────────────────────────────────────── */}
+        {script && (
+          <section className="rounded-xl border border-gray-800 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className={step}>Review</span>
+              <span className="text-sm font-medium text-gray-200">Script review</span>
+            </div>
+
+            {script.status === 'Approved' ? (
+              <p className="text-sm text-emerald-400 font-medium">✓ Approved — moved to Shoot Planning</p>
+            ) : script.status === 'Submitted' ? (
+              canApprove ? (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-amber-400 flex-1">Submitted — waiting on your review.</p>
+                  <button className="btn-secondary text-xs" disabled={scriptBusy} onClick={() => scriptAction('Changes Required')}>
+                    ✗ Request changes
+                  </button>
+                  <button className="btn-primary text-xs" disabled={scriptBusy} onClick={() => scriptAction('Approved')}>
+                    ✓ Approve — moves to Shoot Planning
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-amber-400">⧗ Submitted — waiting for the Owner to review.</p>
+              )
+            ) : (
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500 flex-1">
+                  {script.status === 'Changes Required'
+                    ? 'Sent back for changes — resubmit once the rewrite is ready.'
+                    : "Not submitted yet — the card won't move past Script Review until it is."}
+                </p>
+                <button
+                  className="btn-primary text-xs"
+                  disabled={scriptBusy || !(format === 'reel' ? (hook || body || cta) : (scriptEn || scriptHi))}
+                  onClick={() => scriptAction('Submitted')}
+                >
+                  Submit for review
+                </button>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ── Captions ──────────────────────────────────────────────────── */}
         <section className="rounded-xl border border-gray-800 p-4 space-y-3">

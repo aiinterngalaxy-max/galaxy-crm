@@ -541,6 +541,9 @@ export type NotificationType =
   | 'content_studio_idea_rejected'
   | 'content_studio_script_changes'
   | 'content_studio_content_published'
+  | 'content_studio_content_review'
+  | 'content_studio_ready_to_publish'
+  | 'content_studio_publish_due'
   | 'general'
 
 export interface AppNotification {

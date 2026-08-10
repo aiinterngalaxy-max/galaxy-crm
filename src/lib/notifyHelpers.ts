@@ -122,7 +122,7 @@ async function notifySuperAdmins(notif: {
   type: NotificationType
   title: string
   body: string
-  relatedEntityType: 'content-studio-idea' | 'content-studio-script'
+  relatedEntityType: 'content-studio-idea' | 'content-studio-script' | 'content-studio-content'
   relatedEntityId: string
 }) {
   const superAdmins = await getSuperAdmins()
@@ -275,6 +275,52 @@ export async function notifyTeamOfScriptChangesRequired({
     body: `"${contentTitle}"${brandName ? ` (${brandName})` : ''} script needs revisions before it can be approved.`,
     relatedEntityType: 'content-studio-script',
     relatedEntityId: String(scriptId),
+  })
+}
+
+/**
+ * Notify super_admins that a content piece has reached Review — the approval
+ * gate before it can advance to Ready To Publish. Mirrors
+ * notifySuperAdminsOfScriptSubmitted: an approval step with nobody to notify
+ * was exactly why Review sat there with no signal that anything needed doing.
+ */
+export async function notifySuperAdminsOfContentReadyForReview({
+  contentId,
+  title,
+  brandName,
+}: {
+  contentId: number
+  title: string
+  brandName?: string
+}) {
+  await notifySuperAdmins({
+    type: 'content_studio_content_review',
+    title: 'Content Ready for Review',
+    body: `"${title}"${brandName ? ` (${brandName})` : ''} reached Review — needs your approval before it can be scheduled to publish.`,
+    relatedEntityType: 'content-studio-content',
+    relatedEntityId: String(contentId),
+  })
+}
+
+/**
+ * Notify the marketing team that a content piece is approved and sitting at
+ * Ready To Publish — the last stage before it needs to actually be scheduled.
+ */
+export async function notifyTeamOfContentReadyToPublish({
+  contentId,
+  title,
+  brandName,
+}: {
+  contentId: number
+  title: string
+  brandName?: string
+}) {
+  await notifyMarketingTeam({
+    type: 'content_studio_ready_to_publish',
+    title: 'Ready to Publish',
+    body: `"${title}"${brandName ? ` (${brandName})` : ''} is approved and ready to publish.`,
+    relatedEntityType: 'content-studio-content',
+    relatedEntityId: String(contentId),
   })
 }
 
