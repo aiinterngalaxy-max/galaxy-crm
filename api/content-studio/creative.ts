@@ -22,6 +22,18 @@ const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
  * and cheaper than the full compound model. */
 const RESEARCH_MODEL = process.env.GROQ_RESEARCH_MODEL || 'groq/compound-mini'
 
+/**
+ * Groq's daily token cap is tracked separately PER MODEL, not pooled across
+ * the account — a 429 on llama-3.3-70b-versatile means that one model's own
+ * allowance is spent, not that the Groq key itself is out of headroom. These
+ * are all still capable instruction-followers, so trying the next one on a
+ * 429 costs a little quality at worst, not a broken script.
+ */
+const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
+  (m, i, arr) => arr.indexOf(m) === i, // TEXT_MODEL may already be one of these via env override
+)
+const RESEARCH_MODEL_CHAIN = [RESEARCH_MODEL, RESEARCH_MODEL === 'groq/compound-mini' ? 'groq/compound' : 'groq/compound-mini']
+
 function groqKey(): string {
   // The VITE_ copy is what the project has today. Set GROQ_API_KEY in Vercel and
   // the browser one can be deleted — this reads either.
@@ -34,6 +46,14 @@ interface ChatContent {
   type: 'text' | 'image_url'
   text?: string
   image_url?: { url: string }
+}
+
+class GroqError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
 }
 
 async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
@@ -50,9 +70,31 @@ async function groq(model: string, system: string, content: string | ChatContent
       temperature: 0.8,
     }),
   })
-  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  if (!res.ok) throw new GroqError(res.status, `Groq ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const data = await res.json()
   return String(data?.choices?.[0]?.message?.content ?? '').trim()
+}
+
+/**
+ * Runs `chain` in order, moving to the next model ONLY on a 429 — any other
+ * error (bad request, network failure) surfaces immediately, since trying
+ * three more models won't fix a malformed prompt. Every writing call in this
+ * file goes through this rather than calling groq() with one fixed model, so
+ * one model's daily cap running out degrades quality at worst instead of
+ * failing the request.
+ */
+export async function groqChain(chain: string[], system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
+  let lastErr: unknown
+  for (const model of chain) {
+    try {
+      return await groq(model, system, content, maxTokens)
+    } catch (err) {
+      lastErr = err
+      if (err instanceof GroqError && err.status === 429) continue
+      throw err
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('All fallback models are rate-limited. Try again shortly.')
 }
 
 // ─── Reference lookup ─────────────────────────────────────────────────────────
@@ -200,7 +242,7 @@ async function analyseReference(ref: Reference): Promise<string> {
       }
     }
   }
-  return groq(TEXT_MODEL, ANALYST, `Only the caption is available — do not describe imagery.\n${brief}`, 400)
+  return groqChain(TEXT_MODEL_CHAIN, ANALYST, `Only the caption is available — do not describe imagery.\n${brief}`, 400)
 }
 
 const RESEARCHER = `You are a short-form video trend researcher with live web search.
@@ -228,7 +270,7 @@ async function researchTrends(topic: string, ref: Reference): Promise<string> {
   ].filter(Boolean).join('\n')
   if (!seed) return ''
   try {
-    return await groq(RESEARCH_MODEL, RESEARCHER, `${seed}\n\nWhat's trending in short-form video for this niche right now?`, 500)
+    return await groqChain(RESEARCH_MODEL_CHAIN, RESEARCHER, `${seed}\n\nWhat's trending in short-form video for this niche right now?`, 500)
   } catch (err) {
     console.error('trend research failed:', err instanceof Error ? err.message : err)
     return ''
@@ -377,8 +419,8 @@ export default async function handler(req: Req, res: Res) {
       ].filter(Boolean).join('\n')
 
       const [en, hi] = await Promise.all([
-        groq(TEXT_MODEL, EXPLAINER_SYSTEM_EN, brief, 3000),
-        groq(TEXT_MODEL, EXPLAINER_SYSTEM_HI, brief, 3000),
+        groqChain(TEXT_MODEL_CHAIN, EXPLAINER_SYSTEM_EN, brief, 3000),
+        groqChain(TEXT_MODEL_CHAIN, EXPLAINER_SYSTEM_HI, brief, 3000),
       ])
       if (!en.trim() && !hi.trim()) { res.status(502).json({ error: 'The model did not return a usable script. Try again.' }); return }
       res.status(200).json({ format: 'explainer', script_full_en: en, script_full_hi: hi })
@@ -388,7 +430,7 @@ export default async function handler(req: Req, res: Res) {
     if (action === 'script') {
       const hasReference = !!(body.analysis || body.caption)
       const hasTrends = !!body.trends
-      const raw = await groq(TEXT_MODEL, SCRIPT_SYSTEM, [
+      const raw = await groqChain(TEXT_MODEL_CHAIN, SCRIPT_SYSTEM, [
         `Topic: ${body.title || 'Smart home product'}`,
         `Platform: ${body.platform || 'Instagram'}`,
         hasReference ? '\nREFERENCE — copy this structure:' : '',
@@ -409,7 +451,7 @@ export default async function handler(req: Req, res: Res) {
 
     if (action === 'captions') {
       const examples = String(body.examples || '').trim()
-      const raw = await groq(TEXT_MODEL, CAPTION_SYSTEM, [
+      const raw = await groqChain(TEXT_MODEL_CHAIN, CAPTION_SYSTEM, [
         `Topic: ${body.title || ''}`,
         examples
           // Spelled out because the model reads a short example as a hint to be
