@@ -304,6 +304,12 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
     await maybeCreateShootForContent(id)
   }
 
+  // Sign-off in Review is the last human gate before publishing — ticking it
+  // moves the piece on, rather than leaving it parked in a stage it has passed.
+  if (!body.stage && Number(body.approved) === 1) {
+    await syncContentStage(id, 'Ready To Publish', { reason: 'content approved', onlyFrom: ['Review'] })
+  }
+
   const row = await one<ContentRow>(CONTENT_JOIN + ' WHERE ct.id=?', [id])
   const title = row?.title ?? `#${id}`
   if (body.stage === 'Published') {
@@ -415,24 +421,41 @@ export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea>
   args.push(id)
   await run(`UPDATE cmo_ideas SET ${sets.join(', ')} WHERE id=?`, args)
 
-  if (Number(body.approved) === 1) {
+  if ('approved' in body) {
     const idea = await one<{ brand_id: number; title: string; content_id: number | null }>(
       'SELECT brand_id, title, content_id FROM cmo_ideas WHERE id=?',
       [id],
     )
-    if (idea && !idea.content_id) {
-      // Approving the idea lands the content straight at Script Writing —
-      // the next actionable stage — instead of leaving it stuck at "Idea".
-      const rs = await run(
-        `INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Script Writing', 'idea')`,
-        [idea.brand_id, idea.title],
-      )
-      const contentId = Number(rs.lastInsertRowid ?? 0)
-      if (contentId) {
-        await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
-        await maybeCreateScriptForContent(contentId)
-        await logActivity('content', contentId, 'created', `Content created: ${idea.title}`)
+
+    if (Number(body.approved) === 1) {
+      if (idea && !idea.content_id) {
+        // No content piece yet (idea raised on the Ideas page) — create one,
+        // already sitting at Approved so the board reflects the decision.
+        const rs = await run(
+          `INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Approved', 'idea')`,
+          [idea.brand_id, idea.title],
+        )
+        const contentId = Number(rs.lastInsertRowid ?? 0)
+        if (contentId) {
+          await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
+          await maybeCreateScriptForContent(contentId, 'Pending')
+          await logActivity('content', contentId, 'created', `Content created: ${idea.title}`)
+        }
+      } else if (idea?.content_id) {
+        // Content already exists (idea was spawned by a Pipeline "add content").
+        // Approving here is what moves it off Idea — without this the board sat
+        // at Idea forever no matter what the Ideas page said.
+        await syncContentStage(idea.content_id, 'Approved', { reason: 'idea approved' })
+        await maybeCreateScriptForContent(idea.content_id, 'Pending')
       }
+    } else if (idea?.content_id) {
+      // Approval withdrawn — send it back to Idea, but only while nothing
+      // downstream has started, so this can't undo real work.
+      await syncContentStage(idea.content_id, 'Idea', {
+        reason: 'idea approval withdrawn',
+        allowBackward: true,
+        onlyFrom: ['Approved'],
+      })
     }
   }
 
@@ -524,21 +547,21 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
   args.push(id)
   await run(`UPDATE cmo_scripts SET ${sets.join(', ')} WHERE id=?`, args)
 
+  // Each script status is a step of the pipeline finishing — mirror it onto the
+  // content piece so the board tracks the work without anyone dragging cards.
   if (body.status) {
     const script = await one<{ content_id: number }>('SELECT content_id FROM cmo_scripts WHERE id=?', [id])
     if (script?.content_id) {
-      const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [script.content_id])
-      if (content) {
-        const stage = content.stage
-        let targetStage: string | null = null
-        if (body.status === 'Submitted' && stage === 'Script Writing') targetStage = 'Script Review'
-        else if (body.status === 'Changes Required' && stage !== 'Revisions') targetStage = 'Revisions'
-        else if (body.status === 'Approved' && STAGE_INDEX[stage] < STAGE_INDEX['Shoot Planning']) targetStage = 'Shoot Planning'
-
-        if (targetStage) {
-          await run('UPDATE cmo_content SET stage=? WHERE id=?', [targetStage, script.content_id])
-          if (targetStage === 'Shoot Planning') await maybeCreateShootForContent(script.content_id)
-        }
+      if (body.status === 'In Progress') {
+        await syncContentStage(script.content_id, 'Script Writing', { reason: 'script started' })
+      } else if (body.status === 'Submitted') {
+        await syncContentStage(script.content_id, 'Script Review', { reason: 'script submitted' })
+      } else if (body.status === 'Changes Required') {
+        // Deliberately backward: changes required means it re-enters Revisions
+        // wherever it had got to.
+        await syncContentStage(script.content_id, 'Revisions', { reason: 'script changes required', allowBackward: true })
+      } else if (body.status === 'Approved') {
+        await syncContentStage(script.content_id, 'Shoot Planning', { reason: 'script approved' })
       }
     }
   }
@@ -619,11 +642,14 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   const title = row?.title ?? `#${id}`
 
-  if (body.status === 'Completed' && row?.content_id) {
-    const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [row.content_id])
-    if (content && STAGE_INDEX[content.stage] < STAGE_INDEX['Editing']) {
-      await run('UPDATE cmo_content SET stage=? WHERE id=?', ['Editing', row.content_id])
-      await logActivity('content', row.content_id, 'stage-change', 'Content moved to Editing')
+  // Shoot status drives the content stage the same way script status does.
+  if (body.status && row?.content_id) {
+    if (body.status === 'Planned') {
+      await syncContentStage(row.content_id, 'Shoot Planning', { reason: 'shoot planned' })
+    } else if (body.status === 'Scheduled') {
+      await syncContentStage(row.content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    } else if (body.status === 'Completed') {
+      await syncContentStage(row.content_id, 'Editing', { reason: 'shoot completed' })
     }
   }
 
@@ -894,6 +920,46 @@ export async function search(query: string): Promise<{ results: SearchResultRow[
 }
 
 // ---------- side-effect helpers ----------
+
+/**
+ * Move a content piece to `target` because work finished on a record linked to
+ * it (idea approved, script submitted, shoot wrapped). This is what keeps the
+ * Pipeline board — and every completion % derived from it — in step with what
+ * actually happened on the Ideas / Scripts / Shoots pages.
+ *
+ * Forward-only by default: re-saving an earlier record must never drag a piece
+ * back down the pipeline. Cases where moving back IS the point (script sent
+ * back for changes, an approval withdrawn) pass `allowBackward`, and usually
+ * `onlyFrom` to bound how far back that can reach.
+ *
+ * Writes the stage directly rather than going through updateContent() because
+ * the guards there ("can't advance — script isn't approved yet") exist to gate
+ * *manual* board moves; here the gating record is the very thing that changed.
+ */
+async function syncContentStage(
+  contentId: number,
+  target: string,
+  opts: { reason: string; allowBackward?: boolean; onlyFrom?: string[] },
+): Promise<void> {
+  const to = STAGE_INDEX[target]
+  if (to === undefined) return
+
+  const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [contentId])
+  if (!content || content.stage === target) return
+  if (opts.onlyFrom && !opts.onlyFrom.includes(content.stage)) return
+
+  const from = STAGE_INDEX[content.stage]
+  if (!opts.allowBackward && from !== undefined && from >= to) return
+
+  await run('UPDATE cmo_content SET stage=? WHERE id=?', [target, contentId])
+  await logActivity('content', contentId, 'stage-change', `${content.stage} → ${target} (${opts.reason})`)
+
+  // Keep the downstream records the new stage implies in existence, same as a
+  // manual move through updateContent() would.
+  if (to >= STAGE_INDEX['Script Writing']) await maybeCreateScriptForContent(contentId)
+  if (target === 'Shoot Planning') await maybeCreateShootForContent(contentId)
+}
+
 export async function maybeCreateShootForContent(contentId: number): Promise<void> {
   const existing = await one<{ id: number }>('SELECT id FROM cmo_shoots WHERE content_id=?', [contentId])
   if (existing) return
@@ -909,11 +975,16 @@ export async function maybeCreateShootForContent(contentId: number): Promise<voi
 }
 
 /**
- * If content_id has no linked script yet, insert one with status 'In Progress'
- * so it surfaces on the Scripts page the moment a content piece reaches (or
- * starts at/past) the Script Writing stage.
+ * If content_id has no linked script yet, insert one so it surfaces on the
+ * Scripts page the moment a content piece reaches (or starts at/past) the
+ * Script Writing stage.
+ *
+ * Defaults to 'In Progress' — the content is already at Script Writing, so
+ * the work is underway. Callers that create the script *ahead* of that stage
+ * (idea approval, where the piece sits at Approved) pass 'Pending', so that
+ * the writer picking up the script is what moves the board to Script Writing.
  */
-export async function maybeCreateScriptForContent(contentId: number): Promise<void> {
+export async function maybeCreateScriptForContent(contentId: number, status: string = 'In Progress'): Promise<void> {
   const existing = await one<{ id: number }>('SELECT id FROM cmo_scripts WHERE content_id=?', [contentId])
   if (existing) return
 
@@ -925,8 +996,8 @@ export async function maybeCreateScriptForContent(contentId: number): Promise<vo
 
   try {
     const rs = await run(
-      "INSERT INTO cmo_scripts (content_id, writer, status, deadline) VALUES (?, ?, 'In Progress', ?)",
-      [contentId, content.writer || '', content.due_date],
+      'INSERT INTO cmo_scripts (content_id, writer, status, deadline) VALUES (?, ?, ?, ?)',
+      [contentId, content.writer || '', SCRIPT_STATUSES.has(status) ? status : 'In Progress', content.due_date],
     )
     const id = Number(rs.lastInsertRowid ?? 0)
     await logActivity('script', id, 'created', `Script created: ${content.title}`)
@@ -939,8 +1010,8 @@ export async function maybeCreateScriptForContent(contentId: number): Promise<vo
  * If a content piece has no linked idea yet, insert one (pitched, but NOT
  * pre-approved — approval is still a separate explicit action) so it
  * surfaces on the Ideas page too, the reverse of the idea-approval flow
- * that auto-creates content. Approving it later is a no-op on the content
- * side since content_id is already linked.
+ * that auto-creates content. Approving it later moves the already-linked
+ * content piece from Idea to Approved (see updateIdea).
  */
 export async function maybeCreateIdeaForContent(contentId: number, brandId: number, title: string): Promise<void> {
   if (!brandId) return
