@@ -180,6 +180,10 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_ideas ADD COLUMN captions TEXT DEFAULT ''",
   // TOFU / MOFU / BOFU — see FUNNEL_STAGES in stages.ts.
   "ALTER TABLE cmo_ideas ADD COLUMN funnel_stage TEXT DEFAULT ''",
+  // 'reel' (hook/body/cta, short) or 'explainer' (long structured, bilingual).
+  "ALTER TABLE cmo_ideas ADD COLUMN script_format TEXT DEFAULT 'reel'",
+  "ALTER TABLE cmo_ideas ADD COLUMN script_full_en TEXT DEFAULT ''",
+  "ALTER TABLE cmo_ideas ADD COLUMN script_full_hi TEXT DEFAULT ''",
   `CREATE TABLE IF NOT EXISTS cmo_activity_log (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      entity_type TEXT NOT NULL,

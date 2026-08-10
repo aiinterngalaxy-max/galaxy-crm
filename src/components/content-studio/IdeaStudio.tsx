@@ -21,6 +21,11 @@ import type { Idea, ReferenceMeta } from '@/types/content-studio'
  * right now. Regenerate then picks whichever pattern — the pasted reference
  * or one of the trending ones — is the strongest fit, rather than being stuck
  * cloning a single post.
+ *
+ * Two script formats, not one. Reel (hook/body/cta) is for short-form; a
+ * separate Explainer format writes the long structured, bilingual (English +
+ * Hinglish) presenter script used for deep-dive product videos. They store to
+ * different fields so switching formats never overwrites the other.
  */
 
 async function creative<T>(action: string, payload: Record<string, string>): Promise<T> {
@@ -68,6 +73,12 @@ function buildScriptSheet(idea: Idea, hook: string, body: string, cta: string, c
   return lines.join('\n')
 }
 
+/** The explainer script already carries its own title/structure — just append the caption, no extra wrapper needed. */
+function appendCaption(text: string, caption?: string): string {
+  if (!caption) return text
+  return `${text}\n\n---\n\n📱 INSTAGRAM CAPTION\n${caption}`
+}
+
 export function IdeaStudio({
   idea, brandName, autoGenerate, onClose, onSaved,
 }: {
@@ -80,9 +91,13 @@ export function IdeaStudio({
 }) {
   const [url, setUrl] = useState(idea.reference_url ?? '')
   const [meta, setMeta] = useState<ReferenceMeta | null>(parseMeta(idea.reference_meta))
+  const [format, setFormat] = useState<'reel' | 'explainer'>(idea.script_format === 'explainer' ? 'explainer' : 'reel')
   const [hook, setHook] = useState(idea.script_hook ?? '')
   const [body, setBody] = useState(idea.script_body ?? '')
   const [cta, setCta] = useState(idea.script_cta ?? '')
+  const [scriptEn, setScriptEn] = useState(idea.script_full_en ?? '')
+  const [scriptHi, setScriptHi] = useState(idea.script_full_hi ?? '')
+  const [lang, setLang] = useState<'en' | 'hi'>('hi')
   const [examples, setExamples] = useState(idea.caption_examples ?? '')
   const [captions, setCaptions] = useState<string[]>(parseCaptions(idea.captions))
 
@@ -111,15 +126,26 @@ export function IdeaStudio({
   async function writeScript() {
     setWriting(true)
     try {
-      const r = await creative<{ hook: string; body: string; cta: string }>('script', {
-        title: idea.title,
-        platform: idea.platform ?? '',
-        analysis: meta?.analysis ?? '',
-        caption: meta?.caption ?? '',
-        author: meta?.author ?? '',
-        trends: meta?.trends ?? '',
-      })
-      setHook(r.hook); setBody(r.body); setCta(r.cta)
+      if (format === 'explainer') {
+        const r = await creative<{ script_full_en: string; script_full_hi: string }>('script', {
+          format: 'explainer',
+          title: idea.title,
+          analysis: meta?.analysis ?? '',
+          caption: meta?.caption ?? '',
+          trends: meta?.trends ?? '',
+        })
+        setScriptEn(r.script_full_en); setScriptHi(r.script_full_hi)
+      } else {
+        const r = await creative<{ hook: string; body: string; cta: string }>('script', {
+          title: idea.title,
+          platform: idea.platform ?? '',
+          analysis: meta?.analysis ?? '',
+          caption: meta?.caption ?? '',
+          author: meta?.author ?? '',
+          trends: meta?.trends ?? '',
+        })
+        setHook(r.hook); setBody(r.body); setCta(r.cta)
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not write the script')
     } finally {
@@ -133,11 +159,12 @@ export function IdeaStudio({
       const r = await creative<{ captions: string[] }>('captions', {
         title: idea.title,
         examples,
-        hook,
+        hook: format === 'explainer' ? '' : hook,
         // The caption is for this video, so it needs the whole script and the
-        // reference it was modelled on — not just the opening line.
-        scriptBody: body,
-        cta,
+        // reference it was modelled on — not just the opening line. In explainer
+        // mode there's no separate hook/cta, so an excerpt of the script stands in.
+        scriptBody: format === 'explainer' ? scriptEn.slice(0, 800) : body,
+        cta: format === 'explainer' ? '' : cta,
         analysis: meta?.analysis ?? '',
         trends: meta?.trends ?? '',
       })
@@ -155,7 +182,7 @@ export function IdeaStudio({
    */
   useEffect(() => {
     if (!autoGenerate) return
-    if (hook || body || cta) return
+    if (hook || body || cta || scriptEn || scriptHi) return
     writeScript()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -166,9 +193,12 @@ export function IdeaStudio({
       await updateIdea(idea.id, {
         reference_url: url.trim(),
         reference_meta: meta ? JSON.stringify(meta) : '',
+        script_format: format,
         script_hook: hook,
         script_body: body,
         script_cta: cta,
+        script_full_en: scriptEn,
+        script_full_hi: scriptHi,
         caption_examples: examples,
         captions: captions.length ? JSON.stringify(captions) : '',
       })
@@ -272,38 +302,85 @@ export function IdeaStudio({
               <span className="text-sm font-medium text-gray-200">Script — every box editable</span>
             </div>
             <div className="flex items-center gap-2">
-              {(hook || body || cta) && (
+              {((format === 'reel' && (hook || body || cta)) || (format === 'explainer' && (scriptEn || scriptHi))) && (
                 <button
                   className="text-[11px] text-gray-500 hover:text-gold-400"
-                  onClick={() => { navigator.clipboard.writeText(buildScriptSheet(idea, hook, body, cta)); toast.success('Copied') }}
+                  onClick={() => {
+                    const text = format === 'explainer' ? (lang === 'en' ? scriptEn : scriptHi) : buildScriptSheet(idea, hook, body, cta)
+                    navigator.clipboard.writeText(text)
+                    toast.success('Copied')
+                  }}
                 >
                   📋 Copy script
                 </button>
               )}
               <button className="btn-secondary text-xs" onClick={writeScript} disabled={writing}>
-                {writing ? 'Writing…' : hook || body || cta ? '⟳ Regenerate' : '⚡ Generate'}
+                {writing
+                  ? format === 'explainer' ? 'Writing both languages…' : 'Writing…'
+                  : (format === 'reel' ? (hook || body || cta) : (scriptEn || scriptHi)) ? '⟳ Regenerate' : '⚡ Generate'}
               </button>
             </div>
           </div>
 
-          {[
-            { label: 'Hook', value: hook, set: setHook, rows: 2, hint: '~3s' },
-            { label: 'Body', value: body, set: setBody, rows: 3, hint: '~20s' },
-            { label: 'CTA', value: cta, set: setCta, rows: 2, hint: '~5s' },
-          ].map(f => (
-            <div key={f.label}>
-              <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-                <span>{f.label}</span><span>{f.hint}</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${format === 'reel' ? 'bg-gold-500 border-gold-500 text-gray-950' : 'border-gray-700 text-gray-500 hover:border-gray-600'}`}
+              onClick={() => setFormat('reel')}
+            >
+              Reel — hook / body / cta
+            </button>
+            <button
+              className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${format === 'explainer' ? 'bg-gold-500 border-gold-500 text-gray-950' : 'border-gray-700 text-gray-500 hover:border-gray-600'}`}
+              onClick={() => setFormat('explainer')}
+            >
+              Explainer — long, English + Hinglish
+            </button>
+          </div>
+
+          {format === 'reel' ? (
+            [
+              { label: 'Hook', value: hook, set: setHook, rows: 2, hint: '~3s' },
+              { label: 'Body', value: body, set: setBody, rows: 3, hint: '~20s' },
+              { label: 'CTA', value: cta, set: setCta, rows: 2, hint: '~5s' },
+            ].map(f => (
+              <div key={f.label}>
+                <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+                  <span>{f.label}</span><span>{f.hint}</span>
+                </div>
+                <textarea
+                  className="form-input w-full"
+                  rows={f.rows}
+                  value={f.value}
+                  onChange={e => f.set(e.target.value)}
+                  placeholder={`${f.label}…`}
+                />
+              </div>
+            ))
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${lang === 'en' ? 'bg-gray-700 border-gray-700 text-white' : 'border-gray-700 text-gray-500 hover:border-gray-600'}`}
+                  onClick={() => setLang('en')}
+                >
+                  English
+                </button>
+                <button
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${lang === 'hi' ? 'bg-gray-700 border-gray-700 text-white' : 'border-gray-700 text-gray-500 hover:border-gray-600'}`}
+                  onClick={() => setLang('hi')}
+                >
+                  Hinglish
+                </button>
               </div>
               <textarea
-                className="form-input w-full"
-                rows={f.rows}
-                value={f.value}
-                onChange={e => f.set(e.target.value)}
-                placeholder={`${f.label}…`}
+                className="form-input w-full font-mono text-xs leading-relaxed"
+                rows={22}
+                value={lang === 'en' ? scriptEn : scriptHi}
+                onChange={e => (lang === 'en' ? setScriptEn(e.target.value) : setScriptHi(e.target.value))}
+                placeholder={writing ? 'Writing both languages…' : 'Generate to write the full presenter script…'}
               />
             </div>
-          ))}
+          )}
         </section>
 
         {/* ── Captions ──────────────────────────────────────────────────── */}
@@ -342,8 +419,12 @@ export function IdeaStudio({
               </button>
               <button
                 className="text-[11px] text-gray-500 hover:text-gold-400 shrink-0"
-                title="Copy the full handoff sheet — funnel, hook, body, CTA and this caption"
-                onClick={() => { navigator.clipboard.writeText(buildScriptSheet(idea, hook, body, cta, c)); toast.success('Copied full script') }}
+                title={format === 'explainer' ? `Copy the full ${lang === 'en' ? 'English' : 'Hinglish'} script with this caption` : 'Copy the full handoff sheet — funnel, hook, body, CTA and this caption'}
+                onClick={() => {
+                  const text = format === 'explainer' ? appendCaption(lang === 'en' ? scriptEn : scriptHi, c) : buildScriptSheet(idea, hook, body, cta, c)
+                  navigator.clipboard.writeText(text)
+                  toast.success('Copied full script')
+                }}
               >
                 📋 Copy full script
               </button>

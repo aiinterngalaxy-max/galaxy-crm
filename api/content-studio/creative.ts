@@ -256,6 +256,42 @@ The topic stays ours. A comedy clip about a prank becomes a comedy clip about a 
 Return ONLY valid JSON: {"hook":"...","body":"...","cta":"..."}
 Indian English. No emoji in the script. No markdown, no commentary outside the JSON.`
 
+/**
+ * The long structured "explainer" format — a full presenter script for a
+ * product deep-dive video, not a short reel. Structure is fixed (this is
+ * what the team already shoots from); only the product/topic and which
+ * feature gets the spotlight first varies. Two full calls, not one JSON
+ * blob asking for both languages at once — a ~2000-word script is already
+ * pushing the model's ability to close its own JSON string correctly, and
+ * this is filmed verbatim, so a truncated or malformed response is worse
+ * than the extra round trip.
+ */
+const EXPLAINER_STRUCTURE = `Structure, in this exact order:
+
+1. A top heading: "# 🎬 Galaxy Home Automation – Premium [Product] Video Script"
+2. "### INTRODUCTION" — 2 short spoken lines in bold, each on its own line wrapped in quotes. First line names the everyday problem in general terms, second introduces Galaxy's product as the upgrade.
+3. Then 10-14 numbered sections ("## 1. SECTION NAME", "## 2. ...", separated by "---"), each opening with one bold spoken transition line, then plain narration paragraphs and/or a bullet list of **Bold Feature Name** – explanation lines, covering (adapt these to the actual product, don't force door-lock specifics onto an unrelated product): what it does / access or control methods, how the system works end to end, one standout technology feature, app/remote connectivity, sharing or guest/family access, safety or backup provisions, power source, physical build quality, design, which spaces it suits (homes, villas, offices, etc.), and a closing "why upgrade" summary section.
+4. A final "# CLOSING – GALAXY HOME AUTOMATION" section: 3-4 bold spoken brand lines ending on the tagline "Galaxy Home Automation — Smart Living. Secure Living."
+
+Never invent exact numeric specs — battery mAh, certifications, model/grade numbers — unless they're given to you in the input. Describe the capability in general terms instead ("a high-capacity rechargeable battery", not a fabricated number). This is filmed and said on camera as fact; a wrong spec is a real product claim, not a creative flourish.
+
+If a reference post or trend research is given, use it only to shape the INTRODUCTION's opening line and which section leads first — the section structure itself does not change.`
+
+const EXPLAINER_SYSTEM_EN = `You write long-form presenter video scripts for Galaxy Home Automation, an Indian smart-home company. This is a full product walkthrough for someone close to buying, not a short reel — depth and completeness are the point.
+
+${EXPLAINER_STRUCTURE}
+
+Write in natural spoken English, the way a presenter actually talks to camera — not brochure copy. Markdown output: headings, bold, bullet lists, "---" dividers, exactly like a script document meant to be read from.`
+
+const EXPLAINER_SYSTEM_HI = `You write long-form presenter video scripts for Galaxy Home Automation, an Indian smart-home company. This is a full product walkthrough for someone close to buying, not a short reel — depth and completeness are the point.
+
+${EXPLAINER_STRUCTURE}
+
+Write in Hinglish — natural Hindi narration transliterated in Roman script, mixed with English for technical and product terms, exactly the way an Indian presenter actually speaks on camera. Match this register precisely:
+"Aaj ke modern home mein security sirf ek strong door tak limited nahi hai. Aaj security smart, convenient aur intelligent honi chahiye."
+"Galaxy Home Automation lekar aaya hai premium [Product] — ek advanced solution jo aapke ghar ko technology, safety aur convenience ke saath upgrade karta hai."
+Markdown output: headings, bold, bullet lists, "---" dividers, exactly like a script document meant to be read from.`
+
 const CAPTION_SYSTEM = `You write Instagram captions for Galaxy Home Automation, an Indian smart-home company.
 
 The examples are the format, and you copy it rather than improve on it:
@@ -329,6 +365,23 @@ export default async function handler(req: Req, res: Res) {
         researchTrends(String(body.title || ''), ref).catch(() => ''),
       ])
       res.status(200).json({ ...ref, analysis, trends })
+      return
+    }
+
+    if (action === 'script' && body.format === 'explainer') {
+      const brief = [
+        `Product/topic: ${body.title || 'Smart home product'}`,
+        body.analysis ? `Reference post for the opening angle:\n${body.analysis}` : '',
+        body.caption ? `Its caption: ${body.caption}` : '',
+        body.trends ? `What's trending in this niche right now:\n${body.trends}` : '',
+      ].filter(Boolean).join('\n')
+
+      const [en, hi] = await Promise.all([
+        groq(TEXT_MODEL, EXPLAINER_SYSTEM_EN, brief, 3000),
+        groq(TEXT_MODEL, EXPLAINER_SYSTEM_HI, brief, 3000),
+      ])
+      if (!en.trim() && !hi.trim()) { res.status(502).json({ error: 'The model did not return a usable script. Try again.' }); return }
+      res.status(200).json({ format: 'explainer', script_full_en: en, script_full_hi: hi })
       return
     }
 

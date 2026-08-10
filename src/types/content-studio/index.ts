@@ -83,6 +83,10 @@ export interface Idea {
   script_hook?: string;
   script_body?: string;
   script_cta?: string;
+  /** 'reel' (default, hook/body/cta) or 'explainer' (long structured, bilingual). */
+  script_format?: string;
+  script_full_en?: string;
+  script_full_hi?: string;
   caption_examples?: string;
   /** JSON string — array of generated captions. */
   captions?: string;

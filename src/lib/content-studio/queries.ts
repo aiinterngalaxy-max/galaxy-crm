@@ -382,7 +382,7 @@ export async function createComment(contentId: number, text: string, author?: st
 }
 
 // ---------- ideas ----------
-const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at, platform, funnel_stage, reference_url, reference_meta, script_hook, script_body, script_cta, caption_examples, captions'
+const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at, platform, funnel_stage, reference_url, reference_meta, script_hook, script_body, script_cta, script_format, script_full_en, script_full_hi, caption_examples, captions'
 
 export function getIdeas(brandId?: number): Promise<Idea[]> {
   if (brandId) return all<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE brand_id=? ORDER BY pitched, pitch_due`, [brandId])
@@ -413,7 +413,8 @@ export async function createIdea(data: { brand_id: number; month?: string; title
 const IDEA_EDITABLE = new Set([
   'title', 'pitched', 'pitch_due', 'approved', 'rejected', 'review_note', 'month',
   'platform', 'funnel_stage', 'reference_url', 'reference_meta',
-  'script_hook', 'script_body', 'script_cta', 'caption_examples', 'captions',
+  'script_hook', 'script_body', 'script_cta', 'script_format', 'script_full_en', 'script_full_hi',
+  'caption_examples', 'captions',
 ])
 
 export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea> {
