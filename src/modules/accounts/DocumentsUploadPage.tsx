@@ -9,6 +9,7 @@ import { cn, formatDate } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from '../../lib/firebase'
 import { uploadToDrive, GoogleDriveError } from '../../lib/googleDrive'
+import { compressForUpload } from '../../lib/uploadCompression'
 import { trashItem } from '../../lib/trash'
 import toast from 'react-hot-toast'
 import type { AccountDocument } from '../../types'
@@ -48,6 +49,7 @@ interface UploadTask {
   id: string
   fileName: string
   fraction: number
+  phase: 'compressing' | 'uploading'
   error?: string
 }
 
@@ -71,17 +73,34 @@ export function DocumentsUploadPage() {
 
   const uploadOne = useCallback(async (file: File) => {
     const taskId = `${file.name}-${Date.now()}-${Math.random()}`
-    setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0 }])
+    setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0, phase: 'compressing' }])
 
     try {
-      const { driveFileId, driveViewUrl } = await uploadToDrive(file, fraction => {
-        setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, fraction } : t)))
+      // Compression is best-effort and never throws — a failure or an
+      // unsuitable file type (Excel/CSV/Word) just returns the original
+      // untouched, so this never blocks the upload it's meant to shrink.
+      const { blob: uploadBlob, wasCompressed, savedBytes } = await compressForUpload(file, fraction => {
+        setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, phase: 'compressing', fraction } : t)))
       })
 
+      // A compressed image becomes a JPEG blob — if the original wasn't
+      // already .jpg/.jpeg, keep the stored file's extension matching what
+      // its bytes actually are, or apps opening it later will see a mismatch.
+      const uploadFileName = wasCompressed && uploadBlob.type === 'image/jpeg' && !/\.jpe?g$/i.test(file.name)
+        ? file.name.replace(/\.[^.]+$/, '') + '.jpg'
+        : file.name
+
+      setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, phase: 'uploading', fraction: 0 } : t)))
+
+      const { driveFileId, driveViewUrl } = await uploadToDrive(
+        new File([uploadBlob], uploadFileName, { type: uploadBlob.type || file.type }),
+        fraction => setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, phase: 'uploading', fraction } : t))),
+      )
+
       await addDoc(collection(db, 'accountDocuments'), {
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        size: file.size,
+        fileName: uploadFileName,
+        mimeType: uploadBlob.type || file.type || 'application/octet-stream',
+        size: uploadBlob.size,
         driveFileId,
         driveViewUrl,
         status: 'uploaded',
@@ -92,7 +111,11 @@ export function DocumentsUploadPage() {
       })
 
       setTasks(prev => prev.filter(t => t.id !== taskId))
-      toast.success(`${file.name} uploaded`)
+      toast.success(
+        wasCompressed
+          ? `${uploadFileName} uploaded — compressed, saved ${formatFileSize(savedBytes)}`
+          : `${file.name} uploaded`,
+      )
     } catch (err) {
       const message = err instanceof GoogleDriveError ? err.message : 'Upload failed — please try again'
       setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, error: message } : t)))
@@ -156,6 +179,7 @@ export function DocumentsUploadPage() {
           <UploadCloud className={cn('w-8 h-8', dragging ? 'text-gold-400' : 'text-gray-600')} />
           <p className="text-sm text-gray-300 font-medium">Drop files here, or click to browse</p>
           <p className="text-xs text-gray-600">PDF, Excel, CSV, Word, images, and more — any size</p>
+          <p className="text-xs text-gray-700">Images and large PDFs are compressed automatically before upload</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -179,7 +203,10 @@ export function DocumentsUploadPage() {
                   <Loader2 className="w-4 h-4 text-gold-400 animate-spin shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">{t.fileName}</p>
+                  <p className="text-sm text-gray-200 truncate">
+                    {t.fileName}
+                    {!t.error && <span className="text-gray-600 font-normal"> · {t.phase === 'compressing' ? 'compressing' : 'uploading'}</span>}
+                  </p>
                   {t.error ? (
                     <p className="text-xs text-red-400 mt-0.5">{t.error}</p>
                   ) : (
