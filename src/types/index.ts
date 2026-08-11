@@ -29,6 +29,7 @@ export type UserRole =
   | 'marketing'
   | 'ai_team'
   | 'hr'
+  | 'accounts'
   | 'galaxy'
   | 'topz'
   | 'pending'

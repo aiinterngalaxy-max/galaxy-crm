@@ -136,6 +136,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   marketing:       'Marketing',
   ai_team:         'AI Team',
   hr:              'HR',
+  accounts:        'Accounts',
   galaxy:          'Galaxy CRM',
   topz:            'Topz Cab',
   pending:         'Pending Approval',
@@ -164,6 +165,9 @@ export function canAccess(role: UserRole, module: string): boolean {
     'content-studio':['marketing'],
     inventory:       ['dept_head', 'project_manager'],
     hr:              ['hr'],
+    // The accounts department. Dept heads are included because they sign off
+    // on what accounts issues; nobody else has business seeing draft invoices.
+    accounts:        ['accounts', 'dept_head'],
     settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
 
