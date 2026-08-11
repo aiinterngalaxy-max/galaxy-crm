@@ -18,6 +18,12 @@ const WINDOW_MS = 60 * 60 * 1000 // one hour
  * not on the Calendar page itself, so it fires no matter where you are.
  * createNotificationIfNew's own "already sent today" check is what stops the
  * 60-second poll from writing the same reminder 60 times inside that hour.
+ *
+ * Also flags anything already overdue, not just the upcoming hour — this
+ * only runs while the app is open, so a piece can miss its "due soon" moment
+ * entirely if nobody had it open at the time. Without an overdue catch-up it
+ * would then go silent forever; instead it re-flags once a day until the
+ * piece is actually published or its date changes.
  */
 export function useContentDueReminders(userId: string | undefined, enabled: boolean) {
   const itemsRef = useRef<{ id: number; title: string; brand_name: string; publish_date: string | null; due_date: string | null }[]>([])
@@ -48,13 +54,25 @@ export function useContentDueReminders(userId: string | undefined, enabled: bool
         if (!dateStr) continue
         const dueMs = new Date(`${dateStr}T23:59:59`).getTime()
         const msLeft = dueMs - now
-        if (msLeft <= 0 || msLeft > WINDOW_MS) continue
+        // Originally only caught the exact hour-before window — anything
+        // already past due got silently skipped forever, since msLeft goes
+        // negative and never re-enters that window on its own. This hook
+        // only runs while the app is open, so a piece can easily sail past
+        // its "due soon" moment with the tab closed and then never be
+        // mentioned again. Now: still fires the "due soon" version inside
+        // the last hour, but an overdue piece also gets flagged — once a
+        // day, via createNotificationIfNew's own dedup — until it's
+        // actually published or its date gets moved.
+        if (msLeft > WINDOW_MS) continue
+        const overdue = msLeft <= 0
 
         await createNotificationIfNew({
           recipientId: userId!,
           type: 'content_studio_publish_due',
-          title: 'Video Due Soon',
-          body: `"${item.title}"${item.brand_name ? ` (${item.brand_name})` : ''} is due today — under an hour left.`,
+          title: overdue ? 'Video Overdue' : 'Video Due Soon',
+          body: overdue
+            ? `"${item.title}"${item.brand_name ? ` (${item.brand_name})` : ''} was due ${dateStr} and still isn't published.`
+            : `"${item.title}"${item.brand_name ? ` (${item.brand_name})` : ''} is due today — under an hour left.`,
           relatedEntityType: 'content-studio-content',
           relatedEntityId: String(item.id),
         }).catch(() => {})
