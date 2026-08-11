@@ -157,7 +157,16 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
         <button
           disabled={busy}
-          onClick={() => patch({ approved: approved ? 0 : 1 })}
+          onClick={() => {
+            // Approving is a sign-off, and a sign-off with nowhere to go was
+            // exactly the gap: ticking it here used to just flip a flag and
+            // leave the card sitting in the same stage, needing a second,
+            // separate click on the stage button to actually move it.
+            // Un-approving stays a plain flag flip — nothing here reverses a
+            // stage on its own.
+            if (!approved && nextStage) patch({ approved: 1, stage: nextStage })
+            else patch({ approved: approved ? 0 : 1 })
+          }}
           className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
             approved ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-gray-700 text-gray-500 hover:border-emerald-600 hover:text-emerald-400'
           }`}

@@ -37,6 +37,8 @@ interface World {
   shootStatus?: string
   /** What findContentByTitle should report as the matching content, if any. */
   titleMatchId?: number | null
+  /** The content row's CURRENT (pre-update) approved flag in the DB. */
+  contentApproved?: number
 }
 
 function stubDb(world: World) {
@@ -45,7 +47,7 @@ function stubDb(world: World) {
     if (sql.includes('SELECT stage FROM cmo_content')) {
       return world.contentStage ? { stage: world.contentStage } : null
     }
-    if (sql.includes('SELECT approved FROM cmo_content')) return { approved: 1 }
+    if (sql.includes('SELECT approved FROM cmo_content')) return { approved: world.contentApproved ?? 1 }
     if (sql.includes('SELECT publish_date FROM cmo_content')) return { publish_date: null }
     if (sql.includes('SELECT writer, due_date, title FROM cmo_content')) {
       return { writer: '', due_date: null, title: 'Reel' }
@@ -249,5 +251,21 @@ describe('content approval', () => {
     stubDb({ contentStage: 'Editing', scriptExists: true })
     await updateContent(7, { approved: 1 })
     expect(stageWrites()).toEqual([])
+  })
+
+  it('a single click approving AND advancing past Review succeeds even though the DB still shows unapproved', async () => {
+    // Editing's "Approved" button sends both fields in one call so a single
+    // click both signs off and moves the card on. The DB's pre-update row is
+    // still unapproved at the moment this call's own guard runs — it must
+    // read body.approved, not the stale row, or this would always reject.
+    stubDb({ contentStage: 'Review', scriptExists: true, contentApproved: 0 })
+    const row = await updateContent(7, { approved: 1, stage: 'Ready To Publish' })
+    expect(row).toBeTruthy()
+    expect(mockRun.mock.calls.some(([sql, args]) => sql.includes('UPDATE cmo_content SET') && args.includes('Ready To Publish'))).toBe(true)
+  })
+
+  it('still rejects advancing past Review when approved is not part of this call and the DB says unapproved', async () => {
+    stubDb({ contentStage: 'Review', scriptExists: true, contentApproved: 0 })
+    await expect(updateContent(7, { stage: 'Ready To Publish' })).rejects.toThrow("isn't approved yet")
   })
 })

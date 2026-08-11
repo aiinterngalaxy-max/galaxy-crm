@@ -289,8 +289,14 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
       if (!script || script.status !== 'Approved') throw new Error("Can't advance — script isn't approved yet.")
     }
     if (newIdx > STAGE_INDEX['Review']) {
-      const cur = await one<{ approved: number }>('SELECT approved FROM cmo_content WHERE id=?', [id])
-      if (!cur?.approved) throw new Error("Can't advance — content isn't approved yet.")
+      // If this same call is setting approved:1, that's the sign-off — don't
+      // reject it for not being approved yet in the DB's pre-update row.
+      // Editing's "Approved" button sends both fields in one call precisely
+      // so a single click both signs off and advances.
+      const approvedNow = 'approved' in body
+        ? Number(body.approved) === 1
+        : !!(await one<{ approved: number }>('SELECT approved FROM cmo_content WHERE id=?', [id]))?.approved
+      if (!approvedNow) throw new Error("Can't advance — content isn't approved yet.")
     }
   }
 
