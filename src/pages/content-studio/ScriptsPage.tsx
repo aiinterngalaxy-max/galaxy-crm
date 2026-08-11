@@ -100,7 +100,7 @@ export function ScriptsPage() {
       />
       <div data-tour="scripts-view" className="space-y-5">
         <IdeaScriptQueue ideas={ideas} brands={brands} onChanged={load} />
-        <IdeaScriptList ideas={ideas} brands={brands} onChanged={load} />
+        <IdeaScriptList ideas={ideas} brands={brands} scripts={scripts} onChanged={load} />
       </div>
     </Page>
   )

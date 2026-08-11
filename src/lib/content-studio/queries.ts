@@ -284,7 +284,15 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
 
   if (body.stage) {
     const newIdx = STAGE_INDEX[body.stage as string]
-    if (newIdx > STAGE_INDEX['Script Review']) {
+    // Only checked when a card is crossing Script Review for the first time
+    // — not on every later move. Written as newIdx > Script Review with no
+    // floor, this re-ran the script-approval check on every single hop for
+    // the rest of the pipeline: Editing -> Review, Review -> Ready To
+    // Publish, all of it, blocking normal post-production moves with an
+    // error about a script review that already happened stages ago.
+    const curRow = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [id])
+    const curIdx = curRow ? STAGE_INDEX[curRow.stage] : undefined
+    if (newIdx > STAGE_INDEX['Script Review'] && curIdx !== undefined && curIdx <= STAGE_INDEX['Script Review']) {
       const script = await one<{ status: string }>('SELECT status FROM cmo_scripts WHERE content_id=? LIMIT 1', [id])
       if (!script || script.status !== 'Approved') throw new Error("Can't advance — script isn't approved yet.")
     }

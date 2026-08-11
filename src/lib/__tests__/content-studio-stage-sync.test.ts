@@ -39,6 +39,8 @@ interface World {
   titleMatchId?: number | null
   /** The content row's CURRENT (pre-update) approved flag in the DB. */
   contentApproved?: number
+  /** The linked script's own status, as returned for "is the script approved" checks. */
+  scriptApprovalStatus?: string
 }
 
 function stubDb(world: World) {
@@ -62,7 +64,7 @@ function stubDb(world: World) {
     if (sql.includes('SELECT content_id FROM cmo_scripts WHERE id')) {
       return { content_id: world.scriptContentId ?? 7 }
     }
-    if (sql.includes('FROM cmo_scripts WHERE content_id')) return { status: 'Approved' }
+    if (sql.includes('FROM cmo_scripts WHERE content_id')) return { status: world.scriptApprovalStatus ?? 'Approved' }
     if (sql.includes('FROM cmo_scripts WHERE id')) return { id: 5, content_id: world.scriptContentId ?? 7 }
 
     if (sql.includes('SELECT id FROM cmo_shoots WHERE content_id')) {
@@ -267,5 +269,37 @@ describe('content approval', () => {
   it('still rejects advancing past Review when approved is not part of this call and the DB says unapproved', async () => {
     stubDb({ contentStage: 'Review', scriptExists: true, contentApproved: 0 })
     await expect(updateContent(7, { stage: 'Ready To Publish' })).rejects.toThrow("isn't approved yet")
+  })
+})
+
+// ─── manual moves deep in the pipeline ───────────────────────────────────────
+
+describe('manual "next" clicks past Script Review', () => {
+  it('Editing -> Review does not re-check script approval — that gate already passed stages ago', async () => {
+    // Reproduces the exact bug reported: a card sitting at Editing (reached
+    // there by a manual drag, so its script was never actually approved)
+    // got "Can't advance — script isn't approved yet." on a plain Editing ->
+    // Review click, even though Script Review is long behind it.
+    stubDb({ contentStage: 'Editing', scriptExists: true, scriptApprovalStatus: 'Pending' })
+    const row = await updateContent(7, { stage: 'Review' })
+    expect(row).toBeTruthy()
+    expect(stageWrites()).toContain('Review')
+  })
+
+  it('Review -> Ready To Publish does not re-check script approval either', async () => {
+    stubDb({ contentStage: 'Review', scriptExists: true, scriptApprovalStatus: 'Pending', contentApproved: 1 })
+    const row = await updateContent(7, { stage: 'Ready To Publish' })
+    expect(row).toBeTruthy()
+    expect(stageWrites()).toContain('Ready To Publish')
+  })
+
+  it('still blocks skipping Script Review itself when the script really is unapproved', async () => {
+    stubDb({ contentStage: 'Script Review', scriptExists: true, scriptApprovalStatus: 'Pending' })
+    await expect(updateContent(7, { stage: 'Shoot Planning' })).rejects.toThrow("script isn't approved yet")
+  })
+
+  it('still blocks skipping Script Review from even earlier (Script Writing)', async () => {
+    stubDb({ contentStage: 'Script Writing', scriptExists: true, scriptApprovalStatus: 'Pending' })
+    await expect(updateContent(7, { stage: 'Editing' })).rejects.toThrow("script isn't approved yet")
   })
 })
