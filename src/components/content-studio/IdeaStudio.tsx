@@ -138,7 +138,7 @@ export function IdeaStudio({
         notifySuperAdminsOfScriptSubmitted({ scriptId: script.id, contentTitle: idea.title, brandName }).catch(console.error)
         toast.success('Submitted for review')
       } else if (status === 'Approved') {
-        toast.success('Script approved — moved to Shoot Planning')
+        toast.success('Script approved — moved to Editing')
       } else {
         notifyTeamOfScriptChangesRequired({ scriptId: script.id, contentTitle: idea.title, brandName }).catch(console.error)
         toast.success('Sent back for changes')
@@ -435,7 +435,7 @@ export function IdeaStudio({
             </div>
 
             {script.status === 'Approved' ? (
-              <p className="text-sm text-emerald-400 font-medium">✓ Approved — moved to Shoot Planning</p>
+              <p className="text-sm text-emerald-400 font-medium">✓ Approved — moved to Editing</p>
             ) : script.status === 'Submitted' ? (
               canApprove ? (
                 <div className="flex items-center gap-2">
@@ -444,7 +444,7 @@ export function IdeaStudio({
                     ✗ Request changes
                   </button>
                   <button className="btn-primary text-xs" disabled={scriptBusy} onClick={() => scriptAction('Approved')}>
-                    ✓ Approve — moves to Shoot Planning
+                    ✓ Approve — moves to Editing
                   </button>
                 </div>
               ) : (

@@ -579,7 +579,13 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
         // wherever it had got to.
         await syncContentStage(script.content_id, 'Revisions', { reason: 'script changes required', allowBackward: true })
       } else if (body.status === 'Approved') {
-        await syncContentStage(script.content_id, 'Shoot Planning', { reason: 'script approved' })
+        // Deliberate: skips Shoot Planning/Scheduled/Shooting entirely, not a
+        // bug. Confirmed with the team that most pieces here don't need a
+        // dedicated shoot booked through this pipeline — approval alone means
+        // it's ready to cut. A card can still be dragged back to a shoot
+        // stage by hand afterward if a real shoot does turn out to be needed;
+        // it just won't happen automatically anymore.
+        await syncContentStage(script.content_id, 'Editing', { reason: 'script approved' })
       }
     }
   }

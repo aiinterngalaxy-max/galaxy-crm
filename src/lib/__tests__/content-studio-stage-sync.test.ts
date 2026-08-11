@@ -167,11 +167,12 @@ describe('script status', () => {
     expect(stageWrites()).toContain('Revisions')
   })
 
-  it('approving moves content to Shoot Planning and opens a shoot', async () => {
+  it('approving skips the shoot stages entirely and moves straight to Editing', async () => {
     stubDb({ contentStage: 'Script Review', scriptExists: true, shootExists: false })
     await updateScript(5, { status: 'Approved', approved: 1 })
-    expect(stageWrites()).toContain('Shoot Planning')
-    expect(mockRun.mock.calls.some(([sql]) => sql.includes('INSERT INTO cmo_shoots'))).toBe(true)
+    expect(stageWrites()).toContain('Editing')
+    expect(stageWrites()).not.toContain('Shoot Planning')
+    expect(mockRun.mock.calls.some(([sql]) => sql.includes('INSERT INTO cmo_shoots'))).toBe(false)
   })
 })
 
