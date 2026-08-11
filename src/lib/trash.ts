@@ -28,14 +28,26 @@ const LABEL_MAP: Record<string, string> = {
 }
 
 /**
- * Collections whose documents point at a file stored outside Firestore, keyed
- * to the field holding that file's ID. Trash/restore/permanent-delete mirror
- * the Firestore-side action onto the external file too, so an item does not
- * look deleted in the CRM while still sitting untouched in the real storage
- * (or vice versa — restored in the CRM but still in Drive's trash).
+ * Collections whose documents point at files stored outside Firestore, keyed to
+ * a getter that pulls every such file's ID off the record. Trash/restore/
+ * permanent-delete mirror the Firestore-side action onto each external file
+ * too, so an item does not look deleted in the CRM while still sitting
+ * untouched in the real storage (or vice versa — restored in the CRM but still
+ * in Drive's trash).
+ *
+ * An account document can carry up to three: the uploaded source, and the
+ * generated invoice/packing list PDFs once produced — hence a list, not a
+ * single field.
  */
-const EXTERNAL_FILE_COLLECTIONS: Record<string, string> = {
-  accountDocuments: 'driveFileId',
+const EXTERNAL_FILE_GETTERS: Record<string, (data: Record<string, unknown>) => string[]> = {
+  accountDocuments: data => {
+    const ids: unknown[] = [
+      data.driveFileId,
+      (data.invoicePdf as Record<string, unknown> | undefined)?.driveFileId,
+      (data.packingListPdf as Record<string, unknown> | undefined)?.driveFileId,
+    ]
+    return ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+  },
 }
 
 async function mirrorExternalFile(
@@ -43,22 +55,24 @@ async function mirrorExternalFile(
   data: Record<string, unknown>,
   action: 'trash' | 'restore' | 'delete',
 ): Promise<void> {
-  const idField = EXTERNAL_FILE_COLLECTIONS[collectionName]
-  if (!idField) return
-  const fileId = data[idField]
-  if (typeof fileId !== 'string' || !fileId) return
+  const getIds = EXTERNAL_FILE_GETTERS[collectionName]
+  if (!getIds) return
+  const fileIds = getIds(data)
+  if (fileIds.length === 0) return
 
-  try {
-    const { setDriveTrashed, permanentlyDeleteDriveFile } = await import('./googleDrive')
-    if (action === 'delete') await permanentlyDeleteDriveFile(fileId)
-    else await setDriveTrashed(fileId, action === 'trash')
-  } catch (err) {
-    // The Firestore record is the source of truth for the Recycle Bin UI. If
-    // the Drive call fails (token hiccup, network), we do not want to block or
-    // half-complete the user's action — worst case the file drifts out of sync
-    // with Drive's own trash state until the next successful call, rather than
-    // the CRM action failing outright.
-    console.error(`Failed to ${action} external file for ${collectionName}:`, err)
+  const { setDriveTrashed, permanentlyDeleteDriveFile } = await import('./googleDrive')
+  for (const fileId of fileIds) {
+    try {
+      if (action === 'delete') await permanentlyDeleteDriveFile(fileId)
+      else await setDriveTrashed(fileId, action === 'trash')
+    } catch (err) {
+      // The Firestore record is the source of truth for the Recycle Bin UI. If
+      // one file's Drive call fails (token hiccup, network), we do not want to
+      // block the others or half-complete the user's action — worst case that
+      // one file drifts out of sync with Drive's own trash state until the next
+      // successful call, rather than the whole CRM action failing.
+      console.error(`Failed to ${action} external file ${fileId} for ${collectionName}:`, err)
+    }
   }
 }
 

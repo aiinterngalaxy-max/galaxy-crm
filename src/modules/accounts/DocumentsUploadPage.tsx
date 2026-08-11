@@ -230,13 +230,18 @@ export function DocumentsUploadPage() {
                 <Card key={d.id} padding="sm">
                   <div className="flex items-center gap-3">
                     {iconFor(d.mimeType)}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-200 truncate">{d.fileName}</p>
+                    <button
+                      onClick={() => navigate(`/accounts/documents/${d.id}`)}
+                      className="flex-1 min-w-0 text-left"
+                      title="Review, extract and generate documents"
+                    >
+                      <p className="text-sm text-gray-200 truncate hover:text-gold-400 transition-colors">{d.fileName}</p>
                       <p className="text-xs text-gray-600 mt-0.5">
                         {formatFileSize(d.size)} · {formatDate(d.uploadedAt)}
                         {d.uploadedByName ? ` · ${d.uploadedByName}` : ''}
+                        {d.invoiceNumber ? ` · ${d.invoiceNumber}` : ''}
                       </p>
-                    </div>
+                    </button>
                     <span className={cn('text-xs font-medium px-2 py-0.5 rounded shrink-0', st.color, st.bg)}>
                       {st.label}
                     </span>
@@ -281,13 +286,9 @@ export function DocumentsUploadPage() {
         )}
       </div>
 
-      {/* What's next, honestly labelled rather than a dead end. */}
-      <Card className="border-dashed opacity-70">
-        <p className="text-xs text-gray-500">
-          <span className="font-semibold text-gray-400">Coming next:</span> reading the uploaded document,
-          reviewing the extracted details, and generating an invoice and packing list from them.
-        </p>
-      </Card>
+      {docs.length > 0 && (
+        <p className="text-xs text-gray-600">Click a document to extract its details and generate an invoice and packing list.</p>
+      )}
     </div>
   )
 }

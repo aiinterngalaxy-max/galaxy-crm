@@ -4,6 +4,7 @@ import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
 import { RolePermissionsTab } from './RolePermissionsTab'
 import { BackupCard } from './BackupCard'
+import { CompanyProfileCard } from './CompanyProfileCard'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -466,6 +467,7 @@ export function SettingsPage() {
               only rewrites derived fields (aiScore, callCount, demoGiven). */}
           {(isAdmin || isManagement) && <LeadScoreMaintenance />}
           {(isAdmin || isManagement) && <QuoteLinksExport />}
+          {(isAdmin || isManagement) && <CompanyProfileCard />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />

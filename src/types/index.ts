@@ -690,9 +690,34 @@ export interface PaginationState {
 
 export type AccountDocumentStatus =
   | 'uploaded'    // stored, not yet processed
-  | 'extracted'   // AI has read structured data out of it (phase 2)
-  | 'generated'   // an invoice/packing list has been produced from it (phase 2)
-  | 'saved'       // reviewed and confirmed final (phase 2)
+  | 'extracted'   // AI has read structured data out of it
+  | 'generated'   // an invoice/packing list has been produced from it
+  | 'saved'       // reviewed and confirmed final
+
+export interface ExtractedLineItem {
+  id: string
+  description: string
+  model?: string
+  /** Left blank when the source document doesn't name one — never guessed. */
+  hsnCode?: string
+  quantity: number
+  unitPrice: number
+}
+
+/**
+ * What the AI pulled out of the uploaded document, then whatever the accountant
+ * edited on top of it. Buyer fields are deliberately separate from the seller —
+ * seller is Galaxy's own CompanyProfile, set once by management, not re-extracted
+ * per document.
+ */
+export interface ExtractedInvoiceData {
+  buyerName?: string
+  buyerAddress?: string
+  buyerGstin?: string
+  buyerContact?: string
+  items: ExtractedLineItem[]
+  notes?: string
+}
 
 export interface AccountDocument {
   id: string
@@ -705,5 +730,30 @@ export interface AccountDocument {
   uploadedBy: string
   uploadedByName?: string
   uploadedAt: Timestamp
+  updatedAt: Timestamp
+
+  extractedData?: ExtractedInvoiceData
+  invoiceNumber?: string
+  generatedAt?: Timestamp
+  savedAt?: Timestamp
+  /** The generated invoice PDF, uploaded to the same Drive folder as the source. */
+  invoicePdf?: { driveFileId: string; driveViewUrl: string }
+  /** The generated packing list PDF. */
+  packingListPdf?: { driveFileId: string; driveViewUrl: string }
+}
+
+/**
+ * Galaxy's own letterhead for generated invoices — set once by management in
+ * Settings (settings/accountsCompanyProfile), read by anyone in Accounts.
+ * Deliberately never pre-filled or guessed: this repo's own invoice files have
+ * disagreed with each other on the company's GSTIN, so a human has to confirm
+ * it explicitly rather than the app defaulting to either.
+ */
+export interface CompanyProfile {
+  name: string
+  address: string
+  gstin: string
+  phone?: string
+  email?: string
   updatedAt: Timestamp
 }

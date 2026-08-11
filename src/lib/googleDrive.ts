@@ -114,6 +114,55 @@ export async function uploadToDrive(
   return { driveFileId: fileId, driveViewUrl: `https://drive.google.com/file/d/${fileId}/view` }
 }
 
+/**
+ * Fetches a file's bytes back from Drive, for extraction. Same direct
+ * browser-to-Google path as the upload — no reason to proxy this one either.
+ */
+export async function downloadFromDrive(driveFileId: string): Promise<Blob> {
+  const { accessToken } = await getToken()
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) {
+    throw new GoogleDriveError(`Could not download the file from Drive (${res.status}).`)
+  }
+  return res.blob()
+}
+
+/**
+ * Uploads an already-in-memory blob (a generated PDF) to Drive. Small enough
+ * that the resumable protocol's extra round trip isn't worth it — a single
+ * multipart POST does the same job in one request.
+ */
+export async function uploadBlobToDrive(blob: Blob, fileName: string): Promise<DriveUploadResult> {
+  const { accessToken, folderId } = await getToken()
+
+  const boundary = `-------galaxycrm${Date.now()}`
+  const metadata = JSON.stringify({ name: fileName, parents: [folderId] })
+  const bodyParts = [
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
+    `--${boundary}\r\nContent-Type: ${blob.type || 'application/pdf'}\r\n\r\n`,
+  ]
+  const closing = `\r\n--${boundary}--`
+
+  const body = new Blob([bodyParts[0], bodyParts[1], blob, closing])
+
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body,
+  })
+  if (!res.ok) {
+    throw new GoogleDriveError(`Could not save the generated document to Drive (${res.status}).`)
+  }
+  const { id } = await res.json()
+  return { driveFileId: id, driveViewUrl: `https://drive.google.com/file/d/${id}/view` }
+}
+
 async function callTrashEndpoint(driveFileId: string, action: 'trash' | 'restore' | 'delete'): Promise<void> {
   const idToken = await auth.currentUser?.getIdToken()
   if (!idToken) throw new GoogleDriveError('Not signed in')
