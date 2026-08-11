@@ -14,6 +14,7 @@ const COLLECTION_COLORS: Record<string, string> = {
   candidates: 'bg-pink-900/30 text-pink-300 border-pink-800/40',
   jobDescriptions: 'bg-indigo-900/30 text-indigo-300 border-indigo-800/40',
   quoteDocuments: 'bg-amber-900/30 text-amber-300 border-amber-800/40',
+  accountDocuments: 'bg-teal-900/30 text-teal-300 border-teal-800/40',
 }
 
 function timeAgo(ts: unknown): string {
@@ -32,6 +33,8 @@ export function RecycleBin() {
   const [loading, setLoading] = useState(true)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
+  const [emptying, setEmptying] = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'deletedItems'), orderBy('deletedAt', 'desc'))
@@ -66,15 +69,75 @@ export function RecycleBin() {
     }
   }
 
+  const handleEmpty = async () => {
+    setEmptying(true)
+    try {
+      // Sequential, not Promise.all: each item may also delete a file on
+      // Google Drive, and firing dozens of those requests at once risks
+      // tripping Drive's rate limits mid-batch, leaving some files orphaned.
+      let failed = 0
+      for (const item of items) {
+        try {
+          await permanentDelete(item.id)
+        } catch {
+          failed++
+        }
+      }
+      if (failed > 0) {
+        toast.error(`Emptied bin, but ${failed} item${failed === 1 ? '' : 's'} failed to delete`)
+      } else {
+        toast.success('Recycle bin emptied')
+      }
+    } finally {
+      setEmptying(false)
+      setConfirmEmpty(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="page-title text-2xl font-bold" style={{ color: 'var(--text-base)' }}>
-          Recycle Bin
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-          Deleted items are kept here. Restore to bring them back, or permanently delete to remove forever.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="page-title text-2xl font-bold" style={{ color: 'var(--text-base)' }}>
+            Recycle Bin
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            Deleted items are kept here. Restore to bring them back, or permanently delete to remove forever.
+          </p>
+        </div>
+
+        {!loading && items.length > 0 && (
+          confirmEmpty ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-xs text-red-400 font-medium">
+                Permanently delete all {items.length} item{items.length === 1 ? '' : 's'}?
+              </span>
+              <button
+                onClick={handleEmpty}
+                disabled={emptying}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+              >
+                {emptying ? 'Emptying…' : 'Yes, empty bin'}
+              </button>
+              <button
+                onClick={() => setConfirmEmpty(false)}
+                disabled={emptying}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmEmpty(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-900/20 text-red-400 border border-red-800/30 hover:bg-red-900/40 transition-colors shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Empty Recycle Bin
+            </button>
+          )
+        )}
       </div>
 
       {loading && (

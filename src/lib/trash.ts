@@ -24,11 +24,49 @@ const LABEL_MAP: Record<string, string> = {
   jobDescriptions: 'Job Description',
   inventory: 'Inventory Item',
   nonWorkingInventory: 'Non-Working Item',
+  accountDocuments: 'Account Document',
+}
+
+/**
+ * Collections whose documents point at a file stored outside Firestore, keyed
+ * to the field holding that file's ID. Trash/restore/permanent-delete mirror
+ * the Firestore-side action onto the external file too, so an item does not
+ * look deleted in the CRM while still sitting untouched in the real storage
+ * (or vice versa — restored in the CRM but still in Drive's trash).
+ */
+const EXTERNAL_FILE_COLLECTIONS: Record<string, string> = {
+  accountDocuments: 'driveFileId',
+}
+
+async function mirrorExternalFile(
+  collectionName: string,
+  data: Record<string, unknown>,
+  action: 'trash' | 'restore' | 'delete',
+): Promise<void> {
+  const idField = EXTERNAL_FILE_COLLECTIONS[collectionName]
+  if (!idField) return
+  const fileId = data[idField]
+  if (typeof fileId !== 'string' || !fileId) return
+
+  try {
+    const { setDriveTrashed, permanentlyDeleteDriveFile } = await import('./googleDrive')
+    if (action === 'delete') await permanentlyDeleteDriveFile(fileId)
+    else await setDriveTrashed(fileId, action === 'trash')
+  } catch (err) {
+    // The Firestore record is the source of truth for the Recycle Bin UI. If
+    // the Drive call fails (token hiccup, network), we do not want to block or
+    // half-complete the user's action — worst case the file drifts out of sync
+    // with Drive's own trash state until the next successful call, rather than
+    // the CRM action failing outright.
+    console.error(`Failed to ${action} external file for ${collectionName}:`, err)
+  }
 }
 
 function displayName(collectionName: string, data: Record<string, unknown>): string {
   const type = LABEL_MAP[collectionName] ?? collectionName
-  const name = (data.name ?? data.title ?? data.quotationCode ?? data.projectCode ?? data.leadCode ?? '') as string
+  const name = (
+    data.name ?? data.title ?? data.quotationCode ?? data.projectCode ?? data.leadCode ?? data.fileName ?? ''
+  ) as string
   return name ? `${type}: ${name}` : type
 }
 
@@ -55,6 +93,7 @@ export async function trashItem(
   })
 
   await deleteDoc(ref)
+  await mirrorExternalFile(collectionName, data, 'trash')
 }
 
 /**
@@ -131,8 +170,15 @@ export async function restoreItem(trashId: string): Promise<void> {
   // Restore with original ID
   await setDoc(doc(db, originalCollection, originalId), data)
   await deleteDoc(trashRef)
+  await mirrorExternalFile(originalCollection, data, 'restore')
 }
 
 export async function permanentDelete(trashId: string): Promise<void> {
-  await deleteDoc(doc(db, 'deletedItems', trashId))
+  const trashRef = doc(db, 'deletedItems', trashId)
+  const snap = await getDoc(trashRef)
+  if (snap.exists()) {
+    const entry = snap.data() as TrashItem
+    await mirrorExternalFile(entry.originalCollection, entry.data, 'delete')
+  }
+  await deleteDoc(trashRef)
 }

@@ -28,10 +28,7 @@ const SECTIONS: Section[] = [
     label: 'Documents Upload',
     description: 'Upload a quotation, product list or order document and turn it into an invoice and packing list.',
     icon: <FileUp className="w-5 h-5" />,
-    // No route yet. Pointing at one that does not exist would fall through the
-    // router's catch-all and dump the user back on the dashboard with no
-    // explanation — worse than a button that plainly is not ready.
-    soon: 'Building next',
+    path: '/accounts/documents',
   },
   {
     label: 'Generated Documents',

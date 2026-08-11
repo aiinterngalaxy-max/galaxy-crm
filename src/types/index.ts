@@ -682,3 +682,28 @@ export interface PaginationState {
   pageSize: number
   total: number
 }
+
+// ─── Accounts — uploaded documents ──────────────────────────────────────────────
+//
+// Files live in Google Drive (no practical size ceiling on the free tier, unlike
+// Firebase Storage or Cloudinary); this record is just the metadata + pointer.
+
+export type AccountDocumentStatus =
+  | 'uploaded'    // stored, not yet processed
+  | 'extracted'   // AI has read structured data out of it (phase 2)
+  | 'generated'   // an invoice/packing list has been produced from it (phase 2)
+  | 'saved'       // reviewed and confirmed final (phase 2)
+
+export interface AccountDocument {
+  id: string
+  fileName: string
+  mimeType: string
+  size: number
+  driveFileId: string
+  driveViewUrl: string
+  status: AccountDocumentStatus
+  uploadedBy: string
+  uploadedByName?: string
+  uploadedAt: Timestamp
+  updatedAt: Timestamp
+}

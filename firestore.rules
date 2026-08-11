@@ -227,6 +227,13 @@ service cloud.firestore {
       allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'hr'];
     }
 
+    // Accounts — uploaded source documents (invoices, quotations, order docs).
+    // Matches canAccess()'s 'accounts' module: the accounts role plus dept
+    // heads, who sign off on what accounts issues.
+    match /accountDocuments/{docId} {
+      allow read, write: if isAuth() && getRole() in ['super_admin', 'management', 'accounts', 'dept_head'];
+    }
+
     // Non-working inventory — operational log managed from the Inventory module
     // by dept heads / project managers, who also remove entries (soft-delete to
     // the recycle bin), so delete matches the create/update role set.
