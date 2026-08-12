@@ -149,6 +149,38 @@ export const SCHEMA: string[] = [
      actor TEXT DEFAULT 'System',
      created_at TEXT DEFAULT (datetime('now'))
    )`,
+
+  // AI auto-edit job — one per content piece. Raw footage goes to Cloudinary,
+  // its URL to Klap, which returns several candidate clips; the operator picks
+  // one, optionally trims/re-captions it, approves, and exports a final MP4.
+  //
+  // klap_* ids are the whole resume story: a task creates a folder of projects,
+  // a chosen project is exported, and each step is polled separately. Storing
+  // all four means a reload mid-render picks up where it left off instead of
+  // paying to generate again.
+  `CREATE TABLE IF NOT EXISTS cmo_video_jobs (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     content_id INTEGER NOT NULL,
+     source_url TEXT DEFAULT '',
+     source_name TEXT DEFAULT '',
+     status TEXT DEFAULT 'Idle',
+     klap_task_id TEXT DEFAULT '',
+     klap_folder_id TEXT DEFAULT '',
+     klap_project_id TEXT DEFAULT '',
+     klap_export_id TEXT DEFAULT '',
+     output_url TEXT DEFAULT '',
+     trim_start REAL DEFAULT 0,
+     trim_end REAL DEFAULT 0,
+     caption_text TEXT DEFAULT '',
+     options TEXT DEFAULT '',
+     error TEXT DEFAULT '',
+     regen_count INTEGER DEFAULT 0,
+     approved INTEGER DEFAULT 0,
+     approved_at TEXT,
+     created_at TEXT DEFAULT (datetime('now')),
+     updated_at TEXT DEFAULT (datetime('now')),
+     UNIQUE(content_id)
+   )`,
 ];
 
 // Idempotent column adds (SQLite throws if the column already exists — caller
@@ -178,10 +210,34 @@ export const MIGRATE: string[] = [
      value TEXT NOT NULL,
      updated_at TEXT DEFAULT (datetime('now'))
    )`,
+  `CREATE TABLE IF NOT EXISTS cmo_video_jobs (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     content_id INTEGER NOT NULL,
+     source_url TEXT DEFAULT '',
+     source_name TEXT DEFAULT '',
+     status TEXT DEFAULT 'Idle',
+     klap_task_id TEXT DEFAULT '',
+     klap_folder_id TEXT DEFAULT '',
+     klap_project_id TEXT DEFAULT '',
+     klap_export_id TEXT DEFAULT '',
+     output_url TEXT DEFAULT '',
+     trim_start REAL DEFAULT 0,
+     trim_end REAL DEFAULT 0,
+     caption_text TEXT DEFAULT '',
+     options TEXT DEFAULT '',
+     error TEXT DEFAULT '',
+     regen_count INTEGER DEFAULT 0,
+     approved INTEGER DEFAULT 0,
+     approved_at TEXT,
+     created_at TEXT DEFAULT (datetime('now')),
+     updated_at TEXT DEFAULT (datetime('now')),
+     UNIQUE(content_id)
+   )`,
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.
 export const DROP: string[] = [
+  "DROP TABLE IF EXISTS cmo_video_jobs",
   "DROP TABLE IF EXISTS cmo_activity_log",
   "DROP TABLE IF EXISTS cmo_comments",
   "DROP TABLE IF EXISTS cmo_sync_log",

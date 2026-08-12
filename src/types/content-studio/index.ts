@@ -161,6 +161,48 @@ export interface ContentComment {
   created_at: string;
 }
 
+// Where an auto-edit job is in its lifecycle. Drives which controls the modal
+// shows, so every state the UI can be in has to be one of these.
+export type VideoJobStatus =
+  | "Idle" // row exists, no footage uploaded yet
+  | "Uploading" // footage going to Cloudinary
+  | "Generating" // Klap is cutting it
+  | "Generated" // clips ready to pick from — Edit / Change / Regenerate
+  | "Exporting" // chosen clip rendering to a final MP4
+  | "Exported" // output_url is a downloadable MP4
+  | "Failed";
+
+export interface VideoJob {
+  id: number;
+  content_id: number;
+  source_url: string;
+  source_name: string;
+  status: VideoJobStatus;
+  klap_task_id: string;
+  klap_folder_id: string;
+  klap_project_id: string;
+  klap_export_id: string;
+  output_url: string;
+  trim_start: number;
+  trim_end: number;
+  caption_text: string;
+  options: string; // JSON blob of the editing options last submitted to Klap
+  error: string;
+  regen_count: number;
+  approved: number; // 0/1 — gates Export
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// One AI-generated candidate clip returned by Klap for a job's folder.
+export interface VideoClip {
+  id: string;
+  name: string;
+  virality_score: number | null;
+  preview_url: string;
+}
+
 export interface StageCount {
   stage: string;
   count: number;

@@ -4,6 +4,7 @@ import { fmtDate } from '@/lib/content-studio/format'
 import { stageProgress, STAGE_INDEX, STAGES, STAGE_STYLE } from '@/lib/content-studio/stages'
 import type { ContentRow } from '@/types/content-studio'
 import { updateContent } from '@/lib/content-studio/queries'
+import { VideoStudioModal } from './VideoStudioModal'
 
 interface Props {
   rows: ContentRow[]
@@ -87,6 +88,7 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState(row.stage)
   const [approved, setApproved] = useState(!!row.approved)
+  const [videoOpen, setVideoOpen] = useState(false)
 
   const stageIdx = STAGE_INDEX[stage] ?? 0
   const publishedIdx = STAGE_INDEX['Published']!
@@ -149,6 +151,14 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
         <button
           disabled={busy}
+          onClick={() => setVideoOpen(true)}
+          className="inline-flex items-center gap-1 rounded-md border border-gold-700/60 bg-gold-500/10 px-2.5 py-1 text-[11px] font-semibold text-gold-500 hover:bg-gold-500/20 disabled:opacity-50 transition-colors"
+        >
+          ▶ Video
+        </button>
+
+        <button
+          disabled={busy}
           onClick={() => patch({ approved: approved ? 0 : 1 })}
           className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
             approved ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-gray-700 text-gray-500 hover:border-emerald-600 hover:text-emerald-400'
@@ -169,6 +179,14 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
           </button>
         )}
       </div>
+
+      {videoOpen && (
+        <VideoStudioModal
+          content={{ id: row.id, title: row.title, brand_name: row.brand_name }}
+          onClose={() => setVideoOpen(false)}
+          onSaved={onChanged}
+        />
+      )}
     </div>
   )
 }

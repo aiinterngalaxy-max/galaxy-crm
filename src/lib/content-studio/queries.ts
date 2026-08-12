@@ -21,6 +21,7 @@ import type {
   SyncLogEntry,
   SyncStatusEntry,
   TeamMember,
+  VideoJob,
 } from '@/types/content-studio'
 
 const PLATFORM_SET = new Set<string>(PLATFORMS)
@@ -635,6 +636,71 @@ export async function deleteShoot(id: number): Promise<void> {
   const shoot = await one<{ title: string }>('SELECT title FROM cmo_shoots WHERE id=?', [id])
   await run('DELETE FROM cmo_shoots WHERE id=?', [id])
   await logActivity('shoot', id, 'deleted', `Shoot deleted: ${shoot?.title ?? `#${id}`}`)
+}
+
+// ---------- video jobs (AI auto-edit) ----------
+const VIDEO_JOB_COLS =
+  `id, content_id, source_url, source_name, status, klap_task_id, klap_folder_id,
+   klap_project_id, klap_export_id, output_url, trim_start, trim_end, caption_text,
+   options, error, regen_count, approved, approved_at, created_at, updated_at`
+
+export function getVideoJob(contentId: number): Promise<VideoJob | null> {
+  return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
+}
+
+/**
+ * Returns the existing job for a content piece, creating an empty one if there
+ * is none. Callers always want a row to write against, and the UNIQUE constraint
+ * on content_id means a plain insert would throw on the second open.
+ */
+export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
+  const existing = await getVideoJob(contentId)
+  if (existing) return existing
+
+  await run('INSERT INTO cmo_video_jobs (content_id, status) VALUES (?, ?)', [contentId, 'Idle'])
+  const row = await getVideoJob(contentId)
+  if (!row) throw new Error('Could not create the video job row')
+  return row
+}
+
+export async function updateVideoJob(id: number, data: Record<string, any>): Promise<VideoJob> {
+  const editable = new Set([
+    'source_url', 'source_name', 'status', 'klap_task_id', 'klap_folder_id',
+    'klap_project_id', 'klap_export_id', 'output_url', 'trim_start', 'trim_end',
+    'caption_text', 'options', 'error', 'regen_count', 'approved',
+  ])
+  const { sets, args } = applyEditable(data, editable)
+  if (!sets.length) throw new Error('no editable fields')
+
+  // Approving stamps the time in the same write, so the two can never disagree.
+  if (data.approved && !('approved_at' in data)) {
+    sets.push('approved_at=?')
+    args.push(todayISO())
+  }
+  sets.push("updated_at=datetime('now')")
+
+  args.push(id)
+  await run(`UPDATE cmo_video_jobs SET ${sets.join(', ')} WHERE id=?`, args)
+
+  const row = await one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE id=?`, [id])
+  if (!row) throw new Error('Video job not found after update')
+
+  const content = await one<{ title: string }>('SELECT title FROM cmo_content WHERE id=?', [row.content_id])
+  const title = content?.title ?? `content #${row.content_id}`
+
+  if (data.status === 'Generating') {
+    await logActivity('video', id, 'generating', `AI edit started: ${title}`)
+  } else if (data.status === 'Generated') {
+    await logActivity('video', id, 'generated', `AI edit produced clips: ${title}`)
+  } else if (data.status === 'Exported') {
+    await logActivity('video', id, 'exported', `Final video exported: ${title}`)
+  } else if (data.status === 'Failed') {
+    await logActivity('video', id, 'failed', `AI edit failed: ${title} — ${String(data.error ?? '').slice(0, 120)}`)
+  } else if (data.approved) {
+    await logActivity('video', id, 'approved', `Video approved: ${title}`)
+  }
+
+  return row
 }
 
 // ---------- performance ----------
