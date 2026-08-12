@@ -223,8 +223,13 @@ export function VideoStudioModal({ content, onClose, onSaved }: Props) {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
-      <div className="w-full max-w-3xl glass-modal max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4 sticky top-0 bg-gray-900/95 backdrop-blur z-10">
+      {/* flex-col + a non-scrolling header, rather than a sticky header inside the
+          scroll container: .glass-modal already applies a 48px backdrop-filter,
+          and position:sticky nested under a second backdrop-filter is a known
+          Chromium bug that partially clips/tears the element on first paint —
+          this structure just doesn't create that nesting at all. */}
+      <div className="w-full max-w-3xl glass-modal max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4 bg-gray-900 shrink-0">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-gray-100 truncate">Video studio</h2>
             <p className="text-xs text-gray-500 truncate">{content.brand_name} · {content.title}</p>
@@ -234,7 +239,7 @@ export function VideoStudioModal({ content, onClose, onSaved }: Props) {
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5">
+        <div className="px-6 py-5 space-y-5 overflow-y-auto">
           <StatusStrip status={status} approved={!!job?.approved} />
 
           <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">

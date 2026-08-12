@@ -5,7 +5,7 @@ import { CmoSidebar } from './CmoSidebar'
 import { GlobalSearch } from './GlobalSearch'
 import { NotificationBell, type NotifSection, type NotifItem } from './NotificationBell'
 import { ViewerContext } from '@/lib/content-studio/viewer-context'
-import { getTeam, getAllContent, getIdeas, getScripts } from '@/lib/content-studio/queries'
+import { getTeam, getAllContent, getIdeas, getScripts, initDb } from '@/lib/content-studio/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import type { TeamMember } from '@/types/content-studio'
 
@@ -88,6 +88,18 @@ export function ContentStudioLayout() {
 
   useEffect(() => {
     getTeam().then(setTeam).catch(console.error)
+
+    // CREATE TABLE IF NOT EXISTS for every table in SCHEMA, plus the ALTER
+    // TABLE column adds in MIGRATE — both idempotent, neither touches a row
+    // of existing data. This is the only place a schema/column added after
+    // someone's first setup actually reaches their database: initDb() is
+    // otherwise wired only to the Seed button (src/components/content-
+    // studio/SeedButton.tsx), which is for a brand-new, empty install and
+    // is never seen again once real data exists. Without a call somewhere
+    // that *does* run for existing installs, a new table (this is exactly
+    // how cmo_video_jobs shipped and then failed with "no such table" on
+    // every account that already had content in it) just never gets created.
+    initDb().catch(console.error)
   }, [])
 
   const refreshSections = useCallback(() => {

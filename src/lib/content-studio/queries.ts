@@ -782,12 +782,30 @@ export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
 }
 
-/**
- * Returns the existing job for a content piece, creating an empty one if there
- * is none. Callers always want a row to write against, and the UNIQUE constraint
- * on content_id means a plain insert would throw on the second open.
- */
-export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
+// ContentStudioLayout runs this same idempotent CREATE-TABLE/ALTER-TABLE
+// batch once on mount (see its useEffect), which covers the normal case.
+// This is the fallback for the race where cmo_video_jobs is opened before
+// that finishes, or for any caller that reaches this module without going
+// through the layout at all — a schema-mismatch error self-heals instead of
+// surfacing "no such table" to whoever happened to click first.
+let schemaReady: Promise<void> | null = null
+function ensureContentStudioSchema(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = batch(SCHEMA.map((sql) => ({ sql })))
+      .then(() => undefined)
+      .catch((err) => {
+        schemaReady = null // let the next call retry rather than staying stuck
+        throw err
+      })
+  }
+  return schemaReady
+}
+
+function isMissingTable(err: unknown): boolean {
+  return /no such table/i.test(err instanceof Error ? err.message : String(err))
+}
+
+async function ensureVideoJobOnce(contentId: number): Promise<VideoJob> {
   const existing = await getVideoJob(contentId)
   if (existing) return existing
 
@@ -795,6 +813,21 @@ export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
   const row = await getVideoJob(contentId)
   if (!row) throw new Error('Could not create the video job row')
   return row
+}
+
+/**
+ * Returns the existing job for a content piece, creating an empty one if there
+ * is none. Callers always want a row to write against, and the UNIQUE constraint
+ * on content_id means a plain insert would throw on the second open.
+ */
+export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
+  try {
+    return await ensureVideoJobOnce(contentId)
+  } catch (err) {
+    if (!isMissingTable(err)) throw err
+    await ensureContentStudioSchema()
+    return ensureVideoJobOnce(contentId)
+  }
 }
 
 export async function updateVideoJob(id: number, data: Record<string, any>): Promise<VideoJob> {
