@@ -8,7 +8,7 @@ import { Card } from '../../components/ui/Card'
 import { cn, formatDate } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from '../../lib/firebase'
-import { uploadToDrive, GoogleDriveError } from '../../lib/googleDrive'
+import { uploadToDrive } from '../../lib/googleDrive'
 import { getDriveAccessToken } from '../../lib/googleDriveAuth'
 import { compressForUpload } from '../../lib/uploadCompression'
 import { trashItem } from '../../lib/trash'
@@ -139,7 +139,10 @@ export function DocumentsUploadPage() {
       // batch to work through at their own pace, so those are left in the list.
       if (autoOpen) navigate(`/accounts/documents/${docRef.id}`)
     } catch (err) {
-      const message = err instanceof GoogleDriveError ? err.message : 'Upload failed — please try again'
+      // Anything not already a GoogleDriveError is unexpected — surfacing its
+      // real message beats a flat "please try again" that hides what broke.
+      const message = err instanceof Error ? err.message : 'Upload failed — please try again'
+      console.error('[documents-upload]', err)
       setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, error: message } : t)))
       toast.error(`${file.name}: ${message}`)
     }

@@ -15,6 +15,26 @@ export { DriveAuthError as GoogleDriveError }
 
 const FOLDER_NAME = 'Galaxy CRM Documents'
 
+/**
+ * fetch() itself throws (a bare TypeError, "Failed to fetch") for anything
+ * that never reaches Google at all — no internet, a browser extension
+ * blocking the request, DNS failure. Left uncaught, that TypeError propagates
+ * as-is and the UI's `err instanceof GoogleDriveError` check misses it,
+ * falling back to a flat "Upload failed — please try again" with no way to
+ * tell a dead connection apart from anything else. Wrapping every Drive
+ * fetch() call here means whatever actually broke shows up in the toast.
+ */
+async function driveFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new DriveAuthError(
+      `Could not reach Google Drive (${detail}). Check your internet connection, or a browser extension may be blocking requests to googleapis.com.`,
+    )
+  }
+}
+
 // In-memory only — cleared on reload, same lifetime as the access token
 // itself (see googleDriveAuth.ts's cachedToken). Just avoids one redundant
 // Drive search per upload within the same session; getOrCreateFolderId()
@@ -46,7 +66,7 @@ let cachedFolderId: string | null = null
 async function getOrCreateFolderId(accessToken: string): Promise<string> {
   if (cachedFolderId) return cachedFolderId
 
-  const searchRes = await fetch(
+  const searchRes = await driveFetch(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
       `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     )}&fields=files(id)&pageSize=1`,
@@ -60,7 +80,7 @@ async function getOrCreateFolderId(accessToken: string): Promise<string> {
     }
   }
 
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+  const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files?fields=id', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -123,7 +143,7 @@ export async function uploadToDrive(
     // Location header; Drive's API explicitly supports this being read from a
     // browser (CORS-exposed), which is what makes a from-the-browser upload
     // work at all.
-    const initRes = await fetch(
+    const initRes = await driveFetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
       {
         method: 'POST',
@@ -179,7 +199,7 @@ export async function uploadToDrive(
  */
 export async function downloadFromDrive(driveFileId: string): Promise<Blob> {
   return withTokenRetry(async accessToken => {
-    const res = await fetch(
+    const res = await driveFetch(
       `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     )
@@ -208,7 +228,7 @@ export async function uploadBlobToDrive(blob: Blob, fileName: string): Promise<D
     const closing = `\r\n--${boundary}--`
     const body = new Blob([bodyParts[0], bodyParts[1], blob, closing])
 
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    const res = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -228,11 +248,11 @@ export async function uploadBlobToDrive(blob: Blob, fileName: string): Promise<D
 async function driveTrashCall(driveFileId: string, action: 'trash' | 'restore' | 'delete'): Promise<void> {
   await withTokenRetry(async accessToken => {
     const res = action === 'delete'
-      ? await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
+      ? await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${accessToken}` },
         })
-      : await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
+      : await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
           method: 'PATCH',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ trashed: action === 'trash' }),
