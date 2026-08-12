@@ -110,6 +110,18 @@ export function computeKeepSegments(
 
 let ffmpegSingleton: FFmpeg | null = null
 
+/**
+ * A crashed ffmpeg.wasm core (out-of-memory on a large clip, a fatal decode
+ * error) can leave the WASM heap in a state where every LATER operation on
+ * the same singleton fails too, with an opaque "ErrnoError: FS error" that
+ * has nothing to do with what actually broke. Dropping the singleton after
+ * any unexpected failure means the next attempt gets a clean instance
+ * instead of being stuck failing until the page is reloaded.
+ */
+function resetFFmpeg() {
+  ffmpegSingleton = null
+}
+
 /** Loaded once per page session — the core is ~25MB, not worth reloading per job. */
 async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
   if (ffmpegSingleton) return ffmpegSingleton
@@ -218,11 +230,24 @@ export async function analyzeFootage(
     const silences = parseSilenceLog(silenceLog)
 
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', audioName])
-    const audioData = await ffmpeg.readFile(audioName)
-    const audioBlob = new Blob([new Uint8Array(audioData as Uint8Array).buffer], { type: 'audio/mpeg' })
+    let audioBlob: Blob
+    try {
+      await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', audioName])
+      const audioData = await ffmpeg.readFile(audioName)
+      audioBlob = new Blob([new Uint8Array(audioData as Uint8Array).buffer], { type: 'audio/mpeg' })
+    } catch (err) {
+      // The video itself read fine (duration/dimensions above succeeded) — a
+      // failure here almost always means no audio track, not a broken video.
+      throw new AutoEditError(
+        'Could not read an audio track from this footage — it may have no audio, or the clip may be too large for the browser to process. ' +
+        `(${err instanceof Error ? err.message : String(err)})`,
+      )
+    }
 
     return { durationSec, silences, width, height, audioBlob }
+  } catch (err) {
+    if (!(err instanceof AutoEditError)) resetFFmpeg()
+    throw err
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(audioName).catch(() => {})
@@ -290,6 +315,11 @@ export async function joinClips(
     await ffmpeg.exec(args)
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    resetFFmpeg()
+    throw new AutoEditError(
+      `Could not join those clips — they may use incompatible formats. (${err instanceof Error ? err.message : String(err)})`,
+    )
   } finally {
     for (const name of inputNames) await ffmpeg.deleteFile(name).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
@@ -362,6 +392,9 @@ export async function autoEditRemoveSilence(
 
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (!(err instanceof AutoEditError)) resetFFmpeg()
+    throw err
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})

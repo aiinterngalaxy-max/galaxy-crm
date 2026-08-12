@@ -338,6 +338,20 @@ export function VideoStudioPage() {
     setReplacingFootage(true)
   }
 
+  async function onDeleteFootage() {
+    if (!job || !confirm('Delete the uploaded footage? This clears everything generated from it too — the AI plan, auto-edit and export.')) return
+    rawFileRef.current = null
+    editedBlobRef.current = null
+    setPreview(null)
+    setClipSlots([null, null, null, null])
+    setReplacingFootage(false)
+    await persist({
+      raw_drive_id: '', raw_view_url: '', raw_name: '', status: 'Idle',
+      edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
+      link_analysis: '', transcript: '', edit_plan: '',
+    })
+  }
+
   async function onApprove() {
     if (!job?.edited_drive_id) return
     await persist({ approved: 1 })
@@ -479,6 +493,15 @@ export function VideoStudioPage() {
               </div>
               <button onClick={onChangeFootage} disabled={busy} className="text-xs font-semibold text-gold-500 hover:underline disabled:opacity-50">
                 Replace footage
+              </button>
+              <button
+                onClick={onDeleteFootage}
+                disabled={busy}
+                title="Delete this footage"
+                aria-label="Delete this footage"
+                className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+              >
+                🗑 DELETE
               </button>
             </div>
           ) : (
