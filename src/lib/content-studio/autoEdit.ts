@@ -1,0 +1,270 @@
+/**
+ * Browser-only video auto-edit: cuts out silence/dead air.
+ *
+ * This is what "AI auto-edit" means here, and it's worth being precise about
+ * that: it is a heuristic (find quiet stretches, remove them), not a model
+ * that understands footage. No API key, no per-minute bill, no server —
+ * ffmpeg runs as WebAssembly in the visitor's own browser via @ffmpeg/ffmpeg,
+ * so the only cost is however long their machine takes to render.
+ *
+ * Nothing here attempts to replicate a *reference* video's editing style —
+ * that would need a model watching the reference and inferring pacing/cut
+ * rhythm from it, which no ffmpeg filter does and no free tool does either.
+ * A reference link is stored elsewhere purely as a note for a human editor.
+ */
+import type { FFmpeg } from '@ffmpeg/ffmpeg'
+
+export class AutoEditError extends Error {}
+
+export interface SilenceOptions {
+  /** dB below which audio counts as silent. Louder rooms need this less negative. */
+  thresholdDb?: number
+  /** Minimum length (seconds) of quiet before it's worth cutting. */
+  minSilenceSec?: number
+  /** Kept on either side of a cut so words aren't clipped mid-syllable. */
+  paddingSec?: number
+  /** Hard cap on how many segments get stitched — a very noisy track could
+   *  otherwise produce hundreds of tiny cuts and an enormous ffmpeg command. */
+  maxSegments?: number
+}
+
+const DEFAULTS: Required<SilenceOptions> = {
+  thresholdDb: -30,
+  minSilenceSec: 0.5,
+  paddingSec: 0.15,
+  maxSegments: 40,
+}
+
+export interface Segment {
+  start: number
+  end: number
+}
+
+/**
+ * Parses ffmpeg's `silencedetect` stderr lines into silence [start, end] pairs.
+ *
+ * Exported and pure so the parsing logic (the part actually worth getting
+ * wrong) is testable without a real ffmpeg binary in the test environment.
+ */
+export function parseSilenceLog(log: string): Segment[] {
+  const starts: number[] = []
+  const segments: Segment[] = []
+  const startRe = /silence_start:\s*(-?[\d.]+)/g
+  const endRe = /silence_end:\s*(-?[\d.]+)/g
+
+  let m: RegExpExecArray | null
+  while ((m = startRe.exec(log))) starts.push(parseFloat(m[1]))
+
+  let i = 0
+  while ((m = endRe.exec(log))) {
+    const end = parseFloat(m[1])
+    const start = starts[i++]
+    if (start !== undefined && end > start) segments.push({ start, end })
+  }
+  return segments
+}
+
+/**
+ * Silence segments → the "keep" segments to stitch together, i.e. everything
+ * that ISN'T silence, with padding added back and a cap on segment count.
+ *
+ * duration must be the real clip length — otherwise the final keep-segment
+ * (from the last silence to the end of the video) has nowhere to stop.
+ */
+export function computeKeepSegments(
+  silences: Segment[],
+  duration: number,
+  opts: SilenceOptions = {},
+): Segment[] {
+  const { minSilenceSec, paddingSec, maxSegments } = { ...DEFAULTS, ...opts }
+
+  const real = silences.filter((s) => s.end - s.start >= minSilenceSec)
+
+  const keep: Segment[] = []
+  let cursor = 0
+  for (const s of real) {
+    const end = Math.min(duration, s.start + paddingSec)
+    if (end > cursor) keep.push({ start: cursor, end })
+    cursor = Math.max(cursor, s.end - paddingSec)
+  }
+  if (duration > cursor) keep.push({ start: cursor, end: duration })
+
+  // Merge segments too close together to be worth a separate cut — every cut
+  // has a re-encode cost, and a 0.2s gap isn't a pause worth preserving.
+  const merged: Segment[] = []
+  for (const seg of keep) {
+    const last = merged[merged.length - 1]
+    if (last && seg.start - last.end < paddingSec * 2) last.end = seg.end
+    else merged.push({ ...seg })
+  }
+
+  if (merged.length <= maxSegments) return merged
+
+  // Over budget: keep the longest segments (the substantive footage) and drop
+  // the shortest, rather than truncating the video early.
+  return [...merged]
+    .sort((a, b) => b.end - b.start - (a.end - a.start))
+    .slice(0, maxSegments)
+    .sort((a, b) => a.start - b.start)
+}
+
+let ffmpegSingleton: FFmpeg | null = null
+
+/** Loaded once per page session — the core is ~25MB, not worth reloading per job. */
+async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
+  if (ffmpegSingleton) return ffmpegSingleton
+
+  const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
+    import('@ffmpeg/ffmpeg'),
+    import('@ffmpeg/util'),
+  ])
+  const ffmpeg = new FFmpeg()
+  if (onLog) ffmpeg.on('log', ({ message }) => onLog(message))
+
+  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+  })
+  ffmpegSingleton = ffmpeg
+  return ffmpeg
+}
+
+async function probeDuration(ffmpeg: FFmpeg, inputName: string): Promise<number> {
+  let log = ''
+  const collect = ({ message }: { message: string }) => (log += message + '\n')
+  ffmpeg.on('log', collect)
+  try {
+    await ffmpeg.exec(['-i', inputName])
+  } catch {
+    // ffmpeg exits non-zero for "-i" with no output — expected, we only want stderr.
+  } finally {
+    ffmpeg.off('log', collect)
+  }
+  const m = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(log)
+  if (!m) throw new AutoEditError('Could not read the video — it may be corrupt or an unsupported format.')
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])
+}
+
+export interface AutoEditProgress {
+  phase: 'loading' | 'analyzing' | 'rendering'
+  fraction?: number
+}
+
+/**
+ * Runs the full silence-removal auto-edit and returns the edited video as a
+ * Blob. Everything happens client-side; nothing here uploads anything.
+ */
+export async function autoEditRemoveSilence(
+  file: Blob,
+  opts: SilenceOptions = {},
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const { thresholdDb, minSilenceSec } = { ...DEFAULTS, ...opts }
+  const inputName = 'input.mp4'
+  const outputName = 'output.mp4'
+
+  const buf = new Uint8Array(await file.arrayBuffer())
+  await ffmpeg.writeFile(inputName, buf)
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const duration = await probeDuration(ffmpeg, inputName)
+
+    let silenceLog = ''
+    const collectSilence = ({ message }: { message: string }) => (silenceLog += message + '\n')
+    ffmpeg.on('log', collectSilence)
+    try {
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-af', `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSec}`,
+        '-f', 'null', '-',
+      ])
+    } finally {
+      ffmpeg.off('log', collectSilence)
+    }
+
+    const silences = parseSilenceLog(silenceLog)
+    const keep = computeKeepSegments(silences, duration, opts)
+
+    if (keep.length === 0) {
+      throw new AutoEditError('The whole clip looked silent — try a quieter threshold, or check the audio track.')
+    }
+    if (keep.length === 1 && keep[0].start === 0 && keep[0].end >= duration - 0.05) {
+      // Nothing worth cutting — hand back the original rather than a lossy
+      // re-encode that changes nothing but wastes the render time.
+      return file
+    }
+
+    // One trim+concat filter_complex, built for however many segments survived.
+    const filters = keep
+      .map((s, i) => `[0:v]trim=start=${s.start}:end=${s.end},setpts=PTS-STARTPTS[v${i}];` +
+        `[0:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS[a${i}]`)
+      .join(';')
+    const refs = keep.map((_, i) => `[v${i}][a${i}]`).join('')
+    const filterComplex = `${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`
+
+    await ffmpeg.exec([
+      '-i', inputName,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '[outa]',
+      outputName,
+    ])
+
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+/**
+ * Applies a manual trim (and, if set, a simple burned-in caption) — the
+ * Export step, run on whatever the operator approved.
+ */
+export async function renderFinal(
+  file: Blob,
+  { trimStart = 0, trimEnd = 0, captionText = '' }: { trimStart?: number; trimEnd?: number; captionText?: string },
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'final-input.mp4'
+  const outputName = 'final-output.mp4'
+  const buf = new Uint8Array(await file.arrayBuffer())
+  await ffmpeg.writeFile(inputName, buf)
+
+  try {
+    const args = ['-i', inputName]
+    if (trimStart > 0) args.push('-ss', String(trimStart))
+    if (trimEnd > 0) args.push('-to', String(trimEnd))
+
+    if (captionText.trim()) {
+      // Escaping for ffmpeg's drawtext filter: backslash, colon and single
+      // quote are all filter-syntax-significant.
+      const escaped = captionText
+        .replace(/\\/g, '\\\\')
+        .replace(/:/g, '\\:')
+        .replace(/'/g, "\\'")
+      args.push(
+        '-vf',
+        `drawtext=text='${escaped}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60`,
+      )
+    }
+    args.push(outputName)
+
+    await ffmpeg.exec(args)
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}

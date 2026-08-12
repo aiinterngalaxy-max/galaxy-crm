@@ -773,9 +773,10 @@ export async function backfillShootLinks(): Promise<number> {
 
 // ---------- video jobs (AI auto-edit) ----------
 const VIDEO_JOB_COLS =
-  `id, content_id, source_url, source_name, status, klap_task_id, klap_folder_id,
-   klap_project_id, klap_export_id, output_url, trim_start, trim_end, caption_text,
-   options, error, regen_count, approved, approved_at, created_at, updated_at`
+  `id, content_id, reference_url, raw_drive_id, raw_view_url, raw_name, status,
+   silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
+   trim_start, trim_end, caption_text, export_drive_id, export_view_url,
+   error, regen_count, approved, approved_at, created_at, updated_at`
 
 export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
@@ -798,9 +799,10 @@ export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
 
 export async function updateVideoJob(id: number, data: Record<string, any>): Promise<VideoJob> {
   const editable = new Set([
-    'source_url', 'source_name', 'status', 'klap_task_id', 'klap_folder_id',
-    'klap_project_id', 'klap_export_id', 'output_url', 'trim_start', 'trim_end',
-    'caption_text', 'options', 'error', 'regen_count', 'approved',
+    'reference_url', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
+    'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
+    'trim_start', 'trim_end', 'caption_text', 'export_drive_id', 'export_view_url',
+    'error', 'regen_count', 'approved',
   ])
   const { sets, args } = applyEditable(data, editable)
   if (!sets.length) throw new Error('no editable fields')
@@ -824,7 +826,7 @@ export async function updateVideoJob(id: number, data: Record<string, any>): Pro
   if (data.status === 'Generating') {
     await logActivity('video', id, 'generating', `AI edit started: ${title}`)
   } else if (data.status === 'Generated') {
-    await logActivity('video', id, 'generated', `AI edit produced clips: ${title}`)
+    await logActivity('video', id, 'generated', `Auto-edit produced a draft: ${title}`)
   } else if (data.status === 'Exported') {
     await logActivity('video', id, 'exported', `Final video exported: ${title}`)
   } else if (data.status === 'Failed') {

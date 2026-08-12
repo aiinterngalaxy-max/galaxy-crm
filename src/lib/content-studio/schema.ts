@@ -150,29 +150,36 @@ export const SCHEMA: string[] = [
      created_at TEXT DEFAULT (datetime('now'))
    )`,
 
-  // AI auto-edit job — one per content piece. Raw footage goes to Cloudinary,
-  // its URL to Klap, which returns several candidate clips; the operator picks
-  // one, optionally trims/re-captions it, approves, and exports a final MP4.
+  // AI auto-edit job — one per content piece.
   //
-  // klap_* ids are the whole resume story: a task creates a folder of projects,
-  // a chosen project is exported, and each step is polled separately. Storing
-  // all four means a reload mid-render picks up where it left off instead of
-  // paying to generate again.
+  // Storage is Google Drive, not our own — the same per-user OAuth flow
+  // Documents Upload already uses (src/lib/googleDrive.ts), so there is no
+  // Cloudinary/Firebase-Storage size cap and no bill of ours to hit. The
+  // *_drive_id columns are what let a re-open re-download the right file;
+  // the *_view_url columns are just for a human clicking a link.
+  //
+  // The auto-edit itself runs in the browser via ffmpeg.wasm (silence/dead-air
+  // removal) — no external API, no per-minute billing, nothing to configure.
+  // It does not replicate a reference video's specific editing style; nothing
+  // off-the-shelf does that. reference_url is stored purely as a note shown to
+  // whoever is doing the Edit step, not fed into anything automatically.
   `CREATE TABLE IF NOT EXISTS cmo_video_jobs (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
-     source_url TEXT DEFAULT '',
-     source_name TEXT DEFAULT '',
+     reference_url TEXT DEFAULT '',
+     raw_drive_id TEXT DEFAULT '',
+     raw_view_url TEXT DEFAULT '',
+     raw_name TEXT DEFAULT '',
      status TEXT DEFAULT 'Idle',
-     klap_task_id TEXT DEFAULT '',
-     klap_folder_id TEXT DEFAULT '',
-     klap_project_id TEXT DEFAULT '',
-     klap_export_id TEXT DEFAULT '',
-     output_url TEXT DEFAULT '',
+     silence_threshold_db REAL DEFAULT -30,
+     min_silence_sec REAL DEFAULT 0.5,
+     edited_drive_id TEXT DEFAULT '',
+     edited_view_url TEXT DEFAULT '',
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
-     options TEXT DEFAULT '',
+     export_drive_id TEXT DEFAULT '',
+     export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,
@@ -233,18 +240,20 @@ export const MIGRATE: string[] = [
   `CREATE TABLE IF NOT EXISTS cmo_video_jobs (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
-     source_url TEXT DEFAULT '',
-     source_name TEXT DEFAULT '',
+     reference_url TEXT DEFAULT '',
+     raw_drive_id TEXT DEFAULT '',
+     raw_view_url TEXT DEFAULT '',
+     raw_name TEXT DEFAULT '',
      status TEXT DEFAULT 'Idle',
-     klap_task_id TEXT DEFAULT '',
-     klap_folder_id TEXT DEFAULT '',
-     klap_project_id TEXT DEFAULT '',
-     klap_export_id TEXT DEFAULT '',
-     output_url TEXT DEFAULT '',
+     silence_threshold_db REAL DEFAULT -30,
+     min_silence_sec REAL DEFAULT 0.5,
+     edited_drive_id TEXT DEFAULT '',
+     edited_view_url TEXT DEFAULT '',
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
-     options TEXT DEFAULT '',
+     export_drive_id TEXT DEFAULT '',
+     export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,

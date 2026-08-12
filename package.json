@@ -15,6 +15,8 @@
     "watchdog": "node scripts/watchdog.mjs"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@hookform/resolvers": "^3.6.0",
     "@libsql/client": "^0.17.4",
     "@sentry/react": "^10.62.0",

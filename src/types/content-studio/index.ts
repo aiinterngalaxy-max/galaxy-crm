@@ -194,42 +194,40 @@ export interface ContentComment {
 // shows, so every state the UI can be in has to be one of these.
 export type VideoJobStatus =
   | "Idle" // row exists, no footage uploaded yet
-  | "Uploading" // footage going to Cloudinary
-  | "Generating" // Klap is cutting it
-  | "Generated" // clips ready to pick from — Edit / Change / Regenerate
-  | "Exporting" // chosen clip rendering to a final MP4
-  | "Exported" // output_url is a downloadable MP4
+  | "Uploading" // footage going to Drive
+  | "Generating" // ffmpeg.wasm is removing silence, in the browser
+  | "Generated" // an edited draft exists — Edit / Change / Regenerate
+  | "Exporting" // applying trim/caption, rendering the final file
+  | "Exported" // export_view_url is the final, downloadable video
   | "Failed";
 
 export interface VideoJob {
   id: number;
   content_id: number;
-  source_url: string;
-  source_name: string;
+  // Informational only — shown to whoever does the Edit step as their guide.
+  // Nothing here auto-matches a reference video's style; no vendor does that.
+  reference_url: string;
+  raw_drive_id: string;
+  raw_view_url: string;
+  raw_name: string;
   status: VideoJobStatus;
-  klap_task_id: string;
-  klap_folder_id: string;
-  klap_project_id: string;
-  klap_export_id: string;
-  output_url: string;
+  // Auto-edit tuning: silencedetect's noise floor (dB) and minimum gap length
+  // (seconds) before a stretch counts as "dead air" worth cutting.
+  silence_threshold_db: number;
+  min_silence_sec: number;
+  edited_drive_id: string;
+  edited_view_url: string;
   trim_start: number;
   trim_end: number;
   caption_text: string;
-  options: string; // JSON blob of the editing options last submitted to Klap
+  export_drive_id: string;
+  export_view_url: string;
   error: string;
   regen_count: number;
   approved: number; // 0/1 — gates Export
   approved_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-// One AI-generated candidate clip returned by Klap for a job's folder.
-export interface VideoClip {
-  id: string;
-  name: string;
-  virality_score: number | null;
-  preview_url: string;
 }
 
 export interface StageCount {
