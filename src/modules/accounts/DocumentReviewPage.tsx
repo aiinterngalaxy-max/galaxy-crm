@@ -10,7 +10,7 @@ import { Textarea } from '../../components/ui/Textarea'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, doc, getDoc, updateDoc, serverTimestamp } from '../../lib/firebase'
 import { downloadFromDrive, uploadBlobToDrive } from '../../lib/googleDrive'
-import { extractRawText, extractStructuredInvoiceData, ExtractionError } from '../../lib/documentExtraction'
+import { extractRawText, extractStructuredInvoiceData } from '../../lib/documentExtraction'
 import { buildInvoicePdf, buildPackingListPdf } from '../../lib/generateAccountsPdf'
 import { nextAccountsInvoiceNumber } from '../../lib/counters'
 import toast from 'react-hot-toast'
@@ -88,13 +88,17 @@ export function DocumentReviewPage() {
       setDoc_(prev => prev ? { ...prev, extractedData: extracted, status: 'extracted' } : prev)
       toast.success('Extracted — review the details below before generating')
     } catch (err) {
-      const message = err instanceof ExtractionError ? err.message : 'Extraction failed — please try again'
+      // Any failure here — not just ExtractionError — should say what actually
+      // broke. callClaude() throws a plain Error for a missing/bad API key or
+      // a Groq API failure, which used to be flattened into a generic
+      // "please try again" that gave no hint the real problem was a missing
+      // VITE_GROQ_API_KEY rather than anything about the document itself.
+      const message = err instanceof Error ? err.message : 'Extraction failed — please try again'
+      console.error('[document-review] extraction failed', err)
       toast.error(message)
-      if (err instanceof ExtractionError) {
-        // Still a usable outcome: an empty review form the accountant fills by
-        // hand, rather than a dead end.
-        setData({ items: [EMPTY_ITEM()] })
-      }
+      // Still a usable outcome either way: an empty review form the
+      // accountant fills by hand, rather than a dead end.
+      setData({ items: [EMPTY_ITEM()] })
     } finally {
       setExtracting(false)
     }
