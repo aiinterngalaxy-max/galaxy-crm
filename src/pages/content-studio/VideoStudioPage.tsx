@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
 import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -45,12 +45,12 @@ function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function progressLabel(p: AutoEditProgress | null): string {
+function progressLabel(p: AutoEditProgress | null, joining = false): string {
   if (!p) return ''
   if (p.phase === 'loading') return 'Loading the video engine (first time only)…'
-  if (p.phase === 'analyzing') return 'Finding silence and dead air…'
+  if (p.phase === 'analyzing') return joining ? 'Reading clip formats…' : 'Finding silence and dead air…'
   const pct = p.fraction != null ? ` ${Math.round(p.fraction * 100)}%` : ''
-  return `Rendering…${pct}`
+  return joining ? `Joining clips…${pct}` : `Rendering…${pct}`
 }
 
 /**
@@ -78,8 +78,11 @@ export function VideoStudioPage() {
   const [deleting, setDeleting] = useState(false)
   const [planBusy, setPlanBusy] = useState(false)
   const [planStage, setPlanStage] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
+  const [replacingFootage, setReplacingFootage] = useState(false)
+  const [joining, setJoining] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
+  const clipInputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null])
 
   // The raw File and the just-edited Blob stay in memory for this session so
   // Regenerate and Export don't need to re-download from Drive every time —
@@ -211,34 +214,76 @@ export function VideoStudioPage() {
     }
   }
 
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file || !job || !content) return
-    setError('')
-    rawFileRef.current = file
-    setPreview(file)
+  function onPickClip(i: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null
+    setClipSlots((slots) => {
+      const next = [...slots]
+      next[i] = file
+      return next
+    })
+  }
 
+  function onRemoveClip(i: number) {
+    setClipSlots((slots) => {
+      const next = [...slots]
+      next[i] = null
+      return next
+    })
+    if (clipInputRefs.current[i]) clipInputRefs.current[i]!.value = ''
+  }
+
+  /**
+   * One clip works exactly like the old single-file upload always did. More
+   * than one gets joined into a single video first (joinClips, in order) —
+   * that joined result is what everything downstream (analysis, transcript,
+   * auto-edit) treats as "the raw footage", same as a single upload would be.
+   */
+  async function onUseClips() {
+    const files = clipSlots.filter((f): f is File => !!f)
+    if (!files.length || !job || !content) return
+    setError('')
     setBusy(true)
     setUploadPct(0)
     try {
-      await persist({ status: 'Uploading', error: '', raw_name: file.name })
-      const { driveFileId, driveViewUrl } = await uploadToDrive(file, (f) => setUploadPct(Math.round(f * 100)))
+      await persist({ status: 'Uploading', error: '' })
+
+      let combined: Blob = files[0]
+      let name = files[0].name
+      if (files.length > 1) {
+        setJoining(true)
+        combined = await joinClips(files, setEditProgress)
+        name = `${content.title} (${files.length} clips joined).mp4`
+        setJoining(false)
+        setEditProgress(null)
+      }
+      rawFileRef.current = files.length === 1 ? files[0] : null
+      setPreview(combined)
+
+      const { driveFileId, driveViewUrl } = files.length === 1
+        ? await uploadToDrive(files[0], (f) => setUploadPct(Math.round(f * 100)))
+        : await uploadBlobToDrive(combined, name)
+
       const saved = await persist({
         raw_drive_id: driveFileId,
         raw_view_url: driveViewUrl,
+        raw_name: name,
         status: 'Idle',
-        // A fresh upload invalidates whatever was generated/approved before.
+        // A fresh upload invalidates whatever was generated/planned before.
         edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
+        link_analysis: '', transcript: '', edit_plan: '',
       })
       editedBlobRef.current = null
-      if (saved) await generate(saved, file)
+      setClipSlots([null, null, null, null])
+      setReplacingFootage(false)
+      if (saved) await generate(saved, combined)
     } catch (err) {
       await persist({ status: 'Failed', error: errText(err) }).catch(() => {})
       handleError(err)
     } finally {
       setBusy(false)
+      setJoining(false)
       setUploadPct(0)
-      if (fileRef.current) fileRef.current.value = ''
+      clipInputRefs.current.forEach((el) => { if (el) el.value = '' })
     }
   }
 
@@ -289,7 +334,8 @@ export function VideoStudioPage() {
   }
 
   function onChangeFootage() {
-    fileRef.current?.click()
+    setClipSlots([null, null, null, null])
+    setReplacingFootage(true)
   }
 
   async function onApprove() {
@@ -399,7 +445,7 @@ export function VideoStudioPage() {
 
         {editProgress && (
           <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-200">
-            {progressLabel(editProgress)}
+            {progressLabel(editProgress, joining)}
           </div>
         )}
 
@@ -423,7 +469,7 @@ export function VideoStudioPage() {
         {/* ---------- 2. source footage ---------- */}
         <section>
           <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">2 · Raw footage</h3>
-          {job?.raw_drive_id ? (
+          {job?.raw_drive_id && !replacingFootage ? (
             <div className="flex flex-wrap items-center gap-3">
               <div className="text-sm min-w-0">
                 <p className="text-gray-300 truncate">{job.raw_name || 'Uploaded footage'}</p>
@@ -436,15 +482,71 @@ export function VideoStudioPage() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              className="w-full rounded-lg border-2 border-dashed border-gray-700 py-8 text-sm text-gray-400 hover:border-gold-600 hover:text-gold-500 disabled:opacity-50 transition-colors"
-            >
-              {busy && uploadPct > 0 ? `Uploading to Drive… ${uploadPct}%` : 'Upload raw footage (MP4 / MOV / WebM)'}
-            </button>
+            <div className="space-y-3">
+              <p className="text-[11px] text-gray-600">
+                Add up to 4 clips — filmed as separate takes or angles, they're joined in order into one video.
+                Just one works exactly like a normal upload.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {clipSlots.map((file, i) => (
+                  <div key={i} className="rounded-lg border-2 border-dashed border-gray-700 p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-gray-500">Clip {i + 1}{i > 0 ? ' (optional)' : ''}</span>
+                      {file && (
+                        <button onClick={() => onRemoveClip(i)} disabled={busy} className="text-[11px] text-rose-400 hover:underline disabled:opacity-50">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    {file ? (
+                      <p className="text-xs text-gray-300 truncate">{file.name}</p>
+                    ) : (
+                      <button
+                        onClick={() => clipInputRefs.current[i]?.click()}
+                        disabled={busy}
+                        className="text-xs text-gray-500 hover:text-gold-500 disabled:opacity-50"
+                      >
+                        + Add clip
+                      </button>
+                    )}
+                    <input
+                      ref={(el) => { clipInputRefs.current[i] = el }}
+                      type="file"
+                      accept={ACCEPTED}
+                      className="hidden"
+                      onChange={(e) => onPickClip(i, e)}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={onUseClips}
+                  disabled={busy || !clipSlots.some(Boolean)}
+                  className="btn-primary text-sm disabled:opacity-50"
+                >
+                  {joining
+                    ? 'Joining clips…'
+                    : busy && uploadPct > 0
+                      ? `Uploading… ${uploadPct}%`
+                      : busy
+                        ? 'Uploading…'
+                        : clipSlots.filter(Boolean).length > 1
+                          ? `Join ${clipSlots.filter(Boolean).length} clips & upload`
+                          : 'Upload footage'}
+                </button>
+                {job?.raw_drive_id && (
+                  <button
+                    onClick={() => { setClipSlots([null, null, null, null]); setReplacingFootage(false) }}
+                    disabled={busy}
+                    className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
           )}
-          <input ref={fileRef} type="file" accept={ACCEPTED} className="hidden" onChange={onPickFile} />
         </section>
 
         {/* ---------- 3. AI analysis & editing plan ---------- */}

@@ -229,6 +229,73 @@ export async function analyzeFootage(
   }
 }
 
+async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ width: number; height: number }> {
+  let log = ''
+  const collect = ({ message }: { message: string }) => (log += message + '\n')
+  ffmpeg.on('log', collect)
+  try {
+    await ffmpeg.exec(['-i', inputName])
+  } catch {
+    // Expected — same as probeDuration.
+  } finally {
+    ffmpeg.off('log', collect)
+  }
+  const m = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(log)
+  return { width: m ? Number(m[1]) : 1080, height: m ? Number(m[2]) : 1920 }
+}
+
+/**
+ * Joins several clips, in the order given, into one video — for someone who
+ * shot a piece across multiple takes or angles rather than one continuous
+ * recording. Every clip is scaled and padded (never stretched) to the first
+ * clip's frame size and put on a common frame rate/sample rate before
+ * concatenating, because two phone clips are rarely shot at identical
+ * settings and ffmpeg's concat filter requires matching streams to join them.
+ */
+export async function joinClips(
+  files: Blob[],
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  if (files.length === 0) throw new AutoEditError('No clips to join.')
+  if (files.length === 1) return files[0]
+
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputNames = files.map((_, i) => `join-input-${i}.mp4`)
+  const outputName = 'joined.mp4'
+  for (let i = 0; i < files.length; i++) {
+    await ffmpeg.writeFile(inputNames[i], new Uint8Array(await files[i].arrayBuffer()))
+  }
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputNames[0])
+
+    const filters = inputNames
+      .map((name, i) =>
+        `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
+        `[${i}:a]aresample=44100,aformat=channel_layouts=stereo[a${i}]`,
+      )
+      .join(';')
+    const refs = inputNames.map((_, i) => `[v${i}][a${i}]`).join('')
+    const filterComplex = `${filters};${refs}concat=n=${inputNames.length}:v=1:a=1[outv][outa]`
+
+    const args: string[] = []
+    for (const name of inputNames) args.push('-i', name)
+    args.push('-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', outputName)
+
+    await ffmpeg.exec(args)
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } finally {
+    for (const name of inputNames) await ffmpeg.deleteFile(name).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 /**
  * Runs the full silence-removal auto-edit and returns the edited video as a
  * Blob. Everything happens client-side; nothing here uploads anything.
