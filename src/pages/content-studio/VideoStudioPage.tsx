@@ -1,18 +1,49 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
+/** job.link_analysis / transcript / edit_plan are stored as JSON strings — a
+ *  blank or malformed value just means "not generated yet", never a crash. */
+function parseJsonField<T>(raw: string | undefined): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+const CHECKLIST_LABELS: Record<keyof EditPlan['checklist'], string> = {
+  hook: 'Hook',
+  productShown: 'Product shown',
+  featureHighlight: 'Feature highlight',
+  demonstration: 'Demonstration',
+  benefits: 'Benefits',
+  cta: 'Referral CTA',
+  captions: 'Captions',
+  branding: 'App/product branding',
+  transitions: 'Transitions',
+  music: 'Background music',
+}
+
 /** ffmpeg.wasm handles these; anything else is rejected after upload. */
 const ACCEPTED = '.mp4,.mov,.webm,.m4v'
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
 
 function progressLabel(p: AutoEditProgress | null): string {
   if (!p) return ''
@@ -45,7 +76,10 @@ export function VideoStudioPage() {
   const [previewUrl, setPreviewUrl] = useState('')
   const [showOptions, setShowOptions] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [planBusy, setPlanBusy] = useState(false)
+  const [planStage, setPlanStage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const referenceInputRef = useRef<HTMLInputElement>(null)
 
   // The raw File and the just-edited Blob stay in memory for this session so
   // Regenerate and Export don't need to re-download from Drive every time —
@@ -106,6 +140,74 @@ export function VideoStudioPage() {
       setError(err.message)
     } else {
       setError(errText(err))
+    }
+  }
+
+  const linkAnalysis = useMemo(() => parseJsonField<LinkAnalysis>(job?.link_analysis), [job?.link_analysis])
+  const transcript = useMemo(() => parseJsonField<Transcript>(job?.transcript), [job?.transcript])
+  const plan = useMemo(() => parseJsonField<EditPlan>(job?.edit_plan), [job?.edit_plan])
+
+  /**
+   * The AI analysis + plan step. Every input is real: the referral link is
+   * actually fetched and read (vision pass over its own screenshot), the
+   * footage is actually transcribed (Groq Whisper) and actually scanned for
+   * dead air (the same silencedetect pass the auto-edit step uses below).
+   * A referral-link failure is non-fatal — the plan still runs on the
+   * footage alone — but a footage-read failure stops the whole thing, since
+   * there is nothing to plan against without it.
+   */
+  async function runAiPlan() {
+    if (!job || !content) return
+    setError('')
+    setPlanBusy(true)
+    try {
+      let nextLinkAnalysis = linkAnalysis
+      if (job.reference_url.trim()) {
+        setPlanStage('Reading the referral link…')
+        try {
+          nextLinkAnalysis = await analyzeReferralLink(job.reference_url.trim())
+          await persist({ link_analysis: JSON.stringify(nextLinkAnalysis) })
+        } catch (err) {
+          nextLinkAnalysis = null
+          setError(`Referral link analysis skipped: ${errText(err)}`)
+        }
+      }
+
+      setPlanStage('Reading the footage — duration, dead air, frame size…')
+      const raw = await getRawBlob(job)
+      const footage = await analyzeFootage(
+        raw,
+        { thresholdDb: job.silence_threshold_db, minSilenceSec: job.min_silence_sec },
+        (p) => setPlanStage(p.phase === 'analyzing' ? 'Reading the footage — duration, dead air, frame size…' : 'Extracting the audio track…'),
+      )
+
+      setPlanStage('Transcribing the speech (Groq Whisper)…')
+      let nextTranscript: Transcript | null = null
+      try {
+        nextTranscript = await transcribeAudio(footage.audioBlob)
+        await persist({ transcript: JSON.stringify(nextTranscript) })
+      } catch (err) {
+        setError(`Transcription skipped: ${errText(err)}`)
+      }
+
+      setPlanStage('Building the editing plan…')
+      const orientation = footage.width && footage.height
+        ? (footage.width === footage.height ? 'square' : footage.width > footage.height ? 'landscape' : 'portrait')
+        : 'unknown'
+      const nextPlan = await generateEditPlan({
+        title: content.title,
+        appInfo: nextLinkAnalysis,
+        transcript: nextTranscript?.text ?? '',
+        durationSec: footage.durationSec,
+        silences: footage.silences,
+        orientation,
+      })
+      await persist({ edit_plan: JSON.stringify(nextPlan) })
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setPlanBusy(false)
+      setPlanStage('')
     }
   }
 
@@ -285,9 +387,10 @@ export function VideoStudioPage() {
 
       <div className="max-w-3xl space-y-5">
         <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
-          Auto-edit removes silence and dead air — it does not copy any other video's style. Footage is stored in
-          your own Google Drive (no size limit); the editing itself runs in this browser, no external service, no
-          API key.
+          The AI plan step below actually reads your referral link and actually transcribes your footage (Groq) to
+          build a real editing plan. Auto-edit itself currently only removes silence/dead air, in this browser via
+          ffmpeg.wasm — burning captions, branding, CTA overlays and music into the export is not built yet, so
+          Approve on the plan runs the silence-removal pass, not the full plan.
         </div>
 
         {error && (
@@ -300,24 +403,26 @@ export function VideoStudioPage() {
           </div>
         )}
 
-        {/* ---------- reference (informational only) ---------- */}
+        {/* ---------- 1. referral / app link ---------- */}
         <section>
-          <label className="form-label">Reference link (optional)</label>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">1 · Referral / app link</h3>
           <input
+            ref={referenceInputRef}
             className="form-input"
-            placeholder="https://… — a video whose style you want the editor to aim for"
+            placeholder="https://… — the app/product link the AI plan should promote"
             value={job?.reference_url ?? ''}
             onChange={(e) => persist({ reference_url: e.target.value })}
-            disabled={busy}
+            disabled={busy || planBusy}
           />
           <p className="text-[11px] text-gray-600 mt-1">
-            Shown to whoever does the Edit step below as a guide — not applied automatically.
+            Analyzed for real when you generate the plan below — app name, features, benefits, CTA and (from a
+            screenshot, if the page has one) brand colors.
           </p>
         </section>
 
-        {/* ---------- 1. source footage ---------- */}
+        {/* ---------- 2. source footage ---------- */}
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">1 · Raw footage</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">2 · Raw footage</h3>
           {job?.raw_drive_id ? (
             <div className="flex flex-wrap items-center gap-3">
               <div className="text-sm min-w-0">
@@ -342,11 +447,92 @@ export function VideoStudioPage() {
           <input ref={fileRef} type="file" accept={ACCEPTED} className="hidden" onChange={onPickFile} />
         </section>
 
-        {/* ---------- 2 & 3. auto-edit result: edit / change / regenerate ---------- */}
+        {/* ---------- 3. AI analysis & editing plan ---------- */}
+        {job?.raw_drive_id && (
+          <section>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">3 · AI analysis & plan</h3>
+
+            {planBusy ? (
+              <p className="text-sm text-gray-400">{planStage || 'Working…'} Don't close this tab.</p>
+            ) : !plan ? (
+              <button onClick={runAiPlan} disabled={busy || planBusy} className="btn-primary text-sm disabled:opacity-50">
+                Generate AI plan
+              </button>
+            ) : (
+              <div className="rounded-lg border border-gray-800 overflow-hidden">
+                {previewUrl && (
+                  <video src={previewUrl} controls className="w-full max-h-80 bg-black" />
+                )}
+
+                <div className="p-4 space-y-3">
+                  {linkAnalysis && (
+                    <div className="text-xs text-gray-400">
+                      <span className="font-semibold text-gray-200">{linkAnalysis.appName || 'App'}</span>
+                      {linkAnalysis.tagline && <span> — {linkAnalysis.tagline}</span>}
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">AI editing plan</p>
+                    <ul className="space-y-1 text-sm">
+                      {plan.timeline.map((t, i) => (
+                        <li key={i} className="flex gap-2 text-gray-300">
+                          <span className="text-gray-600 tabular-nums shrink-0">
+                            {fmtTime(t.start)}–{fmtTime(t.end)}
+                          </span>
+                          <span>{t.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">Checklist</p>
+                    <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      {(Object.keys(CHECKLIST_LABELS) as Array<keyof EditPlan['checklist']>).map((key) => (
+                        <li key={key} className={plan.checklist[key] ? 'text-emerald-400' : 'text-gray-600'}>
+                          {plan.checklist[key] ? '✓' : '✕'} {CHECKLIST_LABELS[key]}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {plan.notes && <p className="text-xs text-gray-500 italic">{plan.notes}</p>}
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      onClick={() => referenceInputRef.current?.focus()}
+                      disabled={busy || planBusy}
+                      className="btn-secondary text-xs disabled:opacity-50"
+                    >
+                      Edit
+                    </button>
+                    <button onClick={runAiPlan} disabled={busy || planBusy} className="btn-secondary text-xs disabled:opacity-50">
+                      ↻ Regenerate
+                    </button>
+                    <button
+                      onClick={() => job && generate(job)}
+                      disabled={busy || planBusy || status === 'Generating'}
+                      className="btn-primary text-xs disabled:opacity-50"
+                    >
+                      {hasEdit ? '✓ Approve (re-run auto-edit)' : 'Approve → run auto-edit'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-600">
+                    Approve runs the real silence-removal edit below — it does not yet burn in the captions/branding/CTA
+                    the plan recommends.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ---------- auto-edit result: edit / change / regenerate ---------- */}
         {job?.raw_drive_id && (
           <section>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">2 · Auto-edit</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">4 · Auto-edit</h3>
               <button onClick={() => setShowOptions((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300">
                 {showOptions ? 'Hide options' : 'Options'}
               </button>
@@ -406,7 +592,7 @@ export function VideoStudioPage() {
         {/* ---------- 4. edit the result ---------- */}
         {hasEdit && (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">3 · Edit</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Edit</h3>
             <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-gray-800 p-3">
               <div>
                 <label className="form-label">Trim start (seconds)</label>
@@ -442,7 +628,7 @@ export function VideoStudioPage() {
         {/* ---------- 5. preview → approve → export ---------- */}
         {hasEdit && (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">4 · Preview → Approve → Export</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">6 · Preview → Approve → Export</h3>
 
             {previewUrl ? (
               <video src={previewUrl} controls className="w-full max-h-96 rounded-lg border border-gray-800 bg-black" />

@@ -195,6 +195,8 @@ export interface ContentComment {
 export type VideoJobStatus =
   | "Idle" // row exists, no footage uploaded yet
   | "Uploading" // footage going to Drive
+  | "Analyzing" // reading the referral link + transcribing the footage
+  | "Planning" // AI is turning the analysis into an editing plan
   | "Generating" // ffmpeg.wasm is removing silence, in the browser
   | "Generated" // an edited draft exists — Edit / Change / Regenerate
   | "Exporting" // applying trim/caption, rendering the final file
@@ -204,8 +206,8 @@ export type VideoJobStatus =
 export interface VideoJob {
   id: number;
   content_id: number;
-  // Informational only — shown to whoever does the Edit step as their guide.
-  // Nothing here auto-matches a reference video's style; no vendor does that.
+  // Shown to whoever does the Edit step as a guide, AND (if it resolves)
+  // analyzed by AI into link_analysis for the editing plan below.
   reference_url: string;
   raw_drive_id: string;
   raw_view_url: string;
@@ -226,6 +228,11 @@ export interface VideoJob {
   regen_count: number;
   approved: number; // 0/1 — gates Export
   approved_at: string | null;
+  // JSON blobs from the AI plan step (api/content-studio/video-plan.ts) —
+  // stored as strings so a bad/empty response never breaks a column read.
+  link_analysis: string;
+  transcript: string;
+  edit_plan: string;
   created_at: string;
   updated_at: string;
 }

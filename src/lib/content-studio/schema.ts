@@ -184,6 +184,10 @@ export const SCHEMA: string[] = [
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,
      approved_at TEXT,
+     -- AI plan step (see api/content-studio/video-plan.ts): each is a JSON blob.
+     link_analysis TEXT DEFAULT '',
+     transcript TEXT DEFAULT '',
+     edit_plan TEXT DEFAULT '',
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
@@ -258,10 +262,17 @@ export const MIGRATE: string[] = [
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,
      approved_at TEXT,
+     -- AI plan step (see api/content-studio/video-plan.ts): each is a JSON blob.
+     link_analysis TEXT DEFAULT '',
+     transcript TEXT DEFAULT '',
+     edit_plan TEXT DEFAULT '',
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
    )`,
+  "ALTER TABLE cmo_video_jobs ADD COLUMN link_analysis TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN transcript TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN edit_plan TEXT DEFAULT ''",
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.

@@ -776,7 +776,8 @@ const VIDEO_JOB_COLS =
   `id, content_id, reference_url, raw_drive_id, raw_view_url, raw_name, status,
    silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
    trim_start, trim_end, caption_text, export_drive_id, export_view_url,
-   error, regen_count, approved, approved_at, created_at, updated_at`
+   error, regen_count, approved, approved_at, link_analysis, transcript, edit_plan,
+   created_at, updated_at`
 
 export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
@@ -844,7 +845,7 @@ export async function updateVideoJob(id: number, data: Record<string, any>): Pro
     'reference_url', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
     'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
     'trim_start', 'trim_end', 'caption_text', 'export_drive_id', 'export_view_url',
-    'error', 'regen_count', 'approved',
+    'error', 'regen_count', 'approved', 'link_analysis', 'transcript', 'edit_plan',
   ])
   const { sets, args } = applyEditable(data, editable)
   if (!sets.length) throw new Error('no editable fields')

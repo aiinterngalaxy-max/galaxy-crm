@@ -151,6 +151,84 @@ export interface AutoEditProgress {
   fraction?: number
 }
 
+export interface FootageAnalysis {
+  durationSec: number
+  silences: Segment[]
+  width: number
+  height: number
+  /** Extracted audio track, mono/16kHz/64kbps — small enough to send for transcription. */
+  audioBlob: Blob
+}
+
+/**
+ * Reads the raw footage without editing it: real duration, real dead-air
+ * stretches (same silencedetect pass the auto-edit itself uses), real frame
+ * size, and an extracted, compressed audio track for the caller to send off
+ * for transcription. Nothing here is guessed — every field comes from ffmpeg
+ * actually looking at the file.
+ */
+export async function analyzeFootage(
+  file: Blob,
+  opts: SilenceOptions = {},
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<FootageAnalysis> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+
+  const { thresholdDb, minSilenceSec } = { ...DEFAULTS, ...opts }
+  const inputName = 'analyze-input.mp4'
+  const audioName = 'analyze-audio.mp3'
+  const buf = new Uint8Array(await file.arrayBuffer())
+  await ffmpeg.writeFile(inputName, buf)
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+
+    let infoLog = ''
+    const collectInfo = ({ message }: { message: string }) => (infoLog += message + '\n')
+    ffmpeg.on('log', collectInfo)
+    try {
+      await ffmpeg.exec(['-i', inputName])
+    } catch {
+      // Same as probeDuration: ffmpeg exits non-zero for a plain "-i", expected.
+    } finally {
+      ffmpeg.off('log', collectInfo)
+    }
+
+    const durMatch = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(infoLog)
+    if (!durMatch) throw new AutoEditError('Could not read the video — it may be corrupt or an unsupported format.')
+    const durationSec = Number(durMatch[1]) * 3600 + Number(durMatch[2]) * 60 + Number(durMatch[3])
+
+    const dimMatch = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(infoLog)
+    const width = dimMatch ? Number(dimMatch[1]) : 0
+    const height = dimMatch ? Number(dimMatch[2]) : 0
+
+    let silenceLog = ''
+    const collectSilence = ({ message }: { message: string }) => (silenceLog += message + '\n')
+    ffmpeg.on('log', collectSilence)
+    try {
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-af', `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSec}`,
+        '-f', 'null', '-',
+      ])
+    } finally {
+      ffmpeg.off('log', collectSilence)
+    }
+    const silences = parseSilenceLog(silenceLog)
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', audioName])
+    const audioData = await ffmpeg.readFile(audioName)
+    const audioBlob = new Blob([new Uint8Array(audioData as Uint8Array).buffer], { type: 'audio/mpeg' })
+
+    return { durationSec, silences, width, height, audioBlob }
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(audioName).catch(() => {})
+  }
+}
+
 /**
  * Runs the full silence-removal auto-edit and returns the edited video as a
  * Blob. Everything happens client-side; nothing here uploads anything.
