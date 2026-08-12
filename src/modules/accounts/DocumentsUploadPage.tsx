@@ -73,8 +73,14 @@ export function DocumentsUploadPage() {
   }, [])
 
   const uploadOne = useCallback(async (file: File, autoOpen: boolean) => {
+    // Compression only ever applies to images and PDFs (see uploadCompression.ts)
+    // — Excel, CSV, Word, zip etc. are never touched, so there's nothing to
+    // show a "compressing" phase for. Starting those straight on "uploading"
+    // means the file leaves immediately, with no compression step in the way.
+    const isCompressible = file.type.startsWith('image/') || file.type.includes('pdf') || /\.pdf$/i.test(file.name)
+
     const taskId = `${file.name}-${Date.now()}-${Math.random()}`
-    setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0, phase: 'compressing' }])
+    setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0, phase: isCompressible ? 'compressing' : 'uploading' }])
 
     try {
       // Grab Drive access before doing any other work. Browsers only allow a
