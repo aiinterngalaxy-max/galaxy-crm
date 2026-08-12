@@ -26,7 +26,15 @@ import { auth } from './firebase'
 
 export class DriveAuthError extends Error {}
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+// drive.file only grants visibility into files/folders the app itself created,
+// or ones the user explicitly picked via Google's Picker UI while that scope
+// was active. VITE_GOOGLE_DRIVE_FOLDER_ID points at a folder someone created
+// by hand in normal Drive and pasted the ID from the URL — under drive.file
+// that folder is invisible to every token no matter who signs in or what
+// sharing is set on it, and Drive's create-file call 404s on the parent as if
+// it didn't exist. The full `drive` scope is what's needed to write into an
+// arbitrary pre-existing folder referenced only by ID.
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
 
 let cachedToken: { value: string; expiresAt: number } | null = null
 
