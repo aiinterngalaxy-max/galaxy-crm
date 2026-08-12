@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
-import { ensureVideoJob, updateVideoJob, getContent } from '@/lib/content-studio/queries'
+import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
 import { autoEditRemoveSilence, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -44,6 +44,7 @@ export function VideoStudioPage() {
   const [editProgress, setEditProgress] = useState<AutoEditProgress | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [showOptions, setShowOptions] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // The raw File and the just-edited Blob stay in memory for this session so
@@ -224,6 +225,18 @@ export function VideoStudioPage() {
   const status = job?.status ?? 'Idle'
   const hasEdit = !!job?.edited_drive_id
 
+  async function handleDelete() {
+    if (!content || !confirm(`Delete "${content.title}"? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await deleteContent(content.id, viewer?.name)
+      navigate('/content-studio/editing')
+    } catch (err) {
+      setError(errText(err))
+      setDeleting(false)
+    }
+  }
+
   if (loading) {
     return (
       <Page>
@@ -246,12 +259,21 @@ export function VideoStudioPage() {
 
   return (
     <Page>
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <button
           onClick={() => navigate('/content-studio/editing')}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Editing
+        </button>
+        <button
+          disabled={deleting}
+          onClick={handleDelete}
+          title="Delete this piece"
+          aria-label="Delete this piece"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+        >
+          🗑 DELETE
         </button>
       </div>
 
