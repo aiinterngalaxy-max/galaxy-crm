@@ -1,61 +1,64 @@
 /**
- * Client-side Google Drive upload.
+ * Client-side Google Drive upload/download/trash.
  *
- * Files go browser → Google directly, never through our own Vercel functions.
- * That is deliberate: Vercel imposes a request-body ceiling on every API route,
- * which would cap "no size limit" uploads at a few MB regardless of anything
- * written here. Our server's only job is to hand the browser a short-lived
- * access token (api/google-drive-token.ts) — it never sees the file itself.
+ * Files go browser → Google directly, never through our own Vercel functions
+ * — a Vercel API route imposes a request-body ceiling that would cap "no
+ * size limit" uploads at a few MB regardless of anything written here.
+ *
+ * Access is per-user (see googleDriveAuth.ts): whoever is signed into the CRM
+ * grants Drive access themselves, the same way they already sign in. There is
+ * no shared server-side secret behind this any more.
  */
-import { auth } from './firebase'
+import { getDriveAccessToken, clearCachedDriveToken, DriveAuthError } from './googleDriveAuth'
 
-export class GoogleDriveError extends Error {}
+export { DriveAuthError as GoogleDriveError }
 
-interface TokenResponse {
-  accessToken: string
-  folderId: string
-  expiresIn: number
-}
+/**
+ * The shared Drive folder every upload goes into. Not a secret — a folder ID
+ * only identifies the folder, real access is still gated by Drive's own
+ * permissions on it, the same way a URL isn't a security boundary on its own.
+ *
+ * Required in Vercel → Settings → Environment Variables: VITE_GOOGLE_DRIVE_FOLDER_ID
+ * (see .env.example). Whoever grants Drive access when uploading needs Editor
+ * permission on this folder — share it with their Google account via Drive's
+ * own Share button if their upload is rejected.
+ */
+const FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID as string | undefined
 
-async function getToken(): Promise<TokenResponse> {
-  const idToken = await auth.currentUser?.getIdToken()
-  if (!idToken) throw new GoogleDriveError('Not signed in')
-
-  const res = await fetch('/api/google-drive-token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  })
-
-  if (res.status === 501) {
-    throw new GoogleDriveError(
-      'Google Drive is not connected yet. See Settings → System for setup steps, or ask an admin.',
+function requireFolderId(): string {
+  if (!FOLDER_ID) {
+    throw new DriveAuthError(
+      'Google Drive is not configured yet — VITE_GOOGLE_DRIVE_FOLDER_ID is not set. See Settings → System, or ask an admin.',
     )
   }
-  if (res.status === 403) {
-    throw new GoogleDriveError('Your session has expired — please sign in again.')
-  }
-  if (!res.ok) {
-    // Surface Google's own reason (e.g. "invalid_client: The provided client
-    // secret is invalid.") directly in the message shown to the user, rather
-    // than a flat generic one — that detail is what actually says whether the
-    // Client ID, Client Secret, or refresh token in Vercel needs fixing,
-    // instead of leaving whoever's debugging this to dig through DevTools.
-    let detail = ''
-    try {
-      const body = await res.json()
-      const g = body?.googleError
-      if (g?.error) detail = ` (${g.error}${g.error_description ? `: ${g.error_description}` : ''})`
-    } catch { /* body wasn't JSON */ }
-    throw new GoogleDriveError(`Could not authorise the upload.${detail} Please try again or contact an admin.`)
-  }
-  return res.json()
+  return FOLDER_ID
 }
 
 export interface DriveUploadResult {
   driveFileId: string
   driveViewUrl: string
 }
+
+/**
+ * Wraps a Drive call so a 401 (expired/invalid token) clears the cached token
+ * and retries once with a fresh one, rather than surfacing a dead-end error
+ * for something a silent retry can usually fix on its own.
+ */
+async function withTokenRetry<T>(run: (accessToken: string) => Promise<T>): Promise<T> {
+  const token = await getDriveAccessToken()
+  try {
+    return await run(token)
+  } catch (err) {
+    if (err instanceof DriveUnauthorizedError) {
+      clearCachedDriveToken()
+      const freshToken = await getDriveAccessToken()
+      return run(freshToken)
+    }
+    throw err
+  }
+}
+
+class DriveUnauthorizedError extends Error {}
 
 /**
  * Uploads a file directly from the browser to Google Drive via the resumable
@@ -71,58 +74,61 @@ export async function uploadToDrive(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<DriveUploadResult> {
-  const { accessToken, folderId } = await getToken()
+  const folderId = requireFolderId()
 
-  // Step 1 — open a resumable session. Google returns the session URL in the
-  // Location header; Drive's API explicitly supports this being read from a
-  // browser (CORS-exposed), which is what makes a from-the-browser upload work
-  // at all.
-  const initRes = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': file.type || 'application/octet-stream',
-        'X-Upload-Content-Length': String(file.size),
+  return withTokenRetry(async accessToken => {
+    // Step 1 — open a resumable session. Google returns the session URL in the
+    // Location header; Drive's API explicitly supports this being read from a
+    // browser (CORS-exposed), which is what makes a from-the-browser upload
+    // work at all.
+    const initRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': file.type || 'application/octet-stream',
+          'X-Upload-Content-Length': String(file.size),
+        },
+        body: JSON.stringify({ name: file.name, parents: [folderId] }),
       },
-      body: JSON.stringify({ name: file.name, parents: [folderId] }),
-    },
-  )
-  if (!initRes.ok) {
-    throw new GoogleDriveError(`Could not start the upload (${initRes.status}). Please try again.`)
-  }
-  const sessionUrl = initRes.headers.get('Location')
-  if (!sessionUrl) {
-    throw new GoogleDriveError('Google did not return an upload session. Please try again.')
-  }
-
-  // Step 2 — PUT the file bytes, with progress. fetch() has no reliable
-  // upload-progress event in browsers, so this uses XHR specifically for that.
-  const fileId = await new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('PUT', sessionUrl, true)
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) onProgress?.(e.loaded / e.total)
+    )
+    if (initRes.status === 401) throw new DriveUnauthorizedError()
+    if (!initRes.ok) {
+      throw new DriveAuthError(`Could not start the upload (${initRes.status}). Please try again.`)
     }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(xhr.responseText).id)
-        } catch {
-          reject(new GoogleDriveError('Upload finished but the response was unreadable.'))
-        }
-      } else {
-        reject(new GoogleDriveError(`Upload failed (${xhr.status}). Please try again.`))
+    const sessionUrl = initRes.headers.get('Location')
+    if (!sessionUrl) {
+      throw new DriveAuthError('Google did not return an upload session. Please try again.')
+    }
+
+    // Step 2 — PUT the file bytes, with progress. fetch() has no reliable
+    // upload-progress event in browsers, so this uses XHR specifically for that.
+    const fileId = await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', sessionUrl, true)
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress?.(e.loaded / e.total)
       }
-    }
-    xhr.onerror = () => reject(new GoogleDriveError('Upload failed — check your connection.'))
-    xhr.send(file)
-  })
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText).id)
+          } catch {
+            reject(new DriveAuthError('Upload finished but the response was unreadable.'))
+          }
+        } else {
+          reject(new DriveAuthError(`Upload failed (${xhr.status}). Please try again.`))
+        }
+      }
+      xhr.onerror = () => reject(new DriveAuthError('Upload failed — check your connection.'))
+      xhr.send(file)
+    })
 
-  return { driveFileId: fileId, driveViewUrl: `https://drive.google.com/file/d/${fileId}/view` }
+    return { driveFileId: fileId, driveViewUrl: `https://drive.google.com/file/d/${fileId}/view` }
+  })
 }
 
 /**
@@ -130,15 +136,17 @@ export async function uploadToDrive(
  * browser-to-Google path as the upload — no reason to proxy this one either.
  */
 export async function downloadFromDrive(driveFileId: string): Promise<Blob> {
-  const { accessToken } = await getToken()
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  )
-  if (!res.ok) {
-    throw new GoogleDriveError(`Could not download the file from Drive (${res.status}).`)
-  }
-  return res.blob()
+  return withTokenRetry(async accessToken => {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    )
+    if (res.status === 401) throw new DriveUnauthorizedError()
+    if (!res.ok) {
+      throw new DriveAuthError(`Could not download the file from Drive (${res.status}).`)
+    }
+    return res.blob()
+  })
 }
 
 /**
@@ -147,51 +155,62 @@ export async function downloadFromDrive(driveFileId: string): Promise<Blob> {
  * multipart POST does the same job in one request.
  */
 export async function uploadBlobToDrive(blob: Blob, fileName: string): Promise<DriveUploadResult> {
-  const { accessToken, folderId } = await getToken()
+  const folderId = requireFolderId()
 
-  const boundary = `-------galaxycrm${Date.now()}`
-  const metadata = JSON.stringify({ name: fileName, parents: [folderId] })
-  const bodyParts = [
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
-    `--${boundary}\r\nContent-Type: ${blob.type || 'application/pdf'}\r\n\r\n`,
-  ]
-  const closing = `\r\n--${boundary}--`
+  return withTokenRetry(async accessToken => {
+    const boundary = `-------galaxycrm${Date.now()}`
+    const metadata = JSON.stringify({ name: fileName, parents: [folderId] })
+    const bodyParts = [
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
+      `--${boundary}\r\nContent-Type: ${blob.type || 'application/pdf'}\r\n\r\n`,
+    ]
+    const closing = `\r\n--${boundary}--`
+    const body = new Blob([bodyParts[0], bodyParts[1], blob, closing])
 
-  const body = new Blob([bodyParts[0], bodyParts[1], blob, closing])
-
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
-    },
-    body,
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    })
+    if (res.status === 401) throw new DriveUnauthorizedError()
+    if (!res.ok) {
+      throw new DriveAuthError(`Could not save the generated document to Drive (${res.status}).`)
+    }
+    const { id } = await res.json()
+    return { driveFileId: id, driveViewUrl: `https://drive.google.com/file/d/${id}/view` }
   })
-  if (!res.ok) {
-    throw new GoogleDriveError(`Could not save the generated document to Drive (${res.status}).`)
-  }
-  const { id } = await res.json()
-  return { driveFileId: id, driveViewUrl: `https://drive.google.com/file/d/${id}/view` }
 }
 
-async function callTrashEndpoint(driveFileId: string, action: 'trash' | 'restore' | 'delete'): Promise<void> {
-  const idToken = await auth.currentUser?.getIdToken()
-  if (!idToken) throw new GoogleDriveError('Not signed in')
+async function driveTrashCall(driveFileId: string, action: 'trash' | 'restore' | 'delete'): Promise<void> {
+  await withTokenRetry(async accessToken => {
+    const res = action === 'delete'
+      ? await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+      : await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trashed: action === 'trash' }),
+        })
 
-  const res = await fetch('/api/google-drive-trash', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken, driveFileId, action }),
+    if (res.status === 401) throw new DriveUnauthorizedError()
+    // A permanent-delete retry on a file already gone returns 404 — the end
+    // state the caller wants (file not present) is already true, so treat it
+    // as success rather than an error.
+    if (!res.ok && !(action === 'delete' && res.status === 404)) {
+      throw new DriveAuthError(`Could not ${action} the file in Google Drive (${res.status}).`)
+    }
   })
-  if (!res.ok) {
-    throw new GoogleDriveError(`Could not ${action} the file in Google Drive.`)
-  }
 }
 
 /** Moves a Drive file to trash (soft delete) or restores it. */
 export const setDriveTrashed = (driveFileId: string, trashed: boolean) =>
-  callTrashEndpoint(driveFileId, trashed ? 'trash' : 'restore')
+  driveTrashCall(driveFileId, trashed ? 'trash' : 'restore')
 
 /** Permanently deletes a Drive file. Cannot be undone from the Drive side. */
 export const permanentlyDeleteDriveFile = (driveFileId: string) =>
-  callTrashEndpoint(driveFileId, 'delete')
+  driveTrashCall(driveFileId, 'delete')
