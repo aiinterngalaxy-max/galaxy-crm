@@ -29,6 +29,7 @@ const PipelinePage = lazy(() => import('./pages/content-studio/PipelinePage').th
 const IdeasPage = lazy(() => import('./pages/content-studio/IdeasPage').then(m => ({ default: m.IdeasPage })))
 const ScriptsPage = lazy(() => import('./pages/content-studio/ScriptsPage').then(m => ({ default: m.ScriptsPage })))
 const EditingPage = lazy(() => import('./pages/content-studio/EditingPage').then(m => ({ default: m.EditingPage })))
+const VideoStudioPage = lazy(() => import('./pages/content-studio/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
 const CalendarPage = lazy(() => import('./pages/content-studio/CalendarPage').then(m => ({ default: m.CalendarPage })))
 const ShootsPage = lazy(() => import('./pages/content-studio/ShootsPage').then(m => ({ default: m.ShootsPage })))
 const PerformancePage = lazy(() => import('./pages/content-studio/PerformancePage').then(m => ({ default: m.PerformancePage })))
@@ -176,6 +177,7 @@ function AppRoutes() {
             <Route path="ideas" element={<IdeasPage />} />
             <Route path="scripts" element={<ScriptsPage />} />
             <Route path="editing" element={<EditingPage />} />
+            <Route path="editing/:id" element={<VideoStudioPage />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="shoots" element={<ShootsPage />} />
             <Route path="performance" element={<PerformancePage />} />

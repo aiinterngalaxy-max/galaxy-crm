@@ -1,10 +1,10 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Avatar } from './ui'
 import { fmtDate } from '@/lib/content-studio/format'
 import { stageProgress, STAGE_INDEX, STAGES, STAGE_STYLE } from '@/lib/content-studio/stages'
 import type { ContentRow } from '@/types/content-studio'
 import { updateContent } from '@/lib/content-studio/queries'
-import { VideoStudioModal } from './VideoStudioModal'
 import { notifySuperAdminsOfContentReadyForReview, notifyTeamOfContentReadyToPublish } from '@/lib/notifyHelpers'
 
 interface Props {
@@ -86,10 +86,10 @@ function Section({ stage, items, onChanged }: { stage: string; items: ContentRow
 }
 
 function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void }) {
+  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState(row.stage)
   const [approved, setApproved] = useState(!!row.approved)
-  const [videoOpen, setVideoOpen] = useState(false)
 
   const stageIdx = STAGE_INDEX[stage] ?? 0
   const publishedIdx = STAGE_INDEX['Published']!
@@ -159,7 +159,7 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
         <button
           disabled={busy}
-          onClick={() => setVideoOpen(true)}
+          onClick={() => navigate(`/content-studio/editing/${row.id}`)}
           className="inline-flex items-center gap-1 rounded-md border border-gold-700/60 bg-gold-500/10 px-2.5 py-1 text-[11px] font-semibold text-gold-500 hover:bg-gold-500/20 disabled:opacity-50 transition-colors"
         >
           ▶ Video
@@ -197,13 +197,6 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
         )}
       </div>
 
-      {videoOpen && (
-        <VideoStudioModal
-          content={{ id: row.id, title: row.title, brand_name: row.brand_name }}
-          onClose={() => setVideoOpen(false)}
-          onSaved={onChanged}
-        />
-      )}
     </div>
   )
 }
