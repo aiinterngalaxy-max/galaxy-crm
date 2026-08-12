@@ -9,6 +9,7 @@ import { cn, formatDate } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { db, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from '../../lib/firebase'
 import { uploadToDrive, GoogleDriveError } from '../../lib/googleDrive'
+import { getDriveAccessToken } from '../../lib/googleDriveAuth'
 import { compressForUpload } from '../../lib/uploadCompression'
 import { trashItem } from '../../lib/trash'
 import toast from 'react-hot-toast'
@@ -76,6 +77,15 @@ export function DocumentsUploadPage() {
     setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0, phase: 'compressing' }])
 
     try {
+      // Grab Drive access before doing any other work. Browsers only allow a
+      // popup to open if it's triggered right on the heels of a user gesture
+      // (the click/drop that got us here) — any real async work first
+      // (compression can run for seconds on a large image or PDF) burns
+      // through that window, and the popup opens too late to count as
+      // gesture-triggered, so it gets silently killed before the user can
+      // see or approve it.
+      await getDriveAccessToken()
+
       // Compression is best-effort and never throws — a failure or an
       // unsuitable file type (Excel/CSV/Word) just returns the original
       // untouched, so this never blocks the upload it's meant to shrink.
