@@ -100,6 +100,18 @@ export function DocumentReviewPage() {
     }
   }, [doc_, id])
 
+  // Runs extraction the moment the document is open, instead of waiting for a
+  // click on "Extract Information" — the accountant still reviews and fixes
+  // the result before anything is generated or saved, but reading the
+  // supplier's file (whatever language or layout it came in) is no longer a
+  // manual step of its own.
+  const autoExtractStarted = useRef(false)
+  useEffect(() => {
+    if (!doc_ || doc_.extractedData !== undefined || autoExtractStarted.current) return
+    autoExtractStarted.current = true
+    handleExtract()
+  }, [doc_, handleExtract])
+
   const updateItem = (itemId: string, patch: Partial<ExtractedLineItem>) => {
     setData(d => ({ ...d, items: d.items.map(it => (it.id === itemId ? { ...it, ...patch } : it)) }))
   }

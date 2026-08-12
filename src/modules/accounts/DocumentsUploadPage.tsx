@@ -72,7 +72,7 @@ export function DocumentsUploadPage() {
     })
   }, [])
 
-  const uploadOne = useCallback(async (file: File) => {
+  const uploadOne = useCallback(async (file: File, autoOpen: boolean) => {
     const taskId = `${file.name}-${Date.now()}-${Math.random()}`
     setTasks(prev => [...prev, { id: taskId, fileName: file.name, fraction: 0, phase: 'compressing' }])
 
@@ -107,7 +107,7 @@ export function DocumentsUploadPage() {
         fraction => setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, phase: 'uploading', fraction } : t))),
       )
 
-      await addDoc(collection(db, 'accountDocuments'), {
+      const docRef = await addDoc(collection(db, 'accountDocuments'), {
         fileName: uploadFileName,
         mimeType: uploadBlob.type || file.type || 'application/octet-stream',
         size: uploadBlob.size,
@@ -126,20 +126,28 @@ export function DocumentsUploadPage() {
           ? `${uploadFileName} uploaded — compressed, saved ${formatFileSize(savedBytes)}`
           : `${file.name} uploaded`,
       )
+
+      // Uploading exactly one file is almost always "here's an invoice, deal
+      // with it" — so go straight to reading it rather than making them find
+      // it again in the list below. Dropping several at once is more likely a
+      // batch to work through at their own pace, so those are left in the list.
+      if (autoOpen) navigate(`/accounts/documents/${docRef.id}`)
     } catch (err) {
       const message = err instanceof GoogleDriveError ? err.message : 'Upload failed — please try again'
       setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, error: message } : t)))
       toast.error(`${file.name}: ${message}`)
     }
-  }, [user])
+  }, [user, navigate])
 
   const handleFiles = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
-    Array.from(fileList).forEach(file => {
+    const files = Array.from(fileList)
+    const autoOpen = files.length === 1
+    files.forEach(file => {
       if (file.size > SOFT_SIZE_WARNING_BYTES) {
         toast(`${file.name} is ${formatFileSize(file.size)} — this may take a while.`, { icon: '⏳' })
       }
-      uploadOne(file)
+      uploadOne(file, autoOpen)
     })
   }, [uploadOne])
 
