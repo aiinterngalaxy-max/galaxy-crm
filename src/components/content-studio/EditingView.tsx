@@ -4,8 +4,9 @@ import { Avatar } from './ui'
 import { fmtDate } from '@/lib/content-studio/format'
 import { stageProgress, STAGE_INDEX, STAGES, STAGE_STYLE } from '@/lib/content-studio/stages'
 import type { ContentRow } from '@/types/content-studio'
-import { updateContent } from '@/lib/content-studio/queries'
+import { updateContent, deleteContent } from '@/lib/content-studio/queries'
 import { notifySuperAdminsOfContentReadyForReview, notifyTeamOfContentReadyToPublish } from '@/lib/notifyHelpers'
+import { useViewer } from '@/lib/content-studio/viewer-context'
 
 interface Props {
   rows: ContentRow[]
@@ -87,9 +88,11 @@ function Section({ stage, items, onChanged }: { stage: string; items: ContentRow
 
 function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void }) {
   const navigate = useNavigate()
+  const { viewer } = useViewer()
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState(row.stage)
   const [approved, setApproved] = useState(!!row.approved)
+  const [deleted, setDeleted] = useState(false)
 
   const stageIdx = STAGE_INDEX[stage] ?? 0
   const publishedIdx = STAGE_INDEX['Published']!
@@ -126,6 +129,21 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
 
   const prevStage = stageIdx > STAGE_INDEX['Editing']! ? STAGES[stageIdx - 1] : null
   const nextStage = canAdvance ? STAGES[stageIdx + 1] : null
+
+  async function onDelete() {
+    if (!confirm(`Delete "${row.title}"? This cannot be undone.`)) return
+    setBusy(true)
+    try {
+      await deleteContent(row.id, viewer?.name)
+      setDeleted(true)
+      onChanged()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not delete this piece.')
+      setBusy(false)
+    }
+  }
+
+  if (deleted) return null
 
   return (
     <div className={`px-5 py-4 flex flex-wrap items-start gap-4 ${busy ? 'opacity-60' : ''}`}>
@@ -195,6 +213,16 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
             {nextStage} →
           </button>
         )}
+
+        <button
+          disabled={busy}
+          onClick={onDelete}
+          title="Delete this piece"
+          aria-label="Delete this piece"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+        >
+          🗑
+        </button>
       </div>
 
     </div>
