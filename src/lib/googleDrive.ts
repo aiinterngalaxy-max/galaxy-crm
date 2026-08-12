@@ -13,25 +13,67 @@ import { getDriveAccessToken, clearCachedDriveToken, DriveAuthError } from './go
 
 export { DriveAuthError as GoogleDriveError }
 
-/**
- * The shared Drive folder every upload goes into. Not a secret — a folder ID
- * only identifies the folder, real access is still gated by Drive's own
- * permissions on it, the same way a URL isn't a security boundary on its own.
- *
- * Required in Vercel → Settings → Environment Variables: VITE_GOOGLE_DRIVE_FOLDER_ID
- * (see .env.example). Whoever grants Drive access when uploading needs Editor
- * permission on this folder — share it with their Google account via Drive's
- * own Share button if their upload is rejected.
- */
-const FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID as string | undefined
+const FOLDER_NAME = 'Galaxy CRM Documents'
 
-function requireFolderId(): string {
-  if (!FOLDER_ID) {
-    throw new DriveAuthError(
-      'Google Drive is not configured yet — VITE_GOOGLE_DRIVE_FOLDER_ID is not set. See Settings → System, or ask an admin.',
-    )
+// In-memory only — cleared on reload, same lifetime as the access token
+// itself (see googleDriveAuth.ts's cachedToken). Just avoids one redundant
+// Drive search per upload within the same session; getOrCreateFolderId()
+// finding it again via search on the next session is cheap and correct.
+let cachedFolderId: string | null = null
+
+/**
+ * The destination folder for uploads, resolved per signed-in Google account
+ * rather than one fixed ID from an env var.
+ *
+ * Drive access here uses the `drive.file` scope (see googleDriveAuth.ts) —
+ * narrow enough that Google never shows the "app isn't verified" block screen,
+ * but it also means the app can only see files/folders it created itself.
+ * Pointing that at a folder someone made by hand in ordinary Drive doesn't
+ * work: the folder is invisible to the app no matter who signs in or what
+ * sharing is set on it. So instead, the first time a given Google account
+ * uploads anything, the app creates its own "Galaxy CRM Documents" folder in
+ * *that account's* Drive; every upload after searches for that same folder by
+ * name and reuses it. One real consequence worth knowing: documents land in
+ * whichever account uploaded them, not one shared company folder — if several
+ * people upload, each gets their own folder in their own Drive.
+ *
+ * Deliberately not cached in Firestore: that would need a new security rule
+ * deployed to the live project, which is a manual step outside what this
+ * code can do on its own. Asking Drive itself to search its own files by
+ * name is a second API call per upload, but needs nothing extra deployed
+ * anywhere.
+ */
+async function getOrCreateFolderId(accessToken: string): Promise<string> {
+  if (cachedFolderId) return cachedFolderId
+
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+      `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    )}&fields=files(id)&pageSize=1`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (searchRes.ok) {
+    const { files } = await searchRes.json()
+    if (files?.[0]?.id) {
+      cachedFolderId = files[0].id
+      return cachedFolderId as string
+    }
   }
-  return FOLDER_ID
+
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+    },
+    body: JSON.stringify({ name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+  })
+  if (!createRes.ok) {
+    throw new DriveAuthError(`Could not create the Drive folder (${createRes.status}). Please try again.`)
+  }
+  const { id: newFolderId } = await createRes.json()
+  cachedFolderId = newFolderId
+  return newFolderId
 }
 
 export interface DriveUploadResult {
@@ -74,9 +116,9 @@ export async function uploadToDrive(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<DriveUploadResult> {
-  const folderId = requireFolderId()
-
   return withTokenRetry(async accessToken => {
+    const folderId = await getOrCreateFolderId(accessToken)
+
     // Step 1 — open a resumable session. Google returns the session URL in the
     // Location header; Drive's API explicitly supports this being read from a
     // browser (CORS-exposed), which is what makes a from-the-browser upload
@@ -155,9 +197,8 @@ export async function downloadFromDrive(driveFileId: string): Promise<Blob> {
  * multipart POST does the same job in one request.
  */
 export async function uploadBlobToDrive(blob: Blob, fileName: string): Promise<DriveUploadResult> {
-  const folderId = requireFolderId()
-
   return withTokenRetry(async accessToken => {
+    const folderId = await getOrCreateFolderId(accessToken)
     const boundary = `-------galaxycrm${Date.now()}`
     const metadata = JSON.stringify({ name: fileName, parents: [folderId] })
     const bodyParts = [

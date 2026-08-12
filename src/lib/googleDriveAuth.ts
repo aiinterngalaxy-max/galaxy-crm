@@ -16,25 +16,23 @@
  * session.
  *
  * Trade-off worth knowing: uploads now land in whichever Google account
- * granted access, not one fixed shared account. If a document goes into a
- * shared Drive folder that account doesn't have Editor access to, Drive
- * itself will reject the write — the fix is sharing that folder with the
- * account in question via Drive's own Share button, not more OAuth setup.
+ * granted access, not one fixed shared account — see googleDrive.ts's
+ * getOrCreateFolderId for what that means for where files actually end up.
  */
 import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
 import { auth } from './firebase'
 
 export class DriveAuthError extends Error {}
 
-// drive.file only grants visibility into files/folders the app itself created,
-// or ones the user explicitly picked via Google's Picker UI while that scope
-// was active. VITE_GOOGLE_DRIVE_FOLDER_ID points at a folder someone created
-// by hand in normal Drive and pasted the ID from the URL — under drive.file
-// that folder is invisible to every token no matter who signs in or what
-// sharing is set on it, and Drive's create-file call 404s on the parent as if
-// it didn't exist. The full `drive` scope is what's needed to write into an
-// arbitrary pre-existing folder referenced only by ID.
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
+// drive.file only grants visibility into files/folders the app itself
+// created, or ones the user explicitly picked via Google's Picker UI while
+// that scope was active — it deliberately can't reach the rest of someone's
+// Drive. That's exactly why it's used here: it's a "non-sensitive" scope, so
+// Google never puts the app behind an "unverified app, you shouldn't use it"
+// block screen the way it does for the full `drive` scope. The trade-off
+// (see googleDrive.ts's getOrCreateFolderId) is that the app can't be pointed
+// at a folder someone made by hand — it has to create its own.
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 
 let cachedToken: { value: string; expiresAt: number } | null = null
 
