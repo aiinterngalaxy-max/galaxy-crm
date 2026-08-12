@@ -20,7 +20,106 @@
  * actual export is a separate, not-yet-built step. Preview/Approve here
  * approves the PLAN, not a rendered video with those elements baked in.
  */
-import { groq, groqChain, groqKey, extractJson, decodeHtmlEntities, fetchAsDataUrl, TEXT_MODEL_CHAIN, VISION_MODEL } from './creative'
+// Deliberately self-contained rather than importing from ./creative — each
+// file under api/ is its own Vercel serverless function, and having one
+// import the other broke the function entirely (FUNCTION_INVOCATION_FAILED,
+// not even a caught error) rather than just duplicating a couple hundred
+// lines of Groq plumbing.
+
+const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
+const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
+const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
+  (m, i, arr) => arr.indexOf(m) === i,
+)
+
+function groqKey(): string {
+  const key = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY
+  if (!key) throw new Error('No Groq key on the server. Add GROQ_API_KEY in Vercel → Settings → Environment Variables.')
+  return key
+}
+
+interface ChatContent {
+  type: 'text' | 'image_url'
+  text?: string
+  image_url?: { url: string }
+}
+
+class GroqError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${groqKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.8,
+    }),
+  })
+  if (!res.ok) throw new GroqError(res.status, `Groq ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  const data = await res.json()
+  return String(data?.choices?.[0]?.message?.content ?? '').trim()
+}
+
+async function groqChain(chain: string[], system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
+  let lastErr: unknown
+  for (const model of chain) {
+    try {
+      return await groq(model, system, content, maxTokens)
+    } catch (err) {
+      lastErr = err
+      if (err instanceof GroqError && err.status === 429) continue
+      throw err
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('All fallback models are rate-limited. Try again shortly.')
+}
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GalaxyCRM/1.0)' } })
+    if (!r.ok) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.byteLength > 4_000_000) return null
+    const mime = r.headers.get('content-type') || 'image/jpeg'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
+function extractJson<T>(raw: string, opener: '{' | '['): T | null {
+  const closer = opener === '{' ? '}' : ']'
+  const start = raw.indexOf(opener)
+  const end = raw.lastIndexOf(closer)
+  if (start === -1 || end <= start) return null
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as T
+  } catch {
+    return null
+  }
+}
 
 interface Req { method?: string; body?: unknown }
 interface Res {
