@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getBrands, getShoots, getAllContent, updateContent } from '@/lib/content-studio/queries'
+import { getBrands, getShoots, getAllContent, updateContent, backfillShootLinks } from '@/lib/content-studio/queries'
 import { STAGE_INDEX } from '@/lib/content-studio/stages'
 import { daysUntil } from '@/lib/content-studio/format'
 import { Page, PageHeader } from '@/components/content-studio/ui'
@@ -15,6 +15,7 @@ export function ShootsPage() {
   const [brands, setBrands] = useState<Brand[]>([])
   const [allContent, setAllContent] = useState<ContentRow[]>([])
   const backfilling = useRef(false)
+  const linking = useRef(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -52,6 +53,21 @@ export function ShootsPage() {
       .finally(() => { backfilling.current = false })
   }, [loading, shoots, allContent, load])
 
+  // Catch up: shoots left unlinked before auto-linking-by-title existed (or
+  // whose matching content didn't exist yet) get one more chance here, since
+  // a shoot sitting unchanged at its current status has no click left that
+  // would trigger the same match inside updateShoot.
+  useEffect(() => {
+    if (loading || linking.current) return
+    if (!shoots.some((s) => !s.content_id)) return
+
+    linking.current = true
+    backfillShootLinks()
+      .then((n) => { if (n > 0) load() })
+      .catch(console.error)
+      .finally(() => { linking.current = false })
+  }, [loading, shoots, load])
+
   if (loading) return <div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div>
   if (error) return <FirstRun error={error} onSeeded={load} />
 
@@ -65,7 +81,7 @@ export function ShootsPage() {
   return (
     <Page>
       <PageHeader title="Shoot Management" subtitle={`${upcoming.length} upcoming · ${next14} in next 14 days · ${done} completed`} />
-      <div data-tour="shoots-view"><ShootsView shoots={shoots} brands={brands} onChanged={load} /></div>
+      <div data-tour="shoots-view"><ShootsView shoots={shoots} brands={brands} content={allContent} onChanged={load} /></div>
     </Page>
   )
 }

@@ -3,6 +3,8 @@ import { Settings, Users, Package, Shield, Zap, Clock, CheckCircle2, XCircle, Pa
 import { useTheme, type AppTheme } from '../../contexts/ThemeContext'
 import { ProductCatalogTab } from './ProductCatalogTab'
 import { RolePermissionsTab } from './RolePermissionsTab'
+import { BackupCard } from './BackupCard'
+import { CompanyProfileCard } from './CompanyProfileCard'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -11,7 +13,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   db, collection, getDocs, updateDoc, doc, serverTimestamp, query, where
 } from '../../lib/firebase'
-import { ROLE_LABELS, calculateLeadScore } from '../../lib/utils'
+import { ROLE_LABELS, calculateLeadScore, initial } from '../../lib/utils'
 import { toCsv, downloadCsv, datedFilename } from '../../lib/exportCsv'
 import type { User, UserRole, Department, Lead } from '../../types'
 import toast from 'react-hot-toast'
@@ -291,7 +293,7 @@ export function SettingsPage() {
                         <img src={req.userAvatar} className="w-9 h-9 rounded-full shrink-0" alt="" />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
-                          {req.userName.charAt(0).toUpperCase()}
+                          {initial(req.userName)}
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
@@ -405,7 +407,7 @@ export function SettingsPage() {
               {activeUsers.map(u => (
                 <div key={u.id} className="flex items-center gap-4 px-5 py-4">
                   <div className="w-9 h-9 rounded-full bg-indigo-900/50 flex items-center justify-center text-sm font-bold text-indigo-300 shrink-0">
-                    {u.name.charAt(0).toUpperCase()}
+                    {initial(u.name)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-200">{u.name}</p>
@@ -455,12 +457,17 @@ export function SettingsPage() {
       {/* System Tab */}
       {tab === 'system' && (
         <div className="space-y-4">
+          {/* First in the tab on purpose: it is the only recovery path this plan
+              has, and it should be the thing you see before any maintenance tool
+              below it that rewrites data. */}
+          {(isAdmin || isManagement) && <BackupCard />}
           <ThemePicker />
           {isAdmin && <ProjectStatsMaintenance />}
           {/* Management can rescore leads — they own the pipeline, and the backfill
               only rewrites derived fields (aiScore, callCount, demoGiven). */}
           {(isAdmin || isManagement) && <LeadScoreMaintenance />}
           {(isAdmin || isManagement) && <QuoteLinksExport />}
+          {(isAdmin || isManagement) && <CompanyProfileCard />}
           <Card>
             <div className="flex items-center gap-3 mb-4">
               <Zap className="w-5 h-5 text-yellow-400" />

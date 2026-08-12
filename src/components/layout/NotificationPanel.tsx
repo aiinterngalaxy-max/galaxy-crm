@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { Bell, Clock, AlertCircle, ChevronRight, CheckCheck } from 'lucide-react'
 import { db, collection, query, where, orderBy, getDocs, onSnapshot, updateDoc, doc } from '../../lib/firebase'
@@ -28,14 +29,33 @@ export function NotificationPanel() {
   const [overdue, setOverdue] = useState<Lead[]>([])
   const [todayFollowUps, setTodayFollowUps] = useState<Lead[]>([])
   const [appNotifs, setAppNotifs] = useState<AppNotification[]>([])
+  const [coords, setCoords] = useState({ top: 0, right: 0 })
   const panelRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close on outside click
+  // The header this bell lives in uses backdrop-filter for its glass effect,
+  // which (per the CSS spec) makes the header its own stacking context — any
+  // z-index inside it is only compared against other things in that same
+  // context, not the page below. Content Studio's own cards use
+  // backdrop-filter too, so once you're on one of those pages the dropdown's
+  // z-50 stops meaning "on top of everything" and a card can paint over it.
+  // Portaling straight to <body> sidesteps the whole stacking-context trap —
+  // same fix in spirit as IdeaStudio expanding in place instead of using a
+  // fixed-position dialog inside a backdrop-filtered card.
+  useEffect(() => {
+    if (!open || !panelRef.current) return
+    const rect = panelRef.current.getBoundingClientRect()
+    setCoords({ top: rect.bottom + 8, right: window.innerWidth - rect.right })
+  }, [open])
+
+  // Close on outside click — checks both the bell button and the portaled
+  // dropdown, since the dropdown no longer lives inside panelRef's DOM subtree.
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      const target = e.target as Node
+      if (panelRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -95,8 +115,12 @@ export function NotificationPanel() {
         )}
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-8 w-80 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl z-50 overflow-hidden">
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ position: 'fixed', top: coords.top, right: coords.right }}
+          className="w-80 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl z-50 overflow-hidden"
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
             <span className="text-sm font-semibold text-gray-100">Notifications</span>
@@ -192,7 +216,8 @@ export function NotificationPanel() {
               View all follow-ups →
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

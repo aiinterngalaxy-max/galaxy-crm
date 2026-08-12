@@ -30,6 +30,48 @@ export interface CloudinaryResult {
   publicId: string
 }
 
+interface SignedParams {
+  signature: string
+  timestamp: string
+  apiKey: string
+  folder: string
+}
+
+/**
+ * Asks the server to sign this upload.
+ *
+ * Returns null when signing is unavailable — either the endpoint has no
+ * Cloudinary secret configured yet, or the request failed — and the caller then
+ * uses the unsigned preset. Uploading must keep working while signing is being
+ * switched on; the whole point is to reduce abuse surface, not to add an outage.
+ */
+async function getSignature(): Promise<SignedParams | null> {
+  try {
+    const { auth } = await import('./firebase')
+    const idToken = await auth.currentUser?.getIdToken()
+    if (!idToken) return null
+
+    const res = await fetch('/api/cloudinary-sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    })
+
+    if (res.status === 501) {
+      logStage('upload-start', { signing: 'not configured, using unsigned preset' })
+      return null
+    }
+    if (!res.ok) {
+      logStage('failed', { stage: 'sign', status: res.status })
+      return null
+    }
+    return (await res.json()) as SignedParams
+  } catch (err) {
+    logStage('failed', { stage: 'sign', error: String(err) })
+    return null
+  }
+}
+
 /**
  * Uploads a blob and resolves with its public URL.
  *
@@ -55,48 +97,61 @@ export function uploadToCloudinary(
       return
     }
 
-    const form = new FormData()
-    form.append('file', file, fileName)
-    form.append('upload_preset', UPLOAD_PRESET)
+    // Signed when the server can sign (only signed-in users get a signature),
+    // unsigned when it cannot — see getSignature().
+    void getSignature().then(signed => {
+      const form = new FormData()
+      form.append('file', file, fileName)
 
-    // 'auto' lets Cloudinary classify the file; a PDF becomes an image resource,
-    // which is deliverable because PDF delivery is enabled on the account.
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`)
+      if (signed) {
+        form.append('api_key', signed.apiKey)
+        form.append('timestamp', signed.timestamp)
+        form.append('signature', signed.signature)
+        form.append('folder', signed.folder)
+      } else {
+        form.append('upload_preset', UPLOAD_PRESET)
+      }
+      logStage('upload-start', { mode: signed ? 'signed' : 'unsigned', bytes: file.size })
 
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total)
-    }
+      // 'auto' lets Cloudinary classify the file; a PDF becomes an image resource,
+      // which is deliverable because PDF delivery is enabled on the account.
+      xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`)
 
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        let detail = `HTTP ${xhr.status}`
-        try {
-          detail = JSON.parse(xhr.responseText)?.error?.message || detail
-        } catch {
-          /* non-JSON error body */
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total)
+      }
+
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          let detail = `HTTP ${xhr.status}`
+          try {
+            detail = JSON.parse(xhr.responseText)?.error?.message || detail
+          } catch {
+            /* non-JSON error body */
+          }
+          logStage('failed', { stage: 'cloudinary', status: xhr.status, detail })
+          reject(new CloudinaryUploadError(`Storage rejected the upload: ${detail}`))
+          return
         }
-        logStage('failed', { stage: 'cloudinary', status: xhr.status, detail })
-        reject(new CloudinaryUploadError(`Storage rejected the upload: ${detail}`))
-        return
+        try {
+          const body = JSON.parse(xhr.responseText)
+          const url: string | undefined = body.secure_url || body.url
+          if (!url) throw new Error('no URL in response')
+          resolve({ url, bytes: body.bytes ?? file.size, publicId: body.public_id ?? '' })
+        } catch (err) {
+          reject(new CloudinaryUploadError(`Could not read the storage response: ${String(err)}`))
+        }
       }
-      try {
-        const body = JSON.parse(xhr.responseText)
-        const url: string | undefined = body.secure_url || body.url
-        if (!url) throw new Error('no URL in response')
-        resolve({ url, bytes: body.bytes ?? file.size, publicId: body.public_id ?? '' })
-      } catch (err) {
-        reject(new CloudinaryUploadError(`Could not read the storage response: ${String(err)}`))
+
+      xhr.onerror = () => {
+        logStage('failed', { stage: 'cloudinary', reason: 'network' })
+        reject(new CloudinaryUploadError('Network error while uploading. Check your connection and try again.'))
       }
-    }
 
-    xhr.onerror = () => {
-      logStage('failed', { stage: 'cloudinary', reason: 'network' })
-      reject(new CloudinaryUploadError('Network error while uploading. Check your connection and try again.'))
-    }
+      xhr.onabort = () => reject(new CloudinaryUploadError('Upload cancelled.'))
 
-    xhr.onabort = () => reject(new CloudinaryUploadError('Upload cancelled.'))
-
-    xhr.send(form)
+      xhr.send(form)
+    })
   })
 
   return Object.assign(promise, { cancel: () => xhr.abort() })

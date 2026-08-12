@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFollowUpNotifier } from '../../hooks/useFollowUpNotifier'
 import { useFollowUpReminders } from '../../hooks/useFollowUpReminders'
+import { useContentDueReminders } from '../../hooks/useContentDueReminders'
 import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { HelpTour } from '../ui/HelpTour'
 import { CRMChatbot } from '../../modules/chatbot/CRMChatbot'
@@ -19,6 +20,11 @@ export function Layout() {
   const isBD = ['super_admin', 'management', 'bd_exec', 'dept_head'].includes(role ?? '')
   useFollowUpNotifier(user?.id, isBD)
   useFollowUpReminders()
+  // Same roles Content Studio's own notifications already reach (super_admin
+  // + marketing team) — no point reminding someone about a video due date
+  // when nothing else in the pipeline notifies them either.
+  const hasContentStudio = ['super_admin', 'management', 'marketing', 'dept_head'].includes(role ?? '')
+  useContentDueReminders(user?.id, hasContentStudio)
   // <main> is the scroll container, so going back to a list must put the scroll
   // position back by hand — the browser can't do it for us.
   useScrollRestoration(mainRef)

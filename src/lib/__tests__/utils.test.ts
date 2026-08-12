@@ -80,6 +80,14 @@ describe('calculateLeadScore', () => {
     expect(calculateLeadScore({ callCount: 40 })).toBe(25)
   })
 
+  // callCount is denormalised and can be decremented when an activity stops being
+  // a call, so a drifted negative must not subtract points.
+  it('treats a negative call or quote count as zero', () => {
+    expect(calculateLeadScore({ callCount: -3 })).toBe(10)
+    expect(calculateLeadScore({ quoteCount: -2 })).toBe(10)
+    expect(getLeadScoreBreakdown({ callCount: -3 }).map(r => r.label)).toEqual(['Base'])
+  })
+
   it('ranks a progressed lead above a cold high-budget one', () => {
     const cold = calculateLeadScore({ source: 'referral', estimatedBudget: 500000 })
     const progressed = calculateLeadScore({ source: 'indiamart', demoGiven: true, quoteCount: 2, callCount: 3 })

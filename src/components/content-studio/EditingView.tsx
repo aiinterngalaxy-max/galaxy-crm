@@ -5,6 +5,7 @@ import { stageProgress, STAGE_INDEX, STAGES, STAGE_STYLE } from '@/lib/content-s
 import type { ContentRow } from '@/types/content-studio'
 import { updateContent } from '@/lib/content-studio/queries'
 import { VideoStudioModal } from './VideoStudioModal'
+import { notifySuperAdminsOfContentReadyForReview, notifyTeamOfContentReadyToPublish } from '@/lib/notifyHelpers'
 
 interface Props {
   rows: ContentRow[]
@@ -110,6 +111,13 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
       if (body.stage) setStage(body.stage)
       if ('approved' in body) setApproved(!!body.approved)
       void updated
+      // These two stages had no signal that anything needed doing — mirrors
+      // the notify-on-gate pattern already used for idea/script approval.
+      if (body.stage === 'Review') {
+        notifySuperAdminsOfContentReadyForReview({ contentId: row.id, title: row.title, brandName: row.brand_name }).catch(console.error)
+      } else if (body.stage === 'Ready To Publish') {
+        notifyTeamOfContentReadyToPublish({ contentId: row.id, title: row.title, brandName: row.brand_name }).catch(console.error)
+      }
       onChanged()
     } finally {
       setBusy(false)
@@ -159,7 +167,16 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
 
         <button
           disabled={busy}
-          onClick={() => patch({ approved: approved ? 0 : 1 })}
+          onClick={() => {
+            // Approving is a sign-off, and a sign-off with nowhere to go was
+            // exactly the gap: ticking it here used to just flip a flag and
+            // leave the card sitting in the same stage, needing a second,
+            // separate click on the stage button to actually move it.
+            // Un-approving stays a plain flag flip — nothing here reverses a
+            // stage on its own.
+            if (!approved && nextStage) patch({ approved: 1, stage: nextStage })
+            else patch({ approved: approved ? 0 : 1 })
+          }}
           className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
             approved ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-gray-700 text-gray-500 hover:border-emerald-600 hover:text-emerald-400'
           }`}

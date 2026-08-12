@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageCircle, X, Send, RefreshCw, Sparkles, Bot, Trash2 } from 'lucide-react'
 import { db, collection, getDocs, query, orderBy, limit } from '../../lib/firebase'
+import type { InventoryItem } from '../../types'
 import toast from 'react-hot-toast'
 
 interface Message {
@@ -10,12 +11,12 @@ interface Message {
 }
 
 const SUGGESTED = [
+  'Which Elysia items are out of stock?',
+  'How many 4T Grey do we have and in which rack?',
+  'Show me the last 10 stock movements',
+  'What Elysia stock is below its reorder level?',
   'What projects are currently in progress?',
-  'Show me all unqualified leads',
   'Which invoices are overdue?',
-  'How much revenue have we collected total?',
-  'Who are our top customers by project value?',
-  'List all leads assigned to each team member',
 ]
 
 const fmt = (n?: number) =>
@@ -47,65 +48,151 @@ async function fetchCRMContext(): Promise<string> {
   // nothing is dropped today. Per-project collected amounts come from the
   // denormalized `stagesPaidAmount` field, replacing a collectionGroup scan
   // over every project's workflow stages (previously the single biggest read).
-  const [projects, leads, customers, quotations, invoices, candidates] =
+  const [projects, leads, customers, quotations, invoices, candidates, inventory, movements] =
     await Promise.all([
-      safe(getDocs(query(collection(db, 'projects'), limit(200)))),
-      safe(getDocs(query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(250)))),
-      safe(getDocs(query(collection(db, 'customers'), limit(200)))),
+      // Limits are the read budget, not just a safety net: this runs on every
+      // question session and the daily free-tier quota is 50,000 reads for the
+      // whole company. Each row is one line of a text blob the model skims, so
+      // the difference between 250 leads and 120 is not worth what it costs.
+      safe(getDocs(query(collection(db, 'projects'), limit(120)))),
+      safe(getDocs(query(collection(db, 'leads'), orderBy('createdAt', 'desc'), limit(120)))),
+      safe(getDocs(query(collection(db, 'customers'), limit(120)))),
       safe(getDocs(query(collection(db, 'quotations'), limit(40)))),
       safe(getDocs(query(collection(db, 'invoices'), limit(40)))),
       safe(getDocs(query(collection(db, 'candidates'), limit(60)))),
+      // Elysia rows are filtered in code rather than with where('productLine','==','elysia'):
+      // items created before the field existed simply don't carry it, and Firestore
+      // skips documents missing the field a query filters on — those rows would
+      // vanish from the assistant's view entirely.
+      safe(getDocs(query(collection(db, 'inventory'), limit(250)))),
+      safe(getDocs(query(collection(db, 'stockTransactions'), orderBy('createdAt', 'desc'), limit(50)))),
     ])
 
   const L: string[] = []
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   L.push(`GALAXY CRM ${today}`)
 
+  /**
+   * Each section gets its own share of the context, instead of one shared cap
+   * that the first sections eat. Before this, a long project or lead list could
+   * push everything after it past the limit — the section would be silently
+   * dropped and the assistant would answer "I don't have that data" about data
+   * it had just fetched. A section that overflows says so, and says how many
+   * rows it dropped, so a wrong answer is at least traceable.
+   */
+  const section = (title: string, lines: string[], budget: number) => {
+    L.push(`\n${title}:`)
+    let used = 0
+    for (let i = 0; i < lines.length; i++) {
+      if (used + lines[i].length > budget) {
+        L.push(`[+${lines.length - i} more rows not shown]`)
+        return
+      }
+      L.push(lines[i])
+      used += lines[i].length + 1
+    }
+  }
+
   // Projects — paid amount from the denormalized per-project stage total
-  L.push(`\nPROJECTS(${projects.size}):`)
-  projects.docs.forEach(d => {
+  section(`PROJECTS(${projects.size})`, projects.docs.map(d => {
     const p = d.data()
     const val = p.projectValue ?? p.totalValue ?? 0
     const paid = p.stagesPaidAmount ?? p.collectedAmount ?? p.totalPaid ?? 0
-    L.push(`${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}`)
-  })
+    return `${p.projectCode ?? d.id}|${p.title}|${p.customerName ?? ''}|${p.status}|${p.completionPercent ?? 0}%|pm:${p.assignedPMName ?? '-'}|val:${fmtI(val)}|paid:${fmtI(paid)}|bal:${fmtI(val - paid)}`
+  }), 6000)
 
   // Leads — most-recent first, capped (see fetch limit above)
-  L.push(`\nLEADS(${leads.size}):`)
-  leads.docs.forEach(d => {
+  section(`LEADS(${leads.size})`, leads.docs.map(d => {
     const l = d.data()
-    L.push(`${l.name}|${l.status}|${l.assignedToName ?? '-'}`)
-  })
+    return `${l.name}|${l.status}|${l.assignedToName ?? '-'}`
+  }), 2500)
 
   // Customers — all, compact
-  L.push(`\nCUSTOMERS(${customers.size}):`)
-  customers.docs.forEach(d => {
+  section(`CUSTOMERS(${customers.size})`, customers.docs.map(d => {
     const c = d.data()
-    L.push(`${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}`)
-  })
+    return `${c.name}|val:${fmtI(c.totalProjectValue)}|paid:${fmtI(c.totalPaid)}`
+  }), 1500)
 
   // Quotations — max 20
-  L.push(`\nQUOTATIONS(${quotations.size}):`)
-  quotations.docs.slice(0, 20).forEach(d => {
+  section(`QUOTATIONS(${quotations.size})`, quotations.docs.slice(0, 20).map(d => {
     const q = d.data()
-    L.push(`${q.quotationCode ?? d.id}|${q.customerName ?? '-'}|${q.status}|${fmtFull(q.total)}`)
-  })
+    return `${q.quotationCode ?? d.id}|${q.customerName ?? '-'}|${q.status}|${fmtFull(q.total)}`
+  }), 1000)
 
   // Invoices — max 20
-  L.push(`\nINVOICES(${invoices.size}):`)
-  invoices.docs.slice(0, 20).forEach(d => {
+  section(`INVOICES(${invoices.size})`, invoices.docs.slice(0, 20).map(d => {
     const inv = d.data()
-    L.push(`${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|${fmtFull(inv.amount)}|bal:${fmtFull(inv.balance)}`)
-  })
+    return `${inv.invoiceCode ?? d.id}|${inv.customerName ?? '-'}|${inv.status}|${fmtFull(inv.amount)}|bal:${fmtFull(inv.balance)}`
+  }), 1000)
 
   // Payment data is embedded per-project above from workflow stages
 
   // Candidates
-  L.push(`\nCANDIDATES(${candidates.size}):`)
-  candidates.docs.forEach(d => {
+  section(`CANDIDATES(${candidates.size})`, candidates.docs.map(d => {
     const c = d.data()
-    L.push(`${c.name}|${c.jobTitle}|score:${c.score}|${c.recommendation}|skills:${c.breakdown?.skills}|exp:${c.breakdown?.experience}|edu:${c.breakdown?.education}`)
+    return `${c.name}|${c.jobTitle}|score:${c.score}|${c.recommendation}|skills:${c.breakdown?.skills}|exp:${c.breakdown?.experience}|edu:${c.breakdown?.education}`
+  }), 1200)
+
+  // ── Elysia stock ─────────────────────────────────────────────────────────────
+  // Every total here is computed in code, not left to the model. A language model
+  // asked to add up 200 rows produces a confident wrong number, and "how much
+  // stock do we have" is exactly the question people will trust the answer to.
+  const elysia = inventory.docs
+    .map(d => d.data() as InventoryItem)
+    .filter(i => (i.productLine ?? 'elysia') === 'elysia')
+
+  const units = elysia.reduce((sum, i) => sum + (i.closingStock ?? 0), 0)
+  const outOfStock = elysia.filter(i => (i.closingStock ?? 0) <= 0)
+  const lowStock = elysia.filter(i => (i.closingStock ?? 0) > 0 && (i.closingStock ?? 0) <= (i.reorderLevel ?? 0))
+
+  L.push(`\nELYSIA STOCK: ${elysia.length} items, ${units} units in hand, ${outOfStock.length} out of stock, ${lowStock.length} low`)
+  L.push('Closing = Opening + Imported - Issued - Outward. Issued = used internally/on site, Outward = dispatched to a client.')
+
+  // Per-module totals, so "how many 4T do we have" needs no addition by the model.
+  const byModule = new Map<string, { items: number; units: number }>()
+  elysia.forEach(i => {
+    const key = i.category || 'OTHER'
+    const cur = byModule.get(key) ?? { items: 0, units: 0 }
+    byModule.set(key, { items: cur.items + 1, units: cur.units + (i.closingStock ?? 0) })
   })
+  L.push(`BY MODULE: ${[...byModule.entries()].map(([k, v]) => `${k}:${v.units}u/${v.items}items`).join(' | ')}`)
+
+  // Named lists, not just counts, so "what's out of stock" is answered outright.
+  // Capped because these are single lines that the per-section budget can't trim.
+  const named = (all: string[], cap = 60) =>
+    all.length > cap ? `${all.slice(0, cap).join(', ')} [+${all.length - cap} more]` : all.join(', ')
+
+  if (outOfStock.length) {
+    L.push(`OUT OF STOCK(${outOfStock.length}): ${named(outOfStock.map(i => `${i.itemName}[${i.location ?? '?'}]`))}`)
+  }
+  if (lowStock.length) {
+    L.push(`LOW STOCK(${lowStock.length}): ${named(lowStock.map(i => `${i.itemName}:${i.closingStock}(reorder@${i.reorderLevel})`))}`)
+  }
+
+  section(
+    `ELYSIA ITEMS(${elysia.length}) code|name|colour|material|rack|client|opening|imported|issued|outward|CLOSING`,
+    // Lowest stock first, so if the list ever overflows its budget the rows that
+    // get dropped are the ones nobody needs to ask about.
+    [...elysia]
+      .sort((a, b) => (a.closingStock ?? 0) - (b.closingStock ?? 0))
+      .map(i => [
+        i.itemCode, i.itemName, i.color || '-', i.material || '-', i.location || '-',
+        i.clientName || '-', i.openingStock ?? 0, i.importedQty ?? 0, i.issuedQty ?? 0,
+        i.outwardQty ?? 0, i.closingStock ?? 0,
+      ].join('|')),
+    12000,
+  )
+
+  // Recent movements answer "who took what, when" — the questions the stock
+  // figures alone can't. Bounded to the most recent, since this collection only grows.
+  section(
+    `RECENT STOCK MOVEMENTS(${movements.size}) date|in/out|item|qty|by|note`,
+    movements.docs.map(d => {
+      const t = d.data()
+      return `${tsDate(t.createdAt)}|${t.type === 'issue' ? 'OUT' : 'IN'}|${t.itemName ?? t.itemCode}|${t.quantity}|${t.recordedByName ?? '-'}|${t.note ?? '-'}`
+    }),
+    4000,
+  )
 
   return L.join('\n')
 }
@@ -125,10 +212,12 @@ async function chatWithGroq(
   })
 
   // Minimal system prompt — context travels in the first user message, not here
-  const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Today: ${today}. Rules: Answer directly from the CRM data — never ask follow-up questions, never ask for clarification. Just show the matching records. Use ₹ and Indian units. If data is missing say so briefly.`
+  const sysPrompt = `You are Galaxy CRM Assistant for Galaxy Home Automation Pvt Ltd (India). Today: ${today}. Rules: Answer directly from the CRM data — never ask follow-up questions, never ask for clarification. Just show the matching records. Use ₹ and Indian units. If data is missing say so briefly.
+Stock: the ELYSIA sections are live warehouse stock. CLOSING is the units in hand — quote it as-is and never recalculate it. Totals, out-of-stock and low-stock counts are already computed in the data: use those numbers rather than adding up rows yourself, and if a total you need is not given, say so instead of estimating. Issued means used internally or on site; Outward means dispatched to a client. Rack is where the item is kept. A row marked "[+N more rows not shown]" means the list was cut — say so rather than treating it as complete.`
 
-  // Cap context at 20k chars ≈ 5k tokens — safe since context is injected only once
-  const safeCtx = context.length > 20000 ? context.slice(0, 20000) + '\n[truncated]' : context
+  // Cap context at 40k chars ≈ 10k tokens. Each section is budgeted separately
+  // above, so this is a backstop rather than the thing doing the trimming.
+  const safeCtx = context.length > 40000 ? context.slice(0, 40000) + '\n[truncated]' : context
 
   // Build API messages:
   // - First user message gets context prepended (once, not on every call)
@@ -185,33 +274,42 @@ export function CRMChatbot() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking])
 
-  const loadContext = useCallback(async () => {
+  /** Returns the context as well as storing it, so the first question can use it. */
+  const loadContext = useCallback(async (force = false): Promise<string | null> => {
+    if (context && !force) return context
     setLoadingCtx(true)
     try {
       const ctx = await fetchCRMContext()
       setContext(ctx)
+      return ctx
     } catch {
       toast.error('Failed to load CRM data')
+      return null
     } finally {
       setLoadingCtx(false)
     }
-  }, [])
+  }, [context])
 
+  // Opening the panel no longer reads the CRM. Loading the context costs around
+  // a thousand Firestore reads, and most opens are someone glancing at the
+  // bubble and closing it again — on the free daily quota that was real money's
+  // worth of nothing. It loads on the first question instead, once per session.
   useEffect(() => {
-    if (open && !context) loadContext()
     if (open) setTimeout(() => inputRef.current?.focus(), 100)
   }, [open])
 
   const send = useCallback(async (text = input.trim()) => {
-    if (!text || thinking || !context) return
+    if (!text || thinking) return
     setInput('')
     const userMsg: Message = { role: 'user', content: text, ts: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setThinking(true)
 
     try {
+      const ctx = await loadContext()
+      if (!ctx) throw new Error('Could not read the CRM data to answer from')
       const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
-      const reply = await chatWithGroq(history, context)
+      const reply = await chatWithGroq(history, ctx)
       setMessages(prev => [...prev, { role: 'assistant', content: reply, ts: Date.now() }])
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
@@ -225,7 +323,7 @@ export function CRMChatbot() {
     } finally {
       setThinking(false)
     }
-  }, [input, thinking, context, messages])
+  }, [input, thinking, messages, loadContext])
 
   const isEmpty = messages.length === 0 && !thinking
 
@@ -298,7 +396,7 @@ export function CRMChatbot() {
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
               <button
-                onClick={loadContext}
+                onClick={() => loadContext(true)}
                 disabled={loadingCtx}
                 title="Refresh CRM data"
                 style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, lineHeight: 0 }}
@@ -438,13 +536,7 @@ export function CRMChatbot() {
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
-              placeholder={
-                loadingCtx
-                  ? 'Loading CRM data…'
-                  : context
-                    ? 'Ask about projects, payments, leads…'
-                    : 'Ready to answer…'
-              }
+              placeholder={loadingCtx ? 'Reading CRM data…' : 'Ask about stock, projects, payments, leads…'}
               disabled={loadingCtx || thinking}
               style={{
                 flex: 1, background: 'var(--input-bg)',
@@ -458,7 +550,7 @@ export function CRMChatbot() {
             />
             <button
               onClick={() => send()}
-              disabled={!input.trim() || thinking || loadingCtx || !context}
+              disabled={!input.trim() || thinking || loadingCtx}
               style={{
                 width: 36, height: 36, borderRadius: 10, flexShrink: 0,
                 background: input.trim() && !thinking && context

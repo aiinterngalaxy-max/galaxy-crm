@@ -136,6 +136,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   marketing:       'Marketing',
   ai_team:         'AI Team',
   hr:              'HR',
+  accounts:        'Accounts',
   galaxy:          'Galaxy CRM',
   topz:            'Topz Cab',
   pending:         'Pending Approval',
@@ -164,6 +165,9 @@ export function canAccess(role: UserRole, module: string): boolean {
     'content-studio':['marketing'],
     inventory:       ['dept_head', 'project_manager'],
     hr:              ['hr'],
+    // The accounts department. Dept heads are included because they sign off
+    // on what accounts issues; nobody else has business seeing draft invoices.
+    accounts:        ['accounts', 'dept_head'],
     settings:        [],  // super_admin & ai_team only (handled by fullAccess above)
   }
 
@@ -286,10 +290,13 @@ export function getLeadScoreBreakdown(lead: LeadScoreInput): LeadScoreBreakdown[
   if (lead.floorPlanUrl) rows.push({ label: 'Floor plan uploaded', points: w.floorPlan })
   if (lead.demoGiven) rows.push({ label: 'Demo / site visit done', points: w.demo })
 
-  const quotes = Math.min(lead.quoteCount ?? 0, w.maxQuotes)
+  // Clamped low as well as high: callCount is denormalised and decremented when an
+  // activity stops being a call, so a drifted negative must score zero rather than
+  // subtracting points and printing "Calls logged (-1)".
+  const quotes = Math.max(0, Math.min(lead.quoteCount ?? 0, w.maxQuotes))
   if (quotes) rows.push({ label: `Quotes sent (${quotes})`, points: quotes * w.perQuote })
 
-  const calls = Math.min(lead.callCount ?? 0, w.maxCalls)
+  const calls = Math.max(0, Math.min(lead.callCount ?? 0, w.maxCalls))
   if (calls) rows.push({ label: `Calls logged (${calls})`, points: calls * w.perCall })
 
   return rows
@@ -298,4 +305,18 @@ export function getLeadScoreBreakdown(lead: LeadScoreInput): LeadScoreBreakdown[
 export function calculateLeadScore(lead: LeadScoreInput): number {
   const total = getLeadScoreBreakdown(lead).reduce((sum, r) => sum + r.points, 0)
   return Math.min(100, total)
+}
+
+/**
+ * First letter for an avatar placeholder, safe when the name is missing.
+ *
+ * A record written without a name — an access request that never completed, a
+ * Google account with no display name, an imported row with a blank field —
+ * used to crash an entire page: `undefined.charAt(0)` throws during render and
+ * the error boundary replaces the whole screen with "Something went wrong".
+ * One malformed record should cost one avatar, not the page.
+ */
+export function initial(name?: string | null): string {
+  const first = (name ?? '').trim().charAt(0)
+  return first ? first.toUpperCase() : '?'
 }

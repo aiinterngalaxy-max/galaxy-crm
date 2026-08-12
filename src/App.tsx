@@ -45,6 +45,9 @@ const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage').the
 const NonWorkingPage = lazy(() => import('./modules/inventory/NonWorkingPage').then(m => ({ default: m.NonWorkingPage })))
 const B2BCampaignPage = lazy(() => import('./modules/b2b/B2BCampaignPage').then(m => ({ default: m.B2BCampaignPage })))
 const HRPage = lazy(() => import('./modules/hr/HRPage').then(m => ({ default: m.HRPage })))
+const AccountsPage = lazy(() => import('./modules/accounts/AccountsPage').then(m => ({ default: m.AccountsPage })))
+const DocumentsUploadPage = lazy(() => import('./modules/accounts/DocumentsUploadPage').then(m => ({ default: m.DocumentsUploadPage })))
+const DocumentReviewPage = lazy(() => import('./modules/accounts/DocumentReviewPage').then(m => ({ default: m.DocumentReviewPage })))
 const JDWizard = lazy(() => import('./modules/hr/JDWizard').then(m => ({ default: m.JDWizard })))
 const RecycleBin = lazy(() => import('./modules/recycle-bin/RecycleBin').then(m => ({ default: m.RecycleBin })))
 const TopzLayout = lazy(() => import('./modules/topz/TopzLayout').then(m => ({ default: m.TopzLayout })))
@@ -194,6 +197,9 @@ function AppRoutes() {
           <Route path="inventory/:line" element={<RequireRole module="inventory"><InventoryPage /></RequireRole>} />
 
           {/* HR */}
+          <Route path="accounts" element={<RequireRole module="accounts"><AccountsPage /></RequireRole>} />
+          <Route path="accounts/documents" element={<RequireRole module="accounts"><DocumentsUploadPage /></RequireRole>} />
+          <Route path="accounts/documents/:id" element={<RequireRole module="accounts"><DocumentReviewPage /></RequireRole>} />
           <Route path="hr" element={<RequireRole module="hr"><HRPage /></RequireRole>} />
           <Route path="recycle-bin" element={<RequireRole module="recycle-bin"><RecycleBin /></RequireRole>} />
           <Route path="hr/new" element={<RequireRole module="hr"><JDWizard /></RequireRole>} />

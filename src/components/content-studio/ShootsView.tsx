@@ -3,13 +3,14 @@ import { Avatar } from './ui'
 import { fmtDate } from '@/lib/content-studio/format'
 import { ShootStatus } from './ShootStatus'
 import { ShootModal } from './ShootModal'
-import type { Brand, Shoot } from '@/types/content-studio'
+import type { Brand, ContentRow, Shoot } from '@/types/content-studio'
 
 type ShootRow = Shoot & { brand_name: string }
 
 interface Props {
   shoots: ShootRow[]
   brands: Brand[]
+  content: ContentRow[]
   onChanged: () => void
 }
 
@@ -20,7 +21,7 @@ function daysUntil(d: string | null): number | null {
   return Math.round((new Date(d + 'T00:00:00').getTime() - t.getTime()) / 86400000)
 }
 
-export function ShootsView({ shoots, brands, onChanged }: Props) {
+export function ShootsView({ shoots, brands, content, onChanged }: Props) {
   const [modal, setModal] = useState<{ mode: 'create' } | { mode: 'edit'; shoot: ShootRow } | null>(null)
 
   const active = shoots.filter((s) => s.status !== 'Cancelled')
@@ -48,6 +49,7 @@ export function ShootsView({ shoots, brands, onChanged }: Props) {
         <ShootModal
           shoot={modal.mode === 'edit' ? modal.shoot : null}
           brands={brands}
+          content={content}
           onClose={() => setModal(null)}
           onSaved={() => {
             setModal(null)
@@ -110,6 +112,15 @@ function Section({
                     <span className={soon ? 'text-rose-400 font-semibold' : ''}>{d < 0 ? `${Math.abs(d)}d ago` : d === 0 ? 'today' : `in ${d}d`}</span>
                   )}
                 </div>
+                {!s.content_id && (
+                  <button
+                    onClick={() => onEdit(s)}
+                    title="Not linked to a Pipeline card — status changes here won't move anything on the board. Click to link it."
+                    className="text-[11px] text-amber-400/80 hover:text-amber-400 mt-1"
+                  >
+                    ⚠ Not linked to Pipeline — click to link
+                  </button>
+                )}
               </div>
               <ShootStatus id={s.id} status={s.status} onChanged={onChanged} />
             </div>

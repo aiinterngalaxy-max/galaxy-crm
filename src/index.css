@@ -257,6 +257,26 @@
   ::-webkit-scrollbar-thumb { background: #C9A840; border-radius: 999px; }
   ::-webkit-scrollbar-thumb:hover { background: #A07820; }
   * { scrollbar-width: thin; scrollbar-color: #C9A840 transparent; }
+
+  /* Data tables that scroll sideways.
+     The global 6px bar is easy to miss and fiddly to grab when it is the only
+     hint that more columns exist off-screen. These are wider, always rendered
+     rather than fading in on hover, and keep a visible track so the bar reads as
+     a control even when it is parked at the far left. */
+  .table-scroll::-webkit-scrollbar { width: 12px; height: 12px; }
+  .table-scroll::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 999px;
+  }
+  .table-scroll::-webkit-scrollbar-thumb {
+    background: #C9A840;
+    border-radius: 999px;
+    border: 2px solid var(--scrollbar-track);
+  }
+  .table-scroll::-webkit-scrollbar-thumb:hover { background: #E0BC50; }
+  .table-scroll::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
+  /* Firefox has no width control, so ask for the full-size bar instead of thin. */
+  .table-scroll { scrollbar-width: auto; scrollbar-color: #C9A840 var(--scrollbar-track); }
 }
 
 @layer components {

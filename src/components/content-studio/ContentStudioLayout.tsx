@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { PanelLeftClose, PanelLeft } from 'lucide-react'
 import { CmoSidebar } from './CmoSidebar'
 import { GlobalSearch } from './GlobalSearch'
-import { NotificationBell, type NotifSection } from './NotificationBell'
+import { NotificationBell, type NotifSection, type NotifItem } from './NotificationBell'
 import { ViewerContext } from '@/lib/content-studio/viewer-context'
-import { getTeam } from '@/lib/content-studio/queries'
+import { getTeam, getAllContent, getIdeas, getScripts } from '@/lib/content-studio/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import type { TeamMember } from '@/types/content-studio'
 
@@ -13,16 +13,97 @@ const COLLAPSE_KEY = 'cs-sidebar-collapsed'
 // Roles allowed to approve/reject Content Studio ideas — mirrors the CRM's
 // existing approval gates elsewhere (quotations, etc).
 const IDEA_APPROVER_ROLES = new Set(['super_admin', 'management'])
+const SECTIONS_REFRESH_MS = 60_000
+
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * This bell was wired up with an empty, never-updated `sections` array from
+ * the start — `const [sections] = useState([])`, no setter ever called
+ * anywhere. It has shown "Nothing needs attention" regardless of what was
+ * actually happening in the pipeline. This is the real computation: not-yet-
+ * published content past or at its due date, scripts sitting Submitted
+ * awaiting approval, and ideas pitched awaiting approval — the three things
+ * elsewhere in Content Studio already treat as "needs a human to act."
+ */
+async function computeSections(): Promise<NotifSection[]> {
+  const [content, ideas, scripts] = await Promise.all([getAllContent(), getIdeas(), getScripts()])
+  const today = todayStr()
+
+  const overdue: NotifItem[] = []
+  const dueToday: NotifItem[] = []
+  for (const c of content) {
+    if (c.stage === 'Published') continue
+    const dateStr = c.publish_date || c.due_date
+    if (!dateStr || dateStr > today) continue
+    const item: NotifItem = {
+      id: `content-${c.id}`,
+      tone: dateStr < today ? 'bad' : 'warn',
+      icon: dateStr < today ? '⏰' : '📅',
+      text: c.title,
+      meta: `${c.brand_name} · ${dateStr < today ? `was due ${dateStr}` : 'due today'}`,
+      href: `/content-studio/pipeline?edit=${c.id}`,
+    }
+    ;(dateStr < today ? overdue : dueToday).push(item)
+  }
+
+  const scriptsAwaiting: NotifItem[] = scripts
+    .filter((s) => s.status === 'Submitted')
+    .map((s) => ({
+      id: `script-${s.id}`,
+      tone: 'warn',
+      icon: '📝',
+      text: s.title,
+      meta: `${s.brand_name} · script submitted, needs approval`,
+      href: '/content-studio/scripts',
+    }))
+
+  const ideasAwaiting: NotifItem[] = ideas
+    .filter((i) => i.pitched && !i.approved && !i.rejected)
+    .map((i) => ({
+      id: `idea-${i.id}`,
+      tone: 'warn',
+      icon: '💡',
+      text: i.title,
+      meta: 'pitched, needs approval',
+      href: '/content-studio/ideas',
+    }))
+
+  return [
+    { title: 'Overdue — not published', items: overdue },
+    { title: 'Due today — not published', items: dueToday },
+    { title: 'Scripts awaiting approval', items: scriptsAwaiting },
+    { title: 'Ideas awaiting approval', items: ideasAwaiting },
+  ]
+}
 
 export function ContentStudioLayout() {
   const { user, role } = useAuth()
   const [team, setTeam] = useState<TeamMember[]>([])
-  const [sections] = useState<NotifSection[]>([])
+  const [sections, setSections] = useState<NotifSection[]>([])
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1')
 
-useEffect(() => {
+  useEffect(() => {
     getTeam().then(setTeam).catch(console.error)
   }, [])
+
+  const refreshSections = useCallback(() => {
+    computeSections().then(setSections).catch(console.error)
+  }, [])
+
+  // This layout persists across every Content Studio page, so a fetch on
+  // mount alone would go stale the moment someone approves a script or an
+  // idea elsewhere without ever navigating back through here. Polling is
+  // the right tool since Turso has no realtime subscription the way
+  // Firestore does — same tradeoff already made for the due-date reminders.
+  useEffect(() => {
+    refreshSections()
+    const t = setInterval(refreshSections, SECTIONS_REFRESH_MS)
+    return () => clearInterval(t)
+  }, [refreshSections])
 
   // The "viewer" is the logged-in CRM user, mapped onto the Content Studio
   // team-member shape used for activity attribution and the idea approval

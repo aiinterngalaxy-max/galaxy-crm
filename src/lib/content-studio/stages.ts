@@ -65,3 +65,21 @@ export const PRIORITY_STYLE: Record<string, string> = {
   High: "bg-amber-100 text-amber-700",
   Urgent: "bg-rose-100 text-rose-700",
 };
+
+// Marketing-funnel classification for an idea — how far along the buyer's
+// journey it's aimed at. Purely descriptive: nothing else in the pipeline
+// reads it, it's here so ideas can be planned and reviewed by funnel stage.
+export const FUNNEL_STAGES = ["TOFU", "MOFU", "BOFU"] as const;
+export type FunnelStage = (typeof FUNNEL_STAGES)[number];
+
+export const FUNNEL_STAGE_LABEL: Record<string, string> = {
+  TOFU: "TOFU — Top of funnel (awareness)",
+  MOFU: "MOFU — Middle of funnel (consideration)",
+  BOFU: "BOFU — Bottom of funnel (decision)",
+};
+
+export const FUNNEL_STAGE_STYLE: Record<string, string> = {
+  TOFU: "bg-sky-100 text-sky-700",
+  MOFU: "bg-amber-100 text-amber-700",
+  BOFU: "bg-emerald-100 text-emerald-700",
+};

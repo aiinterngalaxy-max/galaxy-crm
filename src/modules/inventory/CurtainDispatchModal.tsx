@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { db, collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp } from '../../lib/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { InventoryItem } from '../../types'
+import { closingOf } from '../../lib/stock'
 import toast from 'react-hot-toast'
 
 interface Props { onClose: () => void }
@@ -328,7 +329,7 @@ export function CurtainDispatchModal({ onClose }: Props) {
         const item = itemMap.get(line.itemCode)
         if (!item) { toast.error(`Not found: ${line.itemCode}`); continue }
         const newIssued  = (item.issuedQty ?? 0) + line.qty
-        const newClosing = (item.openingStock ?? 0) + (item.importedQty ?? 0) - newIssued
+        const newClosing = closingOf({ ...item, issuedQty: newIssued })
         const newStatus  = newClosing <= 0 ? 'out_of_stock' : newClosing <= (item.reorderLevel ?? 0) ? 'low_stock' : 'in_stock'
         await updateDoc(doc(db, 'inventory', item.id), { issuedQty: newIssued, closingStock: newClosing, stockStatus: newStatus, updatedAt: serverTimestamp() })
         await addDoc(collection(db, 'inventory', item.id, 'transactions'), {

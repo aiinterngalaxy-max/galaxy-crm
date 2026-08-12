@@ -10,6 +10,7 @@ import type { InventoryItem, StockStatus } from '../../types'
 import { formatCurrency } from '../../lib/utils'
 import toast from 'react-hot-toast'
 import { cn } from '../../lib/utils'
+import { closingOf } from '../../lib/stock'
 
 // ─── Types ───────────────────────────────────────────────────────────────────────
 
@@ -432,7 +433,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           const item = curtainMap.get(itemCode)
           if (!item) continue
           const newIssued  = (item.issuedQty ?? 0) + qty
-          const newClosing = (item.openingStock ?? 0) + (item.importedQty ?? 0) - newIssued
+          const newClosing = closingOf({ ...item, issuedQty: newIssued })
           const newStatus  = newClosing <= 0 ? 'out_of_stock' : newClosing <= (item.reorderLevel ?? 0) ? 'low_stock' : 'in_stock'
           await updateDoc(doc(db, 'inventory', item.id), {
             issuedQty: newIssued, closingStock: newClosing, stockStatus: newStatus, updatedAt: serverTimestamp(),
@@ -470,7 +471,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
         if (qty > inv.closingStock) throw new Error(`Only ${inv.closingStock} in stock`)
 
         const newIssued = inv.issuedQty + qty
-        const newClosing = inv.openingStock + inv.importedQty - newIssued
+        const newClosing = closingOf({ ...inv, issuedQty: newIssued })
         tx.update(invRef, {
           issuedQty: newIssued,
           closingStock: newClosing,
@@ -512,7 +513,7 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
           const inv = invSnap.data() as InventoryItem
           if (qty > inv.closingStock) throw new Error(`Only ${inv.closingStock} of ${order.itemCode} in stock`)
           const newIssued = inv.issuedQty + qty
-          const newClosing = inv.openingStock + inv.importedQty - newIssued
+          const newClosing = closingOf({ ...inv, issuedQty: newIssued })
           tx.update(doc(db, 'inventory', order.itemId), {
             issuedQty: newIssued, closingStock: newClosing,
             stockStatus: computeStatus(newClosing, inv.reorderLevel),

@@ -25,7 +25,11 @@ export function describeFirestoreError(err: unknown, fallback: string): string {
     case 'already-exists':
       return 'That record already exists.'
     case 'resource-exhausted':
-      return 'The database quota has been reached. Contact an admin.'
+      // Naming the cause matters here: "quota reached" reads like a bug in the
+      // page, and people retry the same save all afternoon. It is the Firebase
+      // free plan's daily allowance for the whole company, and it only clears
+      // on the reset or by upgrading the plan.
+      return "Today's free Firebase usage limit is used up, so nothing can be saved until it resets (midnight US Pacific — about 12:30 pm IST). Nothing you did caused this. To remove the limit, an admin needs to upgrade the Firebase project to the Blaze plan."
   }
 
   // Firestore rejects any document containing `undefined` and says which field,

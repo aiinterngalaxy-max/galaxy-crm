@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck — Content Studio not yet migrated to Firestore; suppressed until migration complete
 import { all, one, run, batch, resetClient } from './db'
-import { STAGES, STAGE_INDEX, PLATFORMS } from './stages'
+import { STAGES, STAGE_INDEX, PLATFORMS, FUNNEL_STAGES } from './stages'
 import { todayISO } from './format'
 import { SCHEMA, DROP, MIGRATE } from './schema'
 import { buildSeed, validateSeed } from './seed'
@@ -285,13 +285,27 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
 
   if (body.stage) {
     const newIdx = STAGE_INDEX[body.stage as string]
-    if (newIdx > STAGE_INDEX['Script Review']) {
+    // Only checked when a card is crossing Script Review for the first time
+    // — not on every later move. Written as newIdx > Script Review with no
+    // floor, this re-ran the script-approval check on every single hop for
+    // the rest of the pipeline: Editing -> Review, Review -> Ready To
+    // Publish, all of it, blocking normal post-production moves with an
+    // error about a script review that already happened stages ago.
+    const curRow = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [id])
+    const curIdx = curRow ? STAGE_INDEX[curRow.stage] : undefined
+    if (newIdx > STAGE_INDEX['Script Review'] && curIdx !== undefined && curIdx <= STAGE_INDEX['Script Review']) {
       const script = await one<{ status: string }>('SELECT status FROM cmo_scripts WHERE content_id=? LIMIT 1', [id])
       if (!script || script.status !== 'Approved') throw new Error("Can't advance — script isn't approved yet.")
     }
     if (newIdx > STAGE_INDEX['Review']) {
-      const cur = await one<{ approved: number }>('SELECT approved FROM cmo_content WHERE id=?', [id])
-      if (!cur?.approved) throw new Error("Can't advance — content isn't approved yet.")
+      // If this same call is setting approved:1, that's the sign-off — don't
+      // reject it for not being approved yet in the DB's pre-update row.
+      // Editing's "Approved" button sends both fields in one call precisely
+      // so a single click both signs off and advances.
+      const approvedNow = 'approved' in body
+        ? Number(body.approved) === 1
+        : !!(await one<{ approved: number }>('SELECT approved FROM cmo_content WHERE id=?', [id]))?.approved
+      if (!approvedNow) throw new Error("Can't advance — content isn't approved yet.")
     }
   }
 
@@ -303,6 +317,12 @@ export async function updateContent(id: number, data: Partial<ContentRow>, actor
   }
   if (body.stage === 'Shoot Planning') {
     await maybeCreateShootForContent(id)
+  }
+
+  // Sign-off in Review is the last human gate before publishing — ticking it
+  // moves the piece on, rather than leaving it parked in a stage it has passed.
+  if (!body.stage && Number(body.approved) === 1) {
+    await syncContentStage(id, 'Ready To Publish', { reason: 'content approved', onlyFrom: ['Review'] })
   }
 
   const row = await one<ContentRow>(CONTENT_JOIN + ' WHERE ct.id=?', [id])
@@ -377,14 +397,14 @@ export async function createComment(contentId: number, text: string, author?: st
 }
 
 // ---------- ideas ----------
-const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at'
+const IDEA_COLS = 'id, brand_id, month, title, pitched, pitch_due, approved, rejected, review_note, content_id, created_at, platform, funnel_stage, reference_url, reference_meta, script_hook, script_body, script_cta, script_format, script_full_en, script_full_hi, caption_examples, captions'
 
 export function getIdeas(brandId?: number): Promise<Idea[]> {
   if (brandId) return all<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE brand_id=? ORDER BY pitched, pitch_due`, [brandId])
   return all<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas ORDER BY brand_id, pitched, pitch_due`)
 }
 
-export async function createIdea(data: { brand_id: number; month?: string; title: string }): Promise<Idea> {
+export async function createIdea(data: { brand_id: number; month?: string; title: string; platform?: string; funnel_stage?: string }): Promise<Idea> {
   const brand_id = Number(data.brand_id)
   if (!brand_id) throw new Error('brand_id is required')
   const title = String(data.title || '').trim()
@@ -392,40 +412,69 @@ export async function createIdea(data: { brand_id: number; month?: string; title
   const month = String(data.month || new Date().toISOString().slice(0, 7))
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('month must be YYYY-MM')
 
-  const rs = await run(`INSERT INTO cmo_ideas (brand_id, month, title) VALUES (?, ?, ?)`, [brand_id, month, title])
+  const platform = String(data.platform || '').trim()
+  const funnelStage = String(data.funnel_stage || '').trim()
+  if (funnelStage && !FUNNEL_STAGES.includes(funnelStage as any)) throw new Error('invalid funnel_stage')
+  const rs = await run(
+    `INSERT INTO cmo_ideas (brand_id, month, title, platform, funnel_stage) VALUES (?, ?, ?, ?, ?)`,
+    [brand_id, month, title, platform, funnelStage],
+  )
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one<Idea>(`SELECT ${IDEA_COLS} FROM cmo_ideas WHERE id=?`, [id])
   await logActivity('idea', id, 'created', `Idea added: ${title}`)
   return row as Idea
 }
 
-const IDEA_EDITABLE = new Set(['title', 'pitched', 'pitch_due', 'approved', 'rejected', 'review_note', 'month'])
+const IDEA_EDITABLE = new Set([
+  'title', 'pitched', 'pitch_due', 'approved', 'rejected', 'review_note', 'month',
+  'platform', 'funnel_stage', 'reference_url', 'reference_meta',
+  'script_hook', 'script_body', 'script_cta', 'script_format', 'script_full_en', 'script_full_hi',
+  'caption_examples', 'captions',
+])
 
 export async function updateIdea(id: number, data: Partial<Idea>): Promise<Idea> {
   const body: Record<string, any> = { ...data }
+  if (body.funnel_stage && !FUNNEL_STAGES.includes(body.funnel_stage)) throw new Error('invalid funnel_stage')
   const { sets, args } = applyEditable(body, IDEA_EDITABLE)
   if (!sets.length) throw new Error('no editable fields')
   args.push(id)
   await run(`UPDATE cmo_ideas SET ${sets.join(', ')} WHERE id=?`, args)
 
-  if (Number(body.approved) === 1) {
+  if ('approved' in body) {
     const idea = await one<{ brand_id: number; title: string; content_id: number | null }>(
       'SELECT brand_id, title, content_id FROM cmo_ideas WHERE id=?',
       [id],
     )
-    if (idea && !idea.content_id) {
-      // Approving the idea lands the content straight at Script Writing —
-      // the next actionable stage — instead of leaving it stuck at "Idea".
-      const rs = await run(
-        `INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Script Writing', 'idea')`,
-        [idea.brand_id, idea.title],
-      )
-      const contentId = Number(rs.lastInsertRowid ?? 0)
-      if (contentId) {
-        await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
-        await maybeCreateScriptForContent(contentId)
-        await logActivity('content', contentId, 'created', `Content created: ${idea.title}`)
+
+    if (Number(body.approved) === 1) {
+      if (idea && !idea.content_id) {
+        // No content piece yet (idea raised on the Ideas page) — create one,
+        // already sitting at Approved so the board reflects the decision.
+        const rs = await run(
+          `INSERT INTO cmo_content (brand_id, title, stage, source) VALUES (?, ?, 'Approved', 'idea')`,
+          [idea.brand_id, idea.title],
+        )
+        const contentId = Number(rs.lastInsertRowid ?? 0)
+        if (contentId) {
+          await run('UPDATE cmo_ideas SET content_id=? WHERE id=?', [contentId, id])
+          await maybeCreateScriptForContent(contentId, 'Pending')
+          await logActivity('content', contentId, 'created', `Content created: ${idea.title}`)
+        }
+      } else if (idea?.content_id) {
+        // Content already exists (idea was spawned by a Pipeline "add content").
+        // Approving here is what moves it off Idea — without this the board sat
+        // at Idea forever no matter what the Ideas page said.
+        await syncContentStage(idea.content_id, 'Approved', { reason: 'idea approved' })
+        await maybeCreateScriptForContent(idea.content_id, 'Pending')
       }
+    } else if (idea?.content_id) {
+      // Approval withdrawn — send it back to Idea, but only while nothing
+      // downstream has started, so this can't undo real work.
+      await syncContentStage(idea.content_id, 'Idea', {
+        reason: 'idea approval withdrawn',
+        allowBackward: true,
+        onlyFrom: ['Approved'],
+      })
     }
   }
 
@@ -467,6 +516,20 @@ export function getScripts(): Promise<ScriptRow[]> {
      JOIN cmo_content ct ON ct.id = sc.content_id
      JOIN cmo_brands br ON br.id = ct.brand_id
      ORDER BY sc.deadline IS NULL, sc.deadline`,
+  )
+}
+
+/** For the script-review control in IdeaStudio — the one script row linked to this content, if any. */
+export function getScriptByContentId(contentId: number): Promise<ScriptRow | null> {
+  return one<ScriptRow>(
+    `SELECT sc.id, sc.content_id, sc.writer, sc.status, sc.deadline,
+            sc.revision_count, sc.review_comments, sc.approved, sc.approved_at, sc.created_at,
+            ct.title, br.name AS brand_name
+     FROM cmo_scripts sc
+     JOIN cmo_content ct ON ct.id = sc.content_id
+     JOIN cmo_brands br ON br.id = ct.brand_id
+     WHERE sc.content_id=?`,
+    [contentId],
   )
 }
 
@@ -517,21 +580,27 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
   args.push(id)
   await run(`UPDATE cmo_scripts SET ${sets.join(', ')} WHERE id=?`, args)
 
+  // Each script status is a step of the pipeline finishing — mirror it onto the
+  // content piece so the board tracks the work without anyone dragging cards.
   if (body.status) {
     const script = await one<{ content_id: number }>('SELECT content_id FROM cmo_scripts WHERE id=?', [id])
     if (script?.content_id) {
-      const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [script.content_id])
-      if (content) {
-        const stage = content.stage
-        let targetStage: string | null = null
-        if (body.status === 'Submitted' && stage === 'Script Writing') targetStage = 'Script Review'
-        else if (body.status === 'Changes Required' && stage !== 'Revisions') targetStage = 'Revisions'
-        else if (body.status === 'Approved' && STAGE_INDEX[stage] < STAGE_INDEX['Shoot Planning']) targetStage = 'Shoot Planning'
-
-        if (targetStage) {
-          await run('UPDATE cmo_content SET stage=? WHERE id=?', [targetStage, script.content_id])
-          if (targetStage === 'Shoot Planning') await maybeCreateShootForContent(script.content_id)
-        }
+      if (body.status === 'In Progress') {
+        await syncContentStage(script.content_id, 'Script Writing', { reason: 'script started' })
+      } else if (body.status === 'Submitted') {
+        await syncContentStage(script.content_id, 'Script Review', { reason: 'script submitted' })
+      } else if (body.status === 'Changes Required') {
+        // Deliberately backward: changes required means it re-enters Revisions
+        // wherever it had got to.
+        await syncContentStage(script.content_id, 'Revisions', { reason: 'script changes required', allowBackward: true })
+      } else if (body.status === 'Approved') {
+        // Deliberate: skips Shoot Planning/Scheduled/Shooting entirely, not a
+        // bug. Confirmed with the team that most pieces here don't need a
+        // dedicated shoot booked through this pipeline — approval alone means
+        // it's ready to cut. A card can still be dragged back to a shoot
+        // stage by hand afterward if a real shoot does turn out to be needed;
+        // it just won't happen automatically anymore.
+        await syncContentStage(script.content_id, 'Editing', { reason: 'script approved' })
       }
     }
   }
@@ -558,7 +627,7 @@ export async function updateScript(id: number, data: Record<string, any>): Promi
 
 // ---------- shoots ----------
 const SHOOT_COLS = 'id, brand_id, content_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes'
-const SHOOT_STATUSES = new Set(['Planned', 'Scheduled', 'Completed', 'Cancelled'])
+const SHOOT_STATUSES = new Set(['Planned', 'Scheduled', 'Shooting', 'Completed', 'Cancelled'])
 
 export function getShoots(): Promise<ShootRow[]> {
   return all<ShootRow>(
@@ -579,11 +648,15 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   const status = String(data.status || 'Planned')
   if (!SHOOT_STATUSES.has(status)) throw new Error('invalid status')
 
+  let content_id = data.content_id ? Number(data.content_id) : null
+  if (!content_id) content_id = (await findContentByTitle(brand_id, title))?.id ?? null
+
   const rs = await run(
-    `INSERT INTO cmo_shoots (brand_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cmo_shoots (brand_id, content_id, title, shoot_date, shoot_time, location, talent, team, equipment, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       brand_id,
+      content_id,
       title,
       data.shoot_date || null,
       String(data.shoot_time || '').trim() || null,
@@ -598,13 +671,24 @@ export async function createShoot(data: Record<string, any>): Promise<ShootRow> 
   const id = Number(rs.lastInsertRowid ?? 0)
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   await logActivity('shoot', id, 'created', `Shoot scheduled: ${title}${data.shoot_date ? ` on ${data.shoot_date}` : ''}`)
+
+  // The status picked at creation (e.g. adding an already-Scheduled shoot)
+  // should sync the pipeline too, same as if it were set via an edit.
+  if (content_id) {
+    if (status === 'Planned') await syncContentStage(content_id, 'Shoot Planning', { reason: 'shoot planned' })
+    else if (status === 'Scheduled') await syncContentStage(content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    else if (status === 'Shooting') await syncContentStage(content_id, 'Shooting', { reason: 'shoot in progress' })
+    else if (status === 'Completed') await syncContentStage(content_id, 'Editing', { reason: 'shoot completed' })
+  }
+
   return row as ShootRow
 }
 
 export async function updateShoot(id: number, data: Record<string, any>): Promise<ShootRow> {
   const body = { ...data }
   if (body.status && !SHOOT_STATUSES.has(body.status)) throw new Error('bad status')
-  const editable = new Set(['title', 'shoot_date', 'shoot_time', 'location', 'talent', 'team', 'equipment', 'status', 'notes'])
+  if ('content_id' in body) body.content_id = body.content_id ? Number(body.content_id) : null
+  const editable = new Set(['title', 'shoot_date', 'shoot_time', 'location', 'talent', 'team', 'equipment', 'status', 'notes', 'content_id'])
   const { sets, args } = applyEditable(body, editable)
   if (!sets.length) throw new Error('no editable fields')
   args.push(id)
@@ -612,11 +696,32 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
   const row = await one(`SELECT ${SHOOT_COLS} FROM cmo_shoots WHERE id=?`, [id])
   const title = row?.title ?? `#${id}`
 
-  if (body.status === 'Completed' && row?.content_id) {
-    const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [row.content_id])
-    if (content && STAGE_INDEX[content.stage] < STAGE_INDEX['Editing']) {
-      await run('UPDATE cmo_content SET stage=? WHERE id=?', ['Editing', row.content_id])
-      await logActivity('content', row.content_id, 'stage-change', 'Content moved to Editing')
+  // Still unlinked after this edit — try the same title match createShoot
+  // does, so clicking a status is what links a shoot to its content, without
+  // ever asking anyone to pick it out of the whole content list by hand.
+  if (row && !row.content_id && body.status) {
+    const match = await findContentByTitle(row.brand_id, row.title)
+    if (match) {
+      await run('UPDATE cmo_shoots SET content_id=? WHERE id=?', [match.id, id])
+      row.content_id = match.id
+      await logActivity('shoot', id, 'updated', `Shoot "${row.title}" auto-linked to its Pipeline card`)
+    }
+  }
+
+  // Shoot status drives the content stage the same way script status does.
+  // Uses the shoot's status even when only content_id changed in this call —
+  // a shoot that was already "Scheduled" before it got linked to a content
+  // piece should sync immediately, not sit stale until the next status click.
+  const effectiveStatus = body.status || row?.status
+  if (effectiveStatus && row?.content_id && ('status' in body || 'content_id' in body)) {
+    if (effectiveStatus === 'Planned') {
+      await syncContentStage(row.content_id, 'Shoot Planning', { reason: 'shoot planned' })
+    } else if (effectiveStatus === 'Scheduled') {
+      await syncContentStage(row.content_id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    } else if (effectiveStatus === 'Shooting') {
+      await syncContentStage(row.content_id, 'Shooting', { reason: 'shoot in progress' })
+    } else if (effectiveStatus === 'Completed') {
+      await syncContentStage(row.content_id, 'Editing', { reason: 'shoot completed' })
     }
   }
 
@@ -624,6 +729,8 @@ export async function updateShoot(id: number, data: Record<string, any>): Promis
     await logActivity('shoot', id, 'status-change', `Shoot completed: ${title}`)
   } else if (body.status === 'Cancelled') {
     await logActivity('shoot', id, 'status-change', `Shoot cancelled: ${title}`)
+  } else if (body.status === 'Shooting') {
+    await logActivity('shoot', id, 'status-change', `Shoot started: ${title}`)
   } else if (body.status) {
     await logActivity('shoot', id, 'status-change', `Shoot ${String(body.status).toLowerCase()}: ${title}`)
   } else {
@@ -636,6 +743,32 @@ export async function deleteShoot(id: number): Promise<void> {
   const shoot = await one<{ title: string }>('SELECT title FROM cmo_shoots WHERE id=?', [id])
   await run('DELETE FROM cmo_shoots WHERE id=?', [id])
   await logActivity('shoot', id, 'deleted', `Shoot deleted: ${shoot?.title ?? `#${id}`}`)
+}
+
+/**
+ * Catch-up pass for shoots that were already unlinked before auto-linking-by-
+ * title existed (or whose title didn't match anything yet at the time). The
+ * updateShoot path only tries a match when a status changes — a shoot sitting
+ * unchanged at its current status would otherwise stay unlinked forever with
+ * no click left to trigger it. Called from the Shoots page on load.
+ */
+export async function backfillShootLinks(): Promise<number> {
+  const unlinked = await all<{ id: number; brand_id: number; title: string; status: string }>(
+    'SELECT id, brand_id, title, status FROM cmo_shoots WHERE content_id IS NULL',
+  )
+  let linked = 0
+  for (const s of unlinked) {
+    const match = await findContentByTitle(s.brand_id, s.title)
+    if (!match) continue
+    await run('UPDATE cmo_shoots SET content_id=? WHERE id=?', [match.id, s.id])
+    await logActivity('shoot', s.id, 'updated', `Shoot "${s.title}" auto-linked to its Pipeline card`)
+    if (s.status === 'Planned') await syncContentStage(match.id, 'Shoot Planning', { reason: 'shoot planned' })
+    else if (s.status === 'Scheduled') await syncContentStage(match.id, 'Shoot Scheduled', { reason: 'shoot scheduled' })
+    else if (s.status === 'Shooting') await syncContentStage(match.id, 'Shooting', { reason: 'shoot in progress' })
+    else if (s.status === 'Completed') await syncContentStage(match.id, 'Editing', { reason: 'shoot completed' })
+    linked++
+  }
+  return linked
 }
 
 // ---------- video jobs (AI auto-edit) ----------
@@ -952,6 +1085,65 @@ export async function search(query: string): Promise<{ results: SearchResultRow[
 }
 
 // ---------- side-effect helpers ----------
+
+/**
+ * The manual "link to a Pipeline card" picker asked the team to pick out of
+ * every piece of content the brand has ever made — most of it long since
+ * Published and irrelevant to a shoot being scheduled today. That's not a
+ * choice worth asking someone to make when their shoot is already named
+ * after the content it's for. This finds that match automatically: same
+ * brand, same title (case/whitespace-insensitive), not already Published —
+ * so clicking a status just works, and the picker becomes a fallback for the
+ * rare case a title doesn't match rather than the everyday path.
+ */
+async function findContentByTitle(brandId: number, title: string): Promise<{ id: number } | null> {
+  const t = title.trim()
+  if (!t) return null
+  return one<{ id: number }>(
+    `SELECT id FROM cmo_content WHERE brand_id=? AND LOWER(TRIM(title))=LOWER(?) AND stage != 'Published' ORDER BY id DESC LIMIT 1`,
+    [brandId, t],
+  )
+}
+
+/**
+ * Move a content piece to `target` because work finished on a record linked to
+ * it (idea approved, script submitted, shoot wrapped). This is what keeps the
+ * Pipeline board — and every completion % derived from it — in step with what
+ * actually happened on the Ideas / Scripts / Shoots pages.
+ *
+ * Forward-only by default: re-saving an earlier record must never drag a piece
+ * back down the pipeline. Cases where moving back IS the point (script sent
+ * back for changes, an approval withdrawn) pass `allowBackward`, and usually
+ * `onlyFrom` to bound how far back that can reach.
+ *
+ * Writes the stage directly rather than going through updateContent() because
+ * the guards there ("can't advance — script isn't approved yet") exist to gate
+ * *manual* board moves; here the gating record is the very thing that changed.
+ */
+async function syncContentStage(
+  contentId: number,
+  target: string,
+  opts: { reason: string; allowBackward?: boolean; onlyFrom?: string[] },
+): Promise<void> {
+  const to = STAGE_INDEX[target]
+  if (to === undefined) return
+
+  const content = await one<{ stage: string }>('SELECT stage FROM cmo_content WHERE id=?', [contentId])
+  if (!content || content.stage === target) return
+  if (opts.onlyFrom && !opts.onlyFrom.includes(content.stage)) return
+
+  const from = STAGE_INDEX[content.stage]
+  if (!opts.allowBackward && from !== undefined && from >= to) return
+
+  await run('UPDATE cmo_content SET stage=? WHERE id=?', [target, contentId])
+  await logActivity('content', contentId, 'stage-change', `${content.stage} → ${target} (${opts.reason})`)
+
+  // Keep the downstream records the new stage implies in existence, same as a
+  // manual move through updateContent() would.
+  if (to >= STAGE_INDEX['Script Writing']) await maybeCreateScriptForContent(contentId)
+  if (target === 'Shoot Planning') await maybeCreateShootForContent(contentId)
+}
+
 export async function maybeCreateShootForContent(contentId: number): Promise<void> {
   const existing = await one<{ id: number }>('SELECT id FROM cmo_shoots WHERE content_id=?', [contentId])
   if (existing) return
@@ -967,11 +1159,16 @@ export async function maybeCreateShootForContent(contentId: number): Promise<voi
 }
 
 /**
- * If content_id has no linked script yet, insert one with status 'In Progress'
- * so it surfaces on the Scripts page the moment a content piece reaches (or
- * starts at/past) the Script Writing stage.
+ * If content_id has no linked script yet, insert one so it surfaces on the
+ * Scripts page the moment a content piece reaches (or starts at/past) the
+ * Script Writing stage.
+ *
+ * Defaults to 'In Progress' — the content is already at Script Writing, so
+ * the work is underway. Callers that create the script *ahead* of that stage
+ * (idea approval, where the piece sits at Approved) pass 'Pending', so that
+ * the writer picking up the script is what moves the board to Script Writing.
  */
-export async function maybeCreateScriptForContent(contentId: number): Promise<void> {
+export async function maybeCreateScriptForContent(contentId: number, status: string = 'In Progress'): Promise<void> {
   const existing = await one<{ id: number }>('SELECT id FROM cmo_scripts WHERE content_id=?', [contentId])
   if (existing) return
 
@@ -983,8 +1180,8 @@ export async function maybeCreateScriptForContent(contentId: number): Promise<vo
 
   try {
     const rs = await run(
-      "INSERT INTO cmo_scripts (content_id, writer, status, deadline) VALUES (?, ?, 'In Progress', ?)",
-      [contentId, content.writer || '', content.due_date],
+      'INSERT INTO cmo_scripts (content_id, writer, status, deadline) VALUES (?, ?, ?, ?)',
+      [contentId, content.writer || '', SCRIPT_STATUSES.has(status) ? status : 'In Progress', content.due_date],
     )
     const id = Number(rs.lastInsertRowid ?? 0)
     await logActivity('script', id, 'created', `Script created: ${content.title}`)
@@ -997,8 +1194,8 @@ export async function maybeCreateScriptForContent(contentId: number): Promise<vo
  * If a content piece has no linked idea yet, insert one (pitched, but NOT
  * pre-approved — approval is still a separate explicit action) so it
  * surfaces on the Ideas page too, the reverse of the idea-approval flow
- * that auto-creates content. Approving it later is a no-op on the content
- * side since content_id is already linked.
+ * that auto-creates content. Approving it later moves the already-linked
+ * content piece from Idea to Approved (see updateIdea).
  */
 export async function maybeCreateIdeaForContent(contentId: number, brandId: number, title: string): Promise<void> {
   if (!brandId) return

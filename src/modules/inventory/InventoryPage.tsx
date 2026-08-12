@@ -3,7 +3,7 @@ import { trashItem } from '../../lib/trash'
 import { useParams } from 'react-router-dom'
 import {
   Package, Plus,
-  Search, ArrowDownCircle, ArrowUpCircle, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil, ScanLine, Calculator,
+  Search, ArrowDownCircle, ArrowUpCircle, PackagePlus, History, X, Download, Upload, FileSpreadsheet, Trash2, Pencil, ScanLine, Calculator,
 } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -14,6 +14,10 @@ import {
   serverTimestamp, limit, runTransaction,
 } from '../../lib/firebase'
 import type { InventoryItem, StockTransaction, StockStatus } from '../../types'
+import { ElysiaSpreadsheet } from './ElysiaSpreadsheet'
+import { closingOf, txnKindOf, isOutwardKind, TXN_LABEL, type TxnKind } from '../../lib/stock'
+import { parseCsv } from '../../lib/csv'
+import { SheetImportModal } from './SheetImportModal'
 import { ScannerModal } from './ScannerModal'
 import { CurtainDispatchModal } from './CurtainDispatchModal'
 import toast from 'react-hot-toast'
@@ -115,37 +119,6 @@ function csvEscape(value: string): string {
 
 function buildCsv(rows: string[][]): string {
   return rows.map(r => r.map(csvEscape).join(',')).join('\r\n')
-}
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ''
-  let inQuotes = false
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
-      } else field += c
-    } else if (c === '"') {
-      inQuotes = true
-    } else if (c === ',') {
-      row.push(field); field = ''
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++
-      row.push(field); field = ''
-      if (row.some(v => v !== '')) rows.push(row)
-      row = []
-    } else {
-      field += c
-    }
-  }
-  if (field !== '' || row.length) {
-    row.push(field)
-    if (row.some(v => v !== '')) rows.push(row)
-  }
-  return rows
 }
 
 function downloadCsv(filename: string, csv: string) {
@@ -256,7 +229,7 @@ async function mergeAsStockIn(existingId: string, quantity: number, itemCode: st
     if (!snap.exists()) throw new Error('Item not found')
     const data = snap.data() as InventoryItem
     const newImported = data.importedQty + quantity
-    const newClosing = data.openingStock + newImported - data.issuedQty
+    const newClosing = closingOf({ ...data, importedQty: newImported })
     tx.update(itemRef, {
       importedQty: newImported,
       closingStock: newClosing,
@@ -1062,7 +1035,7 @@ function StockModal({ item, type, onClose, userId, userName }: StockModalProps) 
         const data = snap.data() as InventoryItem
         const newImported = type === 'import' ? data.importedQty + quantity : data.importedQty
         const newIssued   = type === 'issue'  ? data.issuedQty  + quantity : data.issuedQty
-        const newClosing  = data.openingStock + newImported - newIssued
+        const newClosing  = closingOf({ ...data, importedQty: newImported, issuedQty: newIssued })
         tx.update(itemRef, {
           importedQty: newImported,
           issuedQty:   newIssued,
@@ -1149,9 +1122,25 @@ function StockModal({ item, type, onClose, userId, userName }: StockModalProps) 
 
 // ─── Transaction Log ───────────────────────────────────────────────────────────
 
+/** Firestore hands back a Timestamp, but a pending write briefly has none. */
+function txnDate(tx: StockTransaction): Date | null {
+  const ts = tx.createdAt as { seconds?: number; toDate?: () => Date } | undefined
+  if (typeof ts?.toDate === 'function') return ts.toDate()
+  return typeof ts?.seconds === 'number' ? new Date(ts.seconds * 1000) : null
+}
+
+/** Chip styling per movement, so the three read apart at a glance. */
+const TXN_STYLE: Record<TxnKind, { chip: string; text: string; icon: typeof ArrowUpCircle }> = {
+  sent:     { chip: 'bg-red-900/30 text-red-400',    text: 'text-red-400',   icon: ArrowUpCircle },
+  returned: { chip: 'bg-green-900/30 text-green-400', text: 'text-green-400', icon: ArrowDownCircle },
+  received: { chip: 'bg-blue-900/30 text-blue-400',   text: 'text-blue-400',  icon: PackagePlus },
+}
+
 function TransactionLog() {
   const [txns, setTxns] = useState<StockTransaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [kindFilter, setKindFilter] = useState<'all' | TxnKind>('all')
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     const q = query(collection(db, 'stockTransactions'), orderBy('createdAt', 'desc'), limit(100))
@@ -1161,46 +1150,120 @@ function TransactionLog() {
     })
   }, [])
 
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return txns
+      .filter(tx => kindFilter === 'all' || txnKindOf(tx) === kindFilter)
+      .filter(tx => {
+        if (!q) return true
+        const d = txnDate(tx)
+        return [
+          tx.itemName, tx.itemCode, tx.customerName, tx.carrier, tx.note, tx.recordedByName,
+          // Both spellings of the date, so "08/08" and "2026-08-08" both find it.
+          d?.toLocaleDateString('en-IN'), d?.toISOString().slice(0, 10),
+        ].some(v => (v ?? '').toLowerCase().includes(q))
+      })
+  }, [txns, kindFilter, search])
+
+  const counts = useMemo(() => ({
+    all: txns.length,
+    sent: txns.filter(t => txnKindOf(t) === 'sent').length,
+    returned: txns.filter(t => txnKindOf(t) === 'returned').length,
+    received: txns.filter(t => txnKindOf(t) === 'received').length,
+  }), [txns])
+
   if (loading) return <div className="p-8 text-center text-sm text-gray-600">Loading…</div>
   if (!txns.length) return <div className="p-8 text-center text-sm text-gray-600">No transactions yet</div>
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-800">
-            {['Date', 'Type', 'Item', 'Code', 'Qty', 'Note', 'By'].map(h => (
-              <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-800/50">
-          {txns.map(tx => (
-            <tr key={tx.id} className="hover:bg-gray-800/30 transition-colors">
-              <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                {tx.createdAt ? new Date((tx.createdAt as { seconds: number }).seconds * 1000).toLocaleDateString('en-IN') : '—'}
-              </td>
-              <td className="px-4 py-3">
-                <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full',
-                  tx.type === 'import' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
-                )}>
-                  {tx.type === 'import' ? <ArrowDownCircle className="w-3 h-3" /> : <ArrowUpCircle className="w-3 h-3" />}
-                  {tx.type === 'import' ? 'Import' : 'Issue'}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-xs text-gray-200 font-medium">{tx.itemName}</td>
-              <td className="px-4 py-3 text-xs text-gray-500">{tx.itemCode}</td>
-              <td className="px-4 py-3 text-xs font-semibold">
-                <span className={tx.type === 'import' ? 'text-green-400' : 'text-red-400'}>
-                  {tx.type === 'import' ? '+' : '-'}{tx.quantity}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate">{tx.note || '—'}</td>
-              <td className="px-4 py-3 text-xs text-gray-500">{tx.recordedByName || '—'}</td>
-            </tr>
+    <div>
+      <div className="px-4 py-3 border-b border-gray-800 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            { v: 'all', label: 'All' },
+            { v: 'sent', label: 'Sent' },
+            { v: 'returned', label: 'Returned' },
+            { v: 'received', label: 'Received' },
+          ] as const).map(f => (
+            <button
+              key={f.v}
+              onClick={() => setKindFilter(f.v)}
+              className={cn(
+                'text-xs px-3 py-1 rounded-lg font-medium transition-colors border',
+                kindFilter === f.v
+                  ? 'border-gold-500 text-gold-400 bg-gold-500/10'
+                  : 'border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-400',
+              )}
+            >
+              {f.label} <span className="text-gray-600">{counts[f.v]}</span>
+            </button>
           ))}
-        </tbody>
-      </table>
+        </div>
+
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-gray-600 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            className="form-input pl-9 py-1.5 text-xs"
+            placeholder="Search date, customer, carrier, item or code…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800">
+              {['Date', 'Time', 'Type', 'Item', 'Code', 'Customer / Supplier', 'Carrier', 'Qty', 'Note', 'By'].map(h => (
+                <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800/50">
+            {rows.length === 0 ? (
+              <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-600">No entries match this filter</td></tr>
+            ) : rows.map(tx => {
+              const kind = txnKindOf(tx)
+              const style = TXN_STYLE[kind]
+              const d = txnDate(tx)
+              return (
+                <tr key={tx.id} className="hover:bg-gray-800/30 transition-colors">
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                    {d ? d.toLocaleDateString('en-IN') : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {d ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap', style.chip)}>
+                      <style.icon className="w-3 h-3" />
+                      {TXN_LABEL[kind]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-200 font-medium">{tx.itemName}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">{tx.itemCode}</td>
+                  <td className="px-4 py-3 text-xs text-gray-300 whitespace-nowrap">{tx.customerName || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{tx.carrier || '—'}</td>
+                  {/* Sign follows the ledger, not the label, so a wrongly named
+                      row can never make the arithmetic look wrong. */}
+                  <td className="px-4 py-3 text-xs font-semibold">
+                    <span className={style.text}>
+                      {isOutwardKind(kind) ? '-' : '+'}{tx.quantity}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate" title={tx.note}>{tx.note || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{tx.recordedByName || '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-2 text-[11px] text-gray-600 border-t border-gray-800">
+        Showing {rows.length} of the {txns.length} most recent movements, across all product lines.
+      </div>
     </div>
   )
 }
@@ -1212,7 +1275,7 @@ export function InventoryPage() {
   const { user, role } = useAuth()
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'stock' | 'log'>('stock')
+  const [tab, setTab] = useState<'stock' | 'log' | 'sheet'>('stock')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
@@ -1227,6 +1290,7 @@ export function InventoryPage() {
   const [importing, setImporting] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [showCurtainDispatch, setShowCurtainDispatch] = useState(false)
+  const [sheetImportOpen, setSheetImportOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const saveLocation = async (itemId: string, value: string) => {
@@ -1239,6 +1303,12 @@ export function InventoryPage() {
       setEditingLocation(null)
     }
   }
+
+  // The Spreadsheet tab only exists for Elysia. Switching product line while it
+  // is open would otherwise leave a selected tab with no button to leave it by.
+  useEffect(() => {
+    if (tab === 'sheet' && line !== 'elysia') setTab('stock')
+  }, [line, tab])
 
   const canManage = role ? ['super_admin', 'management', 'dept_head'].includes(role) : false
   const canIssue  = role ? ['super_admin', 'management', 'dept_head', 'project_manager'].includes(role) : false
@@ -1406,7 +1476,7 @@ export function InventoryPage() {
           if (existing) {
             await updateDoc(doc(db, 'inventory', existing.id), {
               category, itemName, location, material, color,
-              openingStock: opening, importedQty: 0, issuedQty: 0,
+              openingStock: opening, importedQty: 0, issuedQty: 0, outwardQty: 0,
               closingStock: opening, stockStatus: computeStatus(opening, existing.reorderLevel), updatedAt: serverTimestamp(),
             })
             updated2++
@@ -1459,7 +1529,8 @@ export function InventoryPage() {
           if (existing) {
             await updateDoc(doc(db, 'inventory', existing.id), {
               category, itemName, location, material, color,
-              openingStock: counted, importedQty: 0, issuedQty: 0, reorderLevel: reorder,
+              // A physical count replaces the whole ledger, outward included.
+              openingStock: counted, importedQty: 0, issuedQty: 0, outwardQty: 0, reorderLevel: reorder,
               closingStock: counted, stockStatus: computeStatus(counted, reorder), updatedAt: serverTimestamp(),
             })
             updated++
@@ -1485,7 +1556,7 @@ export function InventoryPage() {
           // original baseline and isn't re-applied from the file on every import.
           const importedQty = existing.importedQty + csvImported
           const issuedQty = existing.issuedQty + csvIssued
-          const closingStock = existing.openingStock + importedQty - issuedQty
+          const closingStock = closingOf({ ...existing, importedQty, issuedQty })
           await updateDoc(doc(db, 'inventory', existing.id), {
             category, itemName, location, material, color,
             importedQty, issuedQty, reorderLevel: reorder,
@@ -1557,6 +1628,16 @@ export function InventoryPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                icon={<FileSpreadsheet className="w-4 h-4" />}
+                onClick={() => setSheetImportOpen(true)}
+              >
+                Import Google Sheet
+              </Button>
+            )}
+            {line === 'elysia' && (
+              <Button
+                variant="ghost"
+                size="sm"
                 icon={<ScanLine className="w-4 h-4" />}
                 onClick={() => setShowScanner(true)}
               >
@@ -1582,7 +1663,14 @@ export function InventoryPage() {
 
       {/* Tabs */}
       <div data-tour="inv-tabs" className="flex gap-1 border-b border-gray-800">
-        {([['stock', 'Stock Table', Package], ['log', 'Transaction Log', History]] as const).map(([t, label, Icon]) => (
+        {/* Spreadsheet is Elysia-only: it is the line the warehouse recounts by
+            hand, and the other lines have their own workflows (curtain dispatch,
+            Vitrum's code scheme) that an editable grid would not respect. */}
+        {([
+          ['stock', 'Stock Table', Package],
+          ...(line === 'elysia' ? [['sheet', 'Spreadsheet', FileSpreadsheet] as const] : []),
+          ['log', 'Transaction Log', History],
+        ] as const).map(([t, label, Icon]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -1753,6 +1841,16 @@ export function InventoryPage() {
           <div data-tour="stock-table"><Card padding="none">
             {loading ? (
               <div className="p-12 text-center text-sm text-gray-600">Loading inventory…</div>
+            ) : tab === 'sheet' ? (
+              /* Same filters, same rows — an editable grid instead of a read-only
+                 table. Sits inside this branch so the filter bar above applies to
+                 both views rather than being duplicated. */
+              <ElysiaSpreadsheet
+                items={filtered}
+                canEdit={canManage}
+                userId={user?.id ?? ''}
+                userName={user?.name ?? 'Unknown'}
+              />
             ) : filtered.length === 0 ? (
               <div className="p-12 text-center">
                 <Package className="w-10 h-10 text-gray-700 mx-auto mb-3" />
@@ -1916,6 +2014,14 @@ export function InventoryPage() {
       )}
       {showCurtainDispatch && (
         <CurtainDispatchModal onClose={() => setShowCurtainDispatch(false)} />
+      )}
+      {sheetImportOpen && (
+        <SheetImportModal
+          items={lineItems}
+          userId={user?.id ?? ''}
+          userName={user?.name ?? 'Unknown'}
+          onClose={() => setSheetImportOpen(false)}
+        />
       )}
     </div>
   )

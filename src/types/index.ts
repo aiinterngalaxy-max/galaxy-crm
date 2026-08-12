@@ -29,6 +29,7 @@ export type UserRole =
   | 'marketing'
   | 'ai_team'
   | 'hr'
+  | 'accounts'
   | 'galaxy'
   | 'topz'
   | 'pending'
@@ -411,6 +412,10 @@ export interface InventoryItem {
   openingStock: number
   importedQty: number
   issuedQty: number
+  /** Stock dispatched out of the warehouse to a client. Absent on older rows. */
+  outwardQty?: number
+  /** Who the outward stock went to. Free text — not a link to the CRM client. */
+  clientName?: string
   closingStock: number
   reorderLevel: number
   stockStatus: StockStatus
@@ -425,6 +430,12 @@ export interface StockTransaction {
   itemCode: string
   itemName: string
   type: 'import' | 'issue'
+  /** What the entry was, when it was recorded through the daily register. */
+  txnKind?: 'sent' | 'returned' | 'received'
+  /** Customer for sent/returned, supplier for received. Register entries only. */
+  customerName?: string
+  /** Who carried the stock. Register entries only. */
+  carrier?: string
   quantity: number
   note?: string
   projectRef?: string
@@ -531,6 +542,9 @@ export type NotificationType =
   | 'content_studio_idea_rejected'
   | 'content_studio_script_changes'
   | 'content_studio_content_published'
+  | 'content_studio_content_review'
+  | 'content_studio_ready_to_publish'
+  | 'content_studio_publish_due'
   | 'general'
 
 export interface AppNotification {
@@ -611,6 +625,9 @@ export interface JobDescription {
   department: string
   employmentType: EmploymentType
   experienceLevel: ExperienceLevel
+  /** How many people are being hired for this role. Optional: JDs created before
+   *  the field existed do not have it, and are treated as a single opening. */
+  vacancies?: number
   prerequisites: string[]
   responsibilities: string[]
   compensation: JDCompensation
@@ -664,4 +681,79 @@ export interface PaginationState {
   page: number
   pageSize: number
   total: number
+}
+
+// ─── Accounts — uploaded documents ──────────────────────────────────────────────
+//
+// Files live in Google Drive (no practical size ceiling on the free tier, unlike
+// Firebase Storage or Cloudinary); this record is just the metadata + pointer.
+
+export type AccountDocumentStatus =
+  | 'uploaded'    // stored, not yet processed
+  | 'extracted'   // AI has read structured data out of it
+  | 'generated'   // an invoice/packing list has been produced from it
+  | 'saved'       // reviewed and confirmed final
+
+export interface ExtractedLineItem {
+  id: string
+  description: string
+  model?: string
+  /** Left blank when the source document doesn't name one — never guessed. */
+  hsnCode?: string
+  quantity: number
+  unitPrice: number
+}
+
+/**
+ * What the AI pulled out of the uploaded document, then whatever the accountant
+ * edited on top of it. Buyer fields are deliberately separate from the seller —
+ * seller is Galaxy's own CompanyProfile, set once by management, not re-extracted
+ * per document.
+ */
+export interface ExtractedInvoiceData {
+  buyerName?: string
+  buyerAddress?: string
+  buyerGstin?: string
+  buyerContact?: string
+  items: ExtractedLineItem[]
+  notes?: string
+}
+
+export interface AccountDocument {
+  id: string
+  fileName: string
+  mimeType: string
+  size: number
+  driveFileId: string
+  driveViewUrl: string
+  status: AccountDocumentStatus
+  uploadedBy: string
+  uploadedByName?: string
+  uploadedAt: Timestamp
+  updatedAt: Timestamp
+
+  extractedData?: ExtractedInvoiceData
+  invoiceNumber?: string
+  generatedAt?: Timestamp
+  savedAt?: Timestamp
+  /** The generated invoice PDF, uploaded to the same Drive folder as the source. */
+  invoicePdf?: { driveFileId: string; driveViewUrl: string }
+  /** The generated packing list PDF. */
+  packingListPdf?: { driveFileId: string; driveViewUrl: string }
+}
+
+/**
+ * Galaxy's own letterhead for generated invoices — set once by management in
+ * Settings (settings/accountsCompanyProfile), read by anyone in Accounts.
+ * Deliberately never pre-filled or guessed: this repo's own invoice files have
+ * disagreed with each other on the company's GSTIN, so a human has to confirm
+ * it explicitly rather than the app defaulting to either.
+ */
+export interface CompanyProfile {
+  name: string
+  address: string
+  gstin: string
+  phone?: string
+  email?: string
+  updatedAt: Timestamp
 }

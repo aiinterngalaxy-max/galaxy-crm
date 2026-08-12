@@ -16,7 +16,7 @@ import { QuoteDocuments } from '../../components/QuoteDocuments'
 import { useAuth } from '../../contexts/AuthContext'
 import { useGoBack } from '../../hooks/useGoBack'
 import { db, collection, doc, onSnapshot, updateDoc, serverTimestamp, query, where, Timestamp } from '../../lib/firebase'
-import { formatCurrency, formatCurrencyShort, formatDate, toDate, canManageLeads, LEAD_STATUS_CONFIG } from '../../lib/utils'
+import { formatCurrency, formatCurrencyShort, formatDate, toDate, canManageLeads, LEAD_STATUS_CONFIG, initial } from '../../lib/utils'
 import type { Partner, Lead, PartnerType } from '../../types'
 import toast from 'react-hot-toast'
 
@@ -187,7 +187,7 @@ export function PartnerDetail() {
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shrink-0"
                 style={{ background: '#C9A84020', color: '#C9A840', border: '1px solid #C9A84040' }}>
-                {(partner.firmName || partner.name).charAt(0).toUpperCase()}
+                {initial(partner.firmName || partner.name)}
               </div>
               <div>
                 <p className="font-semibold text-gray-100">{partner.firmName || partner.name}</p>

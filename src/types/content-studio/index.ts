@@ -73,6 +73,35 @@ export interface Idea {
   review_note: string;
   content_id: number | null;
   created_at: string;
+  // Creative workflow: reference post → script → captions.
+  platform?: string;
+  /** TOFU / MOFU / BOFU — see FUNNEL_STAGES in stages.ts. */
+  funnel_stage?: string;
+  reference_url?: string;
+  /** JSON string — see ReferenceMeta. */
+  reference_meta?: string;
+  script_hook?: string;
+  script_body?: string;
+  script_cta?: string;
+  /** 'reel' (default, hook/body/cta) or 'explainer' (long structured, bilingual). */
+  script_format?: string;
+  script_full_en?: string;
+  script_full_hi?: string;
+  caption_examples?: string;
+  /** JSON string — array of generated captions. */
+  captions?: string;
+}
+
+/** What a reference post turned out to be, once looked up. */
+export interface ReferenceMeta {
+  author?: string;
+  thumbnail?: string;
+  caption?: string;
+  provider?: string;
+  /** What the AI made of the cover and caption. */
+  analysis?: string;
+  /** What the AI found trending in this niche right now, via a live web search — not just this one post. */
+  trends?: string;
 }
 
 export interface Shoot {

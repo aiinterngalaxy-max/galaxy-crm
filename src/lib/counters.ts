@@ -37,3 +37,8 @@ export async function nextProjectCode(): Promise<string> {
   const seq = await nextSeq('projects')
   return `GHA-P-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`
 }
+
+export async function nextAccountsInvoiceNumber(): Promise<string> {
+  const seq = await nextSeq('accountsInvoices')
+  return `GHA-INV-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`
+}
