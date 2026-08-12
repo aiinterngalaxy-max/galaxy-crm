@@ -782,21 +782,30 @@ export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
 }
 
-// ContentStudioLayout runs this same idempotent CREATE-TABLE/ALTER-TABLE
-// batch once on mount (see its useEffect), which covers the normal case.
-// This is the fallback for the race where cmo_video_jobs is opened before
-// that finishes, or for any caller that reaches this module without going
-// through the layout at all — a schema-mismatch error self-heals instead of
-// surfacing "no such table" to whoever happened to click first.
+// ContentStudioLayout calls this on mount (see its useEffect), which covers
+// the normal case. ensureContentStudioSchema below is the fallback for the
+// race where cmo_video_jobs is opened before that finishes, or for any
+// caller that reaches this module without going through the layout at all.
+//
+// One statement at a time, not batch() as a single transaction — if any one
+// CREATE TABLE in SCHEMA ever fails for an unrelated reason, a single batch()
+// call would roll the whole thing back and e.g. cmo_video_jobs would never
+// get created even though its own statement was fine. Never throws, so a
+// caller retrying after this always gets to run regardless of what happened.
+export async function applySchema(): Promise<void> {
+  for (const sql of SCHEMA) {
+    try {
+      await run(sql)
+    } catch (err) {
+      console.error('Content Studio schema ensure failed for one statement:', err)
+    }
+  }
+}
+
 let schemaReady: Promise<void> | null = null
 function ensureContentStudioSchema(): Promise<void> {
   if (!schemaReady) {
-    schemaReady = batch(SCHEMA.map((sql) => ({ sql })))
-      .then(() => undefined)
-      .catch((err) => {
-        schemaReady = null // let the next call retry rather than staying stuck
-        throw err
-      })
+    schemaReady = applySchema()
   }
   return schemaReady
 }
@@ -1282,7 +1291,7 @@ export async function initDb(opts?: { reset?: boolean; seed?: boolean }): Promis
     log.push(`dropped: ${DROP.map((d) => d.replace('DROP TABLE IF EXISTS ', '')).join(', ')}`)
     resetClient()
   }
-  await batch(SCHEMA.map((sql) => ({ sql })))
+  await applySchema()
   log.push('ensured cmo_* tables exist')
 
   let migrated = 0

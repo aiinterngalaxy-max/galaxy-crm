@@ -218,7 +218,7 @@ export function VideoStudioModal({ content, onClose, onSaved }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
@@ -227,8 +227,17 @@ export function VideoStudioModal({ content, onClose, onSaved }: Props) {
           scroll container: .glass-modal already applies a 48px backdrop-filter,
           and position:sticky nested under a second backdrop-filter is a known
           Chromium bug that partially clips/tears the element on first paint —
-          this structure just doesn't create that nesting at all. */}
-      <div className="w-full max-w-3xl glass-modal max-h-[90vh] overflow-hidden flex flex-col">
+          this structure just doesn't create that nesting at all.
+
+          The inline background overrides .glass-modal's shared translucent
+          background with something much more opaque, scoped to just this
+          element via inline style (higher specificity than the class) —
+          this is the tallest, most content-dense modal in Content Studio, and
+          the busy kanban board showing through was making it hard to read. */}
+      <div
+        className="w-full max-w-3xl glass-modal max-h-[90vh] overflow-hidden flex flex-col"
+        style={{ backgroundColor: 'rgba(9,9,11,0.98)' }}
+      >
         <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4 bg-gray-900 shrink-0">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-gray-100 truncate">Video studio</h2>
@@ -239,7 +248,13 @@ export function VideoStudioModal({ content, onClose, onSaved }: Props) {
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5 overflow-y-auto">
+        <div
+          className="px-6 py-5 space-y-5 overflow-y-auto
+            [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent
+            [&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full
+            [&::-webkit-scrollbar-thumb:hover]:bg-gray-600"
+          style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}
+        >
           <StatusStrip status={status} approved={!!job?.approved} />
 
           <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
