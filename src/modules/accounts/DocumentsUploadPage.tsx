@@ -69,6 +69,13 @@ export function DocumentsUploadPage() {
     return onSnapshot(q, snap => {
       setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AccountDocument))
       setLoading(false)
+    }, err => {
+      // Without this, a rules problem (e.g. a rule that exists in the repo but
+      // was never deployed to the live project) left this list stuck on
+      // "Loading…" forever with no indication anything was wrong at all.
+      console.error('[documents-upload] accountDocuments listener failed', err)
+      setLoading(false)
+      toast.error(`Could not load documents: ${err.message}`)
     })
   }, [])
 
