@@ -36,7 +36,18 @@ async function getToken(): Promise<TokenResponse> {
     throw new GoogleDriveError('Your session has expired — please sign in again.')
   }
   if (!res.ok) {
-    throw new GoogleDriveError('Could not authorise the upload. Please try again.')
+    // Surface Google's own reason (e.g. "invalid_client: The provided client
+    // secret is invalid.") directly in the message shown to the user, rather
+    // than a flat generic one — that detail is what actually says whether the
+    // Client ID, Client Secret, or refresh token in Vercel needs fixing,
+    // instead of leaving whoever's debugging this to dig through DevTools.
+    let detail = ''
+    try {
+      const body = await res.json()
+      const g = body?.googleError
+      if (g?.error) detail = ` (${g.error}${g.error_description ? `: ${g.error_description}` : ''})`
+    } catch { /* body wasn't JSON */ }
+    throw new GoogleDriveError(`Could not authorise the upload.${detail} Please try again or contact an admin.`)
   }
   return res.json()
 }

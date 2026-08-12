@@ -40,7 +40,15 @@ async function verifyFirebaseUser(idToken: string, apiKey: string): Promise<bool
   }
 }
 
-async function getAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string | null> {
+interface TokenOutcome {
+  accessToken: string | null
+  /** Google's own error/error_description on failure — see google-drive-token.ts
+   *  for why this is forwarded rather than swallowed into a flat message. */
+  googleStatus?: number
+  googleError?: unknown
+}
+
+async function getAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<TokenOutcome> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -51,9 +59,14 @@ async function getAccessToken(clientId: string, clientSecret: string, refreshTok
       grant_type: 'refresh_token',
     }),
   })
-  if (!res.ok) return null
+  if (!res.ok) {
+    let googleError: unknown = null
+    try { googleError = await res.json() } catch { /* body wasn't JSON */ }
+    console.error('Drive token refresh failed:', res.status, googleError)
+    return { accessToken: null, googleStatus: res.status, googleError }
+  }
   const data = await res.json()
-  return data.access_token ?? null
+  return { accessToken: data.access_token ?? null }
 }
 
 type Action = 'trash' | 'restore' | 'delete'
@@ -87,8 +100,11 @@ export default async function handler(req: Request) {
     return json({ error: 'not signed in' }, 403)
   }
 
-  const accessToken = await getAccessToken(clientId, clientSecret, refreshToken)
-  if (!accessToken) return json({ error: 'drive-auth-failed' }, 502)
+  const tokenOutcome = await getAccessToken(clientId, clientSecret, refreshToken)
+  if (!tokenOutcome.accessToken) {
+    return json({ error: 'drive-auth-failed', googleStatus: tokenOutcome.googleStatus, googleError: tokenOutcome.googleError }, 502)
+  }
+  const accessToken = tokenOutcome.accessToken
 
   const act = action as Action
   const driveRes = act === 'delete'

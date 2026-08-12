@@ -102,9 +102,15 @@ export default async function handler(req: Request) {
   })
 
   if (!tokenRes.ok) {
-    // Usually means the refresh token was revoked (e.g. the connected Google
-    // account's password changed) and setup needs to be redone.
-    return json({ error: 'drive-auth-failed' }, 502)
+    // Forward Google's own error/error_description (e.g. "invalid_client":
+    // "The provided client secret is invalid.") rather than a flat generic
+    // message — that detail is what actually tells whoever is debugging this
+    // whether the Client ID, Client Secret, or the refresh token itself is
+    // wrong, instead of leaving them to guess by trial and error.
+    let googleError: unknown = null
+    try { googleError = await tokenRes.json() } catch { /* body wasn't JSON */ }
+    console.error('Drive token refresh failed:', tokenRes.status, googleError)
+    return json({ error: 'drive-auth-failed', googleStatus: tokenRes.status, googleError }, 502)
   }
   const tokenData = await tokenRes.json()
 
