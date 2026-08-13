@@ -1232,7 +1232,7 @@ export function ProjectDetail() {
                       ))}
                     </div>
 
-                    {/* Stock log: Type / Sent / Received / Pending, fully editable per row */}
+                    {/* Stock log: Type / Sent / Pending / Received, fully editable per row */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock Log</p>
@@ -1251,9 +1251,9 @@ export function ProjectDetail() {
                                 <th className="px-3 py-2 font-semibold">Type</th>
                                 <th className="px-3 py-2 font-semibold">Sent</th>
                                 <th className="px-3 py-2 font-semibold whitespace-nowrap">Sent At</th>
+                                <th className="px-3 py-2 font-semibold">Pending</th>
                                 <th className="px-3 py-2 font-semibold">Received</th>
                                 <th className="px-3 py-2 font-semibold whitespace-nowrap">Received At</th>
-                                <th className="px-3 py-2 font-semibold">Pending</th>
                                 <th className="px-2 py-2 w-8" />
                               </tr>
                             </thead>
@@ -1281,6 +1281,15 @@ export function ProjectDetail() {
                                   <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500">{row.sentAt || '—'}</td>
                                   <td className="px-2 py-1.5">
                                     <input
+                                      type="text" placeholder="Pending"
+                                      value={row.pending}
+                                      onChange={e => editStockCell(stage, row.id, 'pending', e.target.value)}
+                                      onBlur={() => saveStockLog(stage)}
+                                      className="w-full min-w-[110px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <input
                                       type="text" placeholder="What was received"
                                       value={row.received}
                                       onChange={e => editStockCell(stage, row.id, 'received', e.target.value)}
@@ -1289,15 +1298,6 @@ export function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500">{row.receivedAt || '—'}</td>
-                                  <td className="px-2 py-1.5">
-                                    <input
-                                      type="text" placeholder="Pending"
-                                      value={row.pending}
-                                      onChange={e => editStockCell(stage, row.id, 'pending', e.target.value)}
-                                      onBlur={() => saveStockLog(stage)}
-                                      className="w-full min-w-[110px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
-                                    />
-                                  </td>
                                   <td className="px-2 py-1.5 text-center">
                                     <button onClick={() => removeStockRow(stage, row.id)} title="Remove row"
                                       className="text-gray-600 hover:text-red-400">
