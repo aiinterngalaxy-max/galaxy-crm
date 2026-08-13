@@ -200,8 +200,28 @@ const PANEL_DICTIONARY: Record<string, string> = {
   // "Galaxy Intelligent Fan Controller With 1 Switch" intentionally left unmapped for now.
 }
 
+// Excel's "regional" export settings vary by system locale — some write
+// comma-separated files, others (common outside the US) write semicolon- or
+// tab-separated ones and still call the file .csv. Guessing wrong makes every
+// header keyword end up crammed into one giant first field, which is exactly
+// what "could not find header row" looks like from the outside. Picking
+// whichever delimiter actually splits the first real line into the most
+// columns avoids that failure mode instead of assuming comma.
+function detectDelimiter(text: string): string {
+  const firstLine = text.split(/\r\n|\n|\r/).find(l => l.trim() !== '') ?? ''
+  const counts: [string, number][] = [',', ';', '\t'].map(d => [d, firstLine.split(d).length - 1])
+  counts.sort((a, b) => b[1] - a[1])
+  return counts[0][1] > 0 ? counts[0][0] : ','
+}
+
 // Minimal RFC-4180-ish CSV parser (mirrors the inventory page parser).
-function parseCsv(text: string): string[][] {
+function parseCsv(text: string, delimiter = ','): string[][] {
+  // A UTF-8 BOM (common from "Save As CSV" on Windows Excel) lands on the
+  // very first character of the very first header cell — String.trim()
+  // strips it in most engines, but stripping it here up front means the
+  // header-matching logic never has to think about it either way.
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
+
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -214,7 +234,7 @@ function parseCsv(text: string): string[][] {
       } else field += c
     } else if (c === '"') {
       inQuotes = true
-    } else if (c === ',') {
+    } else if (c === delimiter) {
       row.push(field); field = ''
     } else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++
@@ -280,23 +300,33 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
   //    Panel→Module dictionary, with Material/Color defaulting to Aluminium/Grey.
   const handleFile = async (file: File) => {
     try {
-      const rows = parseCsv(await file.text())
+      const text = await file.text()
+      const rows = parseCsv(text, detectDelimiter(text))
       if (rows.length < 2) { toast.error('CSV has no data rows'); return }
 
       // Dynamically find the header row — quotation sheets often have title/client/date
       // rows above the actual column headers (e.g. row 5 is "Sr | Panels | Module | ...").
-      const HEADER_KEYWORDS = ['panels', 'panel', 'panel name', 'item code', 'code', 'sku', 'item name', 'sr', 'sr.']
+      // Normalize aggressively (collapse whitespace, strip trailing dots) since real-world
+      // sheets vary: "Qty." vs "Qty", "Model" vs "Item Code", etc.
+      const normalizeHeader = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\.+$/, '')
+      const HEADER_KEYWORDS = ['panels', 'panel', 'panel name', 'item code', 'code', 'sku', 'item name', 'sr', 'model', 'description', 'no']
       const headerIdx = rows.findIndex(r =>
-        r.some(c => HEADER_KEYWORDS.includes(c.trim().toLowerCase().replace(/\.+$/, '')))
+        r.some(c => HEADER_KEYWORDS.includes(normalizeHeader(c)))
       )
       if (headerIdx === -1) {
-        toast.error('Could not find header row — CSV must have a Panels, Item Code, or Item Name column')
+        toast.error('Could not find header row — CSV must have a Panels, Item Code, Model, or Item Name column')
         return
       }
 
-      const header = rows[headerIdx].map(h => h.trim().toLowerCase())
-      const find = (...names: string[]) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i } return -1 }
-      const iCode = find('item code', 'code', 'sku')
+      const header = rows[headerIdx].map(normalizeHeader)
+      // Exact match first, then a substring fallback for verbose/varied headers
+      // (e.g. "Normal  Lights   Rate" for "rate", "Qty." already stripped to "qty").
+      const find = (...names: string[]) => {
+        for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i }
+        for (const n of names) { const i = header.findIndex(h => h.includes(n)); if (i !== -1) return i }
+        return -1
+      }
+      const iCode = find('item code', 'code', 'sku', 'model')
       const iName = find('item name', 'name', 'product', 'description')
       const iPanel = find('panels', 'panel', 'panel name')
       const iQty = find('quantity', 'qty', 'ordered', 'ordered qty', 'rooms', 'total qty')
