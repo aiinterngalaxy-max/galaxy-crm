@@ -154,23 +154,30 @@ Where:
     throw new ExtractionError('The AI reply was not valid data — please try again, or enter the details manually.')
   }
 
+  // Empty string, not undefined, for anything missing: this object gets
+  // written straight to Firestore (DocumentReviewPage's handleExtract), and
+  // Firestore's updateDoc()/setDoc() reject any field — even nested inside an
+  // object — whose value is literally `undefined`, with an opaque "Unsupported
+  // field value: undefined" error. Every consumer already treats '' and
+  // undefined identically (`data.buyerGstin ?? ''` in the review form,
+  // `if (data.buyerGstin)` in the PDF generator), so this loses nothing.
   const items: ExtractedLineItem[] = (parsed.items ?? [])
     .filter(it => it.description?.trim())
     .map(it => ({
       id: uid(),
       description: it.description!.trim(),
-      model: it.model?.trim() || undefined,
-      hsnCode: it.hsnCode?.trim() || undefined,
+      model: it.model?.trim() || '',
+      hsnCode: it.hsnCode?.trim() || '',
       quantity: typeof it.quantity === 'number' && it.quantity > 0 ? it.quantity : 1,
       unitPrice: typeof it.unitPrice === 'number' && it.unitPrice >= 0 ? it.unitPrice : 0,
     }))
 
   return {
-    buyerName: parsed.buyerName?.trim() || undefined,
-    buyerAddress: parsed.buyerAddress?.trim() || undefined,
-    buyerGstin: parsed.buyerGstin?.trim() || undefined,
-    buyerContact: parsed.buyerContact?.trim() || undefined,
+    buyerName: parsed.buyerName?.trim() || '',
+    buyerAddress: parsed.buyerAddress?.trim() || '',
+    buyerGstin: parsed.buyerGstin?.trim() || '',
+    buyerContact: parsed.buyerContact?.trim() || '',
     items,
-    notes: parsed.notes?.trim() || undefined,
+    notes: parsed.notes?.trim() || '',
   }
 }

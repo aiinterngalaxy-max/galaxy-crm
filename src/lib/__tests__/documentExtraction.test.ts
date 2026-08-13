@@ -65,17 +65,20 @@ describe('extractStructuredInvoiceData', () => {
     expect(result.items[1].unitPrice).toBe(0)
   })
 
-  it('leaves hsnCode undefined rather than empty string when the source has none', async () => {
+  it('leaves hsnCode as an empty string when the source has none', async () => {
+    // Not `undefined`: this object is written straight to Firestore, which
+    // rejects any field whose value is literally undefined, even nested
+    // inside an object (see DocumentReviewPage's handleExtract).
     mockReply({ items: [{ description: 'X', quantity: 1, unitPrice: 1, hsnCode: '' }] })
     const result = await extractStructuredInvoiceData('text')
-    expect(result.items[0].hsnCode).toBeUndefined()
+    expect(result.items[0].hsnCode).toBe('')
   })
 
-  it('leaves buyer fields undefined, not empty strings, when absent', async () => {
+  it('leaves buyer fields as empty strings, not undefined, when absent', async () => {
     mockReply({ items: [{ description: 'X', quantity: 1, unitPrice: 1 }] })
     const result = await extractStructuredInvoiceData('text')
-    expect(result.buyerName).toBeUndefined()
-    expect(result.buyerGstin).toBeUndefined()
+    expect(result.buyerName).toBe('')
+    expect(result.buyerGstin).toBe('')
   })
 
   it('truncates a very long source rather than sending it whole', async () => {
