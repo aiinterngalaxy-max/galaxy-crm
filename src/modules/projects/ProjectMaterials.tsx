@@ -804,6 +804,81 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   )
 }
 
+// ─── Editable combo field (type-to-filter, with an explicit "+ Add" row) ──────
+//
+// A plain <input list=…><datalist> already lets you type anything — the
+// datalist is only suggestions. But that's invisible: once a box has a value
+// in it there's nothing telling you it's still editable, and there's no way
+// to see "the thing I'm typing isn't on the list yet, but I can add it" the
+// way a native dropdown would show. This renders the dropdown ourselves so a
+// "+ Add "X"" row can sit at the top whenever the typed text isn't already
+// one of the known options.
+function ComboField({ value, onChange, options, placeholder, className }: {
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+  placeholder: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [open])
+
+  const trimmed = value.trim()
+  const filtered = options.filter(o => o.toLowerCase().includes(trimmed.toLowerCase()))
+  const exactMatch = options.some(o => o.toLowerCase() === trimmed.toLowerCase())
+  const showAddNew = trimmed !== '' && !exactMatch
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        className={className}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+          {showAddNew && (
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => setOpen(false)}
+              className="w-full text-left px-3 py-1.5 text-xs font-semibold text-gold-400 hover:bg-gray-800 border-b border-gray-800"
+            >
+              + Add "{trimmed}"
+            </button>
+          )}
+          {filtered.length === 0 && !showAddNew && (
+            <p className="px-3 py-1.5 text-xs text-gray-600">Type to search…</p>
+          )}
+          {filtered.map(o => (
+            <button
+              key={o}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(o); setOpen(false) }}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
+            >
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Mapping review modal ──────────────────────────────────────────────────────
 
 function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
@@ -953,7 +1028,8 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
             <p className="text-xs text-gray-500">
               Module resolved automatically where possible. Unresolved rows need a Module picked manually.
               Every box below — item name, Module, Material, Colour, Qty, Price — is editable: click any of them
-              and type. Module/Material/Colour show existing options as you type, but typing something new works too.
+              and type. For Module/Material/Colour, click the box to see existing options — if what you type isn't
+              in the list yet, a "+ Add" option appears at the top so you can add it.
             </p>
             {mapping.map((m, idx) => {
               if (m.isCurtain) return null
@@ -972,32 +1048,25 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
                       : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    <input
-                      type="text" list={`module-opts-${idx}`} placeholder="Module — type or pick"
-                      className="form-input text-xs col-span-2 sm:col-span-1"
-                      value={m.module} onChange={e => set(idx, { module: e.target.value, auto: false })}
-                    />
-                    <datalist id={`module-opts-${idx}`}>
-                      {ELYSIA_MODULES.map(mod => <option key={mod} value={mod} />)}
-                    </datalist>
+                    <div className="col-span-2 sm:col-span-1">
+                      <ComboField
+                        value={m.module} onChange={v => set(idx, { module: v, auto: false })}
+                        options={ELYSIA_MODULES} placeholder="Module — type or pick"
+                        className="form-input text-xs w-full"
+                      />
+                    </div>
 
-                    <input
-                      type="text" list={`material-opts-${idx}`} placeholder="Material — type or pick"
-                      className="form-input text-xs"
-                      value={m.material} onChange={e => set(idx, { material: e.target.value })}
+                    <ComboField
+                      value={m.material} onChange={v => set(idx, { material: v })}
+                      options={ELYSIA_MATERIALS} placeholder="Material — type or pick"
+                      className="form-input text-xs w-full"
                     />
-                    <datalist id={`material-opts-${idx}`}>
-                      {ELYSIA_MATERIALS.map(mat => <option key={mat} value={mat} />)}
-                    </datalist>
 
-                    <input
-                      type="text" list={`color-opts-${idx}`} placeholder="Colour — type or pick"
-                      className="form-input text-xs"
-                      value={m.color} onChange={e => set(idx, { color: e.target.value })}
+                    <ComboField
+                      value={m.color} onChange={v => set(idx, { color: v })}
+                      options={ELYSIA_COLORS} placeholder="Colour — type or pick"
+                      className="form-input text-xs w-full"
                     />
-                    <datalist id={`color-opts-${idx}`}>
-                      {ELYSIA_COLORS.map(c => <option key={c} value={c} />)}
-                    </datalist>
 
                     <input type="number" min="0" className="form-input text-xs" placeholder="Qty"
                       value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })} />
