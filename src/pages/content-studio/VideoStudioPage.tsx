@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, AutoEditError, type AutoEditProgress, type ClipInput } from '@/lib/content-studio/autoEdit'
 import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -45,12 +45,13 @@ function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan' = 'edit'): string {
+function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan' | 'trim' = 'edit'): string {
   if (!p) return ''
   if (p.phase === 'loading') return 'Loading the video engine (first time only)…'
   if (p.phase === 'analyzing') {
     if (mode === 'join') return 'Reading clip formats…'
     if (mode === 'plan') return 'Preparing captions and branding…'
+    if (mode === 'trim') return 'Applying trim & caption…'
     return 'Finding silence and dead air…'
   }
   // ffmpeg's progress fraction is time-processed ÷ estimated total duration.
@@ -61,6 +62,7 @@ function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan
   const pct = p.fraction != null ? ` ${Math.min(100, Math.round(p.fraction * 100))}%` : ''
   if (mode === 'join') return `Joining clips…${pct}`
   if (mode === 'plan') return `Rendering the styled video…${pct}`
+  if (mode === 'trim') return `Rendering the trimmed preview…${pct}`
   return `Rendering…${pct}`
 }
 
@@ -90,8 +92,13 @@ export function VideoStudioPage() {
   const [planBusy, setPlanBusy] = useState(false)
   const [planStage, setPlanStage] = useState('')
   const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
+  const [clipTrims, setClipTrims] = useState<{ cutStart: number; cutEnd: number }[]>(
+    Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })),
+  )
+  const [clipDurations, setClipDurations] = useState<(number | null)[]>([null, null, null, null])
   const [replacingFootage, setReplacingFootage] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [applyingTrim, setApplyingTrim] = useState(false)
   const [musicFile, setMusicFile] = useState<File | null>(null)
   const [applyingPlan, setApplyingPlan] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
@@ -235,6 +242,32 @@ export function VideoStudioPage() {
       next[i] = file
       return next
     })
+    setClipTrims((trims) => {
+      const next = [...trims]
+      next[i] = { cutStart: 0, cutEnd: 0 }
+      return next
+    })
+    setClipDurations((durs) => {
+      const next = [...durs]
+      next[i] = null
+      return next
+    })
+    if (file) {
+      // Read via a plain <video> element rather than ffmpeg — just the
+      // duration, so it's not worth loading the ~25MB ffmpeg core for it.
+      const url = URL.createObjectURL(file)
+      const probe = document.createElement('video')
+      probe.preload = 'metadata'
+      probe.onloadedmetadata = () => {
+        setClipDurations((durs) => {
+          const next = [...durs]
+          next[i] = probe.duration
+          return next
+        })
+        URL.revokeObjectURL(url)
+      }
+      probe.src = url
+    }
   }
 
   function onRemoveClip(i: number) {
@@ -243,38 +276,70 @@ export function VideoStudioPage() {
       next[i] = null
       return next
     })
+    setClipTrims((trims) => {
+      const next = [...trims]
+      next[i] = { cutStart: 0, cutEnd: 0 }
+      return next
+    })
+    setClipDurations((durs) => {
+      const next = [...durs]
+      next[i] = null
+      return next
+    })
     if (clipInputRefs.current[i]) clipInputRefs.current[i]!.value = ''
   }
 
+  function onSetClipTrim(i: number, field: 'cutStart' | 'cutEnd', value: number) {
+    setClipTrims((trims) => {
+      const next = [...trims]
+      next[i] = { ...next[i], [field]: Math.max(0, value) }
+      return next
+    })
+  }
+
   /**
-   * One clip works exactly like the old single-file upload always did. More
-   * than one gets joined into a single video first (joinClips, in order) —
-   * that joined result is what everything downstream (analysis, transcript,
-   * auto-edit) treats as "the raw footage", same as a single upload would be.
+   * One clip with no trim works exactly like the old single-file upload
+   * always did. Anything else — more than one clip, or a trim on the one
+   * clip — goes through joinClips (which handles a single trimmed clip fine,
+   * it just skips the concat step). That result is what everything
+   * downstream (analysis, transcript, auto-edit) treats as "the raw
+   * footage", same as a plain upload would be.
    */
   async function onUseClips() {
-    const files = clipSlots.filter((f): f is File => !!f)
-    if (!files.length || !job || !content) return
+    const entries = clipSlots
+      .map((file, i) => (file ? { file, trim: clipTrims[i], duration: clipDurations[i] } : null))
+      .filter((e): e is { file: File; trim: { cutStart: number; cutEnd: number }; duration: number | null } => !!e)
+    if (!entries.length || !job || !content) return
     setError('')
     setBusy(true)
     setUploadPct(0)
     try {
       await persist({ status: 'Uploading', error: '' })
 
-      let combined: Blob = files[0]
-      let name = files[0].name
-      if (files.length > 1) {
+      const clipInputs: ClipInput[] = entries.map(({ file, trim, duration }) => ({
+        blob: file,
+        trimStart: trim.cutStart > 0 ? trim.cutStart : undefined,
+        trimEnd: trim.cutEnd > 0 && duration ? Math.max((trim.cutStart || 0) + 0.1, duration - trim.cutEnd) : undefined,
+      }))
+      const needsProcessing = clipInputs.length > 1 || clipInputs.some((c) => c.trimStart || c.trimEnd)
+
+      let combined: Blob
+      let name: string
+      if (needsProcessing) {
         setJoining(true)
-        combined = await joinClips(files, setEditProgress)
-        name = `${content.title} (${files.length} clips joined).mp4`
+        combined = await joinClips(clipInputs, setEditProgress)
+        name = entries.length > 1 ? `${content.title} (${entries.length} clips joined).mp4` : entries[0].file.name
         setJoining(false)
         setEditProgress(null)
+      } else {
+        combined = entries[0].file
+        name = entries[0].file.name
       }
-      rawFileRef.current = files.length === 1 ? files[0] : null
+      rawFileRef.current = needsProcessing ? null : entries[0].file
       setPreview(combined)
 
-      const { driveFileId, driveViewUrl } = files.length === 1
-        ? await uploadToDrive(files[0], (f) => setUploadPct(Math.round(f * 100)))
+      const { driveFileId, driveViewUrl } = !needsProcessing
+        ? await uploadToDrive(entries[0].file, (f) => setUploadPct(Math.round(f * 100)))
         : await uploadBlobToDrive(combined, name)
 
       const saved = await persist({
@@ -288,6 +353,8 @@ export function VideoStudioPage() {
       })
       editedBlobRef.current = null
       setClipSlots([null, null, null, null])
+      setClipTrims(Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })))
+      setClipDurations([null, null, null, null])
       setReplacingFootage(false)
       if (saved) await generate(saved, combined)
     } catch (err) {
@@ -409,6 +476,8 @@ export function VideoStudioPage() {
 
   function onChangeFootage() {
     setClipSlots([null, null, null, null])
+    setClipTrims(Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })))
+    setClipDurations([null, null, null, null])
     setReplacingFootage(true)
   }
 
@@ -429,6 +498,39 @@ export function VideoStudioPage() {
   async function onApprove() {
     if (!job?.edited_drive_id) return
     await persist({ approved: 1 })
+  }
+
+  /**
+   * Trim/caption only ever got applied at Export — the preview above it kept
+   * showing the un-trimmed auto-edit, so setting these fields looked like it
+   * did nothing until you actually exported. This renders them onto the
+   * preview immediately (same renderFinal Export uses) without uploading or
+   * touching approval/export state, so what you see here is what Export
+   * will produce.
+   */
+  async function onPreviewTrim() {
+    if (!job) return
+    setError('')
+    setBusy(true)
+    setApplyingTrim(true)
+    setEditProgress(null)
+    try {
+      const base = editedBlobRef.current
+        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+      if (!base) throw new Error('No auto-edited footage to preview yet.')
+      const rendered = await renderFinal(
+        base,
+        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
+        setEditProgress,
+      )
+      setPreview(rendered)
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setBusy(false)
+      setApplyingTrim(false)
+      setEditProgress(null)
+    }
   }
 
   async function onExport() {
@@ -534,7 +636,7 @@ export function VideoStudioPage() {
 
         {editProgress && (
           <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-200">
-            {progressLabel(editProgress, joining ? 'join' : applyingPlan ? 'plan' : 'edit')}
+            {progressLabel(editProgress, joining ? 'join' : applyingPlan ? 'plan' : applyingTrim ? 'trim' : 'edit')}
           </div>
         )}
 
@@ -582,8 +684,8 @@ export function VideoStudioPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-[11px] text-gray-600">
-                Add up to 4 clips — filmed as separate takes or angles, they're joined in order into one video.
-                Just one works exactly like a normal upload.
+                Add up to 4 clips — filmed as separate takes or angles, they're trimmed (per clip, if you set that
+                below) then joined in order into one video. Just one, with no trim, works exactly like a normal upload.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {clipSlots.map((file, i) => (
@@ -597,7 +699,38 @@ export function VideoStudioPage() {
                       )}
                     </div>
                     {file ? (
-                      <p className="text-xs text-gray-300 truncate">{file.name}</p>
+                      <>
+                        <p className="text-xs text-gray-300 truncate">{file.name}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-600">Cut from start (sec)</label>
+                            <input
+                              type="number" min="0" step="0.5"
+                              className="form-input py-1 text-xs"
+                              value={clipTrims[i]?.cutStart || ''}
+                              placeholder="0"
+                              onChange={(e) => onSetClipTrim(i, 'cutStart', Number(e.target.value) || 0)}
+                              disabled={busy}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-600">Cut from end (sec)</label>
+                            <input
+                              type="number" min="0" step="0.5"
+                              className="form-input py-1 text-xs"
+                              value={clipTrims[i]?.cutEnd || ''}
+                              placeholder="0"
+                              onChange={(e) => onSetClipTrim(i, 'cutEnd', Number(e.target.value) || 0)}
+                              disabled={busy}
+                            />
+                          </div>
+                        </div>
+                        {clipDurations[i] == null ? (
+                          <p className="text-[10px] text-gray-600 mt-1">Reading length…</p>
+                        ) : (
+                          <p className="text-[10px] text-gray-600 mt-1">{clipDurations[i]!.toFixed(1)}s total</p>
+                        )}
+                      </>
                     ) : (
                       <button
                         onClick={() => clipInputRefs.current[i]?.click()}
@@ -853,6 +986,15 @@ export function VideoStudioPage() {
                   onChange={(e) => persist({ caption_text: e.target.value })}
                   disabled={busy}
                 />
+              </div>
+              <div className="sm:col-span-2 flex items-center gap-3">
+                <button onClick={onPreviewTrim} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+                  Preview trim & caption
+                </button>
+                <p className="text-[11px] text-gray-600">
+                  Regenerate (above) and the AI plan don't apply these — they're only ever used at Export. Click this
+                  to see them applied to the preview below before you export for real.
+                </p>
               </div>
             </div>
           </section>

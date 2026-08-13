@@ -269,6 +269,14 @@ async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ wid
   return { width: m ? Number(m[1]) : 1080, height: m ? Number(m[2]) : 1920 }
 }
 
+export interface ClipInput {
+  blob: Blob
+  /** Seconds to cut from the start of this clip before joining. */
+  trimStart?: number
+  /** Absolute time (seconds from this clip's own start) to cut everything after. */
+  trimEnd?: number
+}
+
 /**
  * Joins several clips, in the order given, into one video — for someone who
  * shot a piece across multiple takes or angles rather than one continuous
@@ -276,22 +284,23 @@ async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ wid
  * clip's frame size and put on a common frame rate/sample rate before
  * concatenating, because two phone clips are rarely shot at identical
  * settings and ffmpeg's concat filter requires matching streams to join them.
+ * Each clip can also be trimmed (start/end) before it's joined in.
  */
 export async function joinClips(
-  files: Blob[],
+  clips: ClipInput[],
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
-  if (files.length === 0) throw new AutoEditError('No clips to join.')
-  if (files.length === 1) return files[0]
+  if (clips.length === 0) throw new AutoEditError('No clips to join.')
+  if (clips.length === 1 && !clips[0].trimStart && !clips[0].trimEnd) return clips[0].blob
 
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
 
-  const inputNames = files.map((_, i) => `join-input-${i}.mp4`)
+  const inputNames = clips.map((_, i) => `join-input-${i}.mp4`)
   const outputName = 'joined.mp4'
-  for (let i = 0; i < files.length; i++) {
-    await ffmpeg.writeFile(inputNames[i], new Uint8Array(await files[i].arrayBuffer()))
+  for (let i = 0; i < clips.length; i++) {
+    await ffmpeg.writeFile(inputNames[i], new Uint8Array(await clips[i].blob.arrayBuffer()))
   }
 
   try {
@@ -299,11 +308,15 @@ export async function joinClips(
     const { width, height } = await probeDimensions(ffmpeg, inputNames[0])
 
     const filters = inputNames
-      .map((name, i) =>
-        `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
-        `[${i}:a]aresample=44100,aformat=channel_layouts=stereo[a${i}]`,
-      )
+      .map((name, i) => {
+        const { trimStart, trimEnd } = clips[i]
+        const trimArgs = [trimStart ? `start=${trimStart}` : '', trimEnd ? `end=${trimEnd}` : ''].filter(Boolean).join(':')
+        const vTrim = trimArgs ? `trim=${trimArgs},setpts=PTS-STARTPTS,` : ''
+        const aTrim = trimArgs ? `atrim=${trimArgs},asetpts=PTS-STARTPTS,` : ''
+        return `[${i}:v]${vTrim}scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
+          `[${i}:a]${aTrim}aresample=44100,aformat=channel_layouts=stereo[a${i}]`
+      })
       .join(';')
     const refs = inputNames.map((_, i) => `[v${i}][a${i}]`).join('')
     const filterComplex = `${filters};${refs}concat=n=${inputNames.length}:v=1:a=1[outv][outa]`
