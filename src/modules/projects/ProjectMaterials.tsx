@@ -952,6 +952,8 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
             )}
             <p className="text-xs text-gray-500">
               Module resolved automatically where possible. Unresolved rows need a Module picked manually.
+              Every box below — item name, Module, Material, Colour, Qty, Price — is editable: click any of them
+              and type. Module/Material/Colour show existing options as you type, but typing something new works too.
             </p>
             {mapping.map((m, idx) => {
               if (m.isCurtain) return null
@@ -980,7 +982,7 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
                     </datalist>
 
                     <input
-                      type="text" list={`material-opts-${idx}`} placeholder="Material"
+                      type="text" list={`material-opts-${idx}`} placeholder="Material — type or pick"
                       className="form-input text-xs"
                       value={m.material} onChange={e => set(idx, { material: e.target.value })}
                     />
@@ -989,7 +991,7 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
                     </datalist>
 
                     <input
-                      type="text" list={`color-opts-${idx}`} placeholder="Colour"
+                      type="text" list={`color-opts-${idx}`} placeholder="Colour — type or pick"
                       className="form-input text-xs"
                       value={m.color} onChange={e => set(idx, { color: e.target.value })}
                     />
