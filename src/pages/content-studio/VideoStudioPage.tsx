@@ -40,18 +40,6 @@ function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-/**
- * Burned-in captions use a plain typeface (Roboto) for the video export —
- * it has no color-emoji glyphs, and ffmpeg.wasm's drawtext has no fallback
- * font to reach for when a glyph is missing. freetype just skips characters
- * it can't draw, so an emoji doesn't error, it just silently isn't there.
- * This flags it up front instead of letting someone find out after exporting.
- */
-const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}️]/u
-function hasEmoji(text: string): boolean {
-  return EMOJI_RE.test(text)
-}
-
 function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan' | 'trim' = 'edit'): string {
   if (!p) return ''
   if (p.phase === 'loading') return 'Loading the video engine (first time only)…'
@@ -913,12 +901,6 @@ export function VideoStudioPage() {
                         Remove
                       </button>
                     </div>
-                    {hasEmoji(c.text) && (
-                      <p className="text-[11px] text-amber-500">
-                        ⚠ Emoji won't appear in the exported video — the burned-in text font can't draw them, so
-                        they're silently skipped. Rewrite with words if you need something there.
-                      </p>
-                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] text-gray-600">Show from (sec, blank = start)</label>
