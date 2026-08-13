@@ -112,6 +112,7 @@ export function VideoStudioPage() {
   const [joining, setJoining] = useState(false)
   const [applyingTrim, setApplyingTrim] = useState(false)
   const [musicFile, setMusicFile] = useState<File | null>(null)
+  const [muteOriginalAudio, setMuteOriginalAudio] = useState(false)
   const [applyingPlan, setApplyingPlan] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const clipInputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null])
@@ -556,7 +557,10 @@ export function VideoStudioPage() {
       if (!base) throw new Error('No auto-edited footage to preview yet.')
       const rendered = await renderFinal(
         base,
-        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position },
+        {
+          trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position,
+          musicBlob: musicFile ?? undefined, muteOriginalAudio,
+        },
         setEditProgress,
       )
       setPreview(rendered)
@@ -593,9 +597,11 @@ export function VideoStudioPage() {
       const rendered = await renderSegments(
         base,
         clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
-        job.caption_text,
+        {
+          captionText: job.caption_text, captionPosition: job.caption_position,
+          musicBlob: musicFile ?? undefined, muteOriginalAudio,
+        },
         setEditProgress,
-        job.caption_position,
       )
       setPreview(rendered)
     } catch (err) {
@@ -619,13 +625,18 @@ export function VideoStudioPage() {
         ? await renderSegments(
             source,
             clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
-            job.caption_text,
+            {
+              captionText: job.caption_text, captionPosition: job.caption_position,
+              musicBlob: musicFile ?? undefined, muteOriginalAudio,
+            },
             setEditProgress,
-            job.caption_position,
           )
         : await renderFinal(
             source,
-            { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position },
+            {
+              trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position,
+              musicBlob: musicFile ?? undefined, muteOriginalAudio,
+            },
             setEditProgress,
           )
       setPreview(finalBlob)
@@ -916,37 +927,10 @@ export function VideoStudioPage() {
 
                   {plan.notes && <p className="text-xs text-gray-500 italic">{plan.notes}</p>}
 
-                  <div>
-                    <label className="form-label">Background music (optional — your own licensed track)</label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => musicInputRef.current?.click()}
-                        disabled={busy || planBusy}
-                        className="btn-secondary text-xs disabled:opacity-50"
-                      >
-                        {musicFile ? 'Replace track' : '+ Add music'}
-                      </button>
-                      {musicFile && (
-                        <>
-                          <span className="text-xs text-gray-400 truncate">{musicFile.name}</span>
-                          <button onClick={() => setMusicFile(null)} disabled={busy || planBusy} className="text-xs text-rose-400 hover:underline disabled:opacity-50">
-                            Remove
-                          </button>
-                        </>
-                      )}
-                      <input
-                        ref={musicInputRef}
-                        type="file"
-                        accept="audio/*"
-                        className="hidden"
-                        onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)}
-                      />
-                    </div>
-                    <p className="text-[11px] text-gray-600 mt-1">
-                      Nothing here sources music automatically — reusing a reference video's actual track would be a
-                      copyright problem, so this only mixes in a track you supply.
-                    </p>
-                  </div>
+                  <p className="text-[11px] text-gray-600">
+                    Background music is set once, in Section 5 · Edit below — it applies here on Approve too, no
+                    need to add it twice.
+                  </p>
 
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
@@ -1123,6 +1107,47 @@ export function VideoStudioPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="form-label">Background music (optional — your own licensed track)</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => musicInputRef.current?.click()}
+                    disabled={busy}
+                    className="btn-secondary text-xs disabled:opacity-50"
+                  >
+                    {musicFile ? 'Replace track' : '+ Add music'}
+                  </button>
+                  {musicFile && (
+                    <>
+                      <span className="text-xs text-gray-400 truncate">{musicFile.name}</span>
+                      <button onClick={() => setMusicFile(null)} disabled={busy} className="text-xs text-rose-400 hover:underline disabled:opacity-50">
+                        Remove
+                      </button>
+                    </>
+                  )}
+                  <input
+                    ref={musicInputRef}
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-gray-400 ml-2">
+                    <input
+                      type="checkbox"
+                      checked={muteOriginalAudio}
+                      onChange={(e) => setMuteOriginalAudio(e.target.checked)}
+                      disabled={busy || !musicFile}
+                    />
+                    Mute the clip's own sound (use only this track)
+                  </label>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">
+                  Nothing here sources music automatically — reusing a reference video's actual track would be a
+                  copyright problem, so this only mixes in a track you supply. Unchecked, it mixes under the clip's
+                  own audio; checked, it replaces it entirely.
+                </p>
               </div>
               <div className="sm:col-span-2 flex items-center gap-3">
                 <button

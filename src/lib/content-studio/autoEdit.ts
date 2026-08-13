@@ -447,14 +447,28 @@ function captionXY(position: CaptionPosition = 'bottom'): { x: string; y: string
   }
 }
 
+export interface RenderFinalOptions {
+  trimStart?: number
+  trimEnd?: number
+  captionText?: string
+  captionPosition?: CaptionPosition
+  /** Operator-supplied track only — nothing here sources music on its own. */
+  musicBlob?: Blob
+  /** true = replace the clip's own audio with the music track entirely; false = mix under it. */
+  muteOriginalAudio?: boolean
+  musicVolume?: number
+}
+
 /**
- * Applies a manual trim (and, if set, a simple burned-in caption) — the
+ * Applies a manual trim, a burned-in caption, and (if set) music — the
  * Export step, run on whatever the operator approved.
  */
 export async function renderFinal(
   file: Blob,
-  { trimStart = 0, trimEnd = 0, captionText = '', captionPosition = 'bottom' }:
-    { trimStart?: number; trimEnd?: number; captionText?: string; captionPosition?: CaptionPosition },
+  {
+    trimStart = 0, trimEnd = 0, captionText = '', captionPosition = 'bottom',
+    musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
+  }: RenderFinalOptions,
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
   onProgress?.({ phase: 'loading' })
@@ -462,24 +476,44 @@ export async function renderFinal(
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
 
   const inputName = 'final-input.mp4'
+  const musicName = 'final-music.mp3'
   const outputName = 'final-output.mp4'
-  const buf = new Uint8Array(await file.arrayBuffer())
-  await ffmpeg.writeFile(inputName, buf)
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  if (musicBlob) await ffmpeg.writeFile(musicName, new Uint8Array(await musicBlob.arrayBuffer()))
 
   try {
     const args = ['-i', inputName]
     if (trimStart > 0) args.push('-ss', String(trimStart))
     if (trimEnd > 0) args.push('-to', String(trimEnd))
+    // Looped so a short track still covers the whole clip; -shortest below
+    // caps the output at the video's own length regardless.
+    if (musicBlob) args.push('-stream_loop', '-1', '-i', musicName)
 
+    const filters: string[] = []
+    let videoMap = '0:v'
     if (captionText.trim()) {
       const fontFile = await ensureFont(ffmpeg)
       const { x, y } = captionXY(captionPosition)
-      args.push(
-        '-vf',
-        `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':fontcolor=white:fontsize=42:` +
-        `box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}`,
+      filters.push(
+        `[0:v]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':fontcolor=white:fontsize=42:` +
+        `box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[vout]`,
       )
+      videoMap = '[vout]'
     }
+
+    let audioMap = '0:a'
+    if (musicBlob) {
+      if (muteOriginalAudio) {
+        filters.push(`[1:a]volume=1.0[aout]`)
+      } else {
+        filters.push(`[1:a]volume=${musicVolume}[music]`, `[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]`)
+      }
+      audioMap = '[aout]'
+    }
+
+    if (filters.length) args.push('-filter_complex', filters.join(';'))
+    args.push('-map', videoMap, '-map', audioMap)
+    if (musicBlob) args.push('-shortest')
     args.push(outputName)
 
     await ffmpeg.exec(args)
@@ -491,6 +525,7 @@ export async function renderFinal(
     throw new AutoEditError(`Could not render the caption/trim onto the video. (${err instanceof Error ? err.message : String(err)})`)
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
+    if (musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }
@@ -504,6 +539,14 @@ export interface SegmentTrim {
   cutEnd?: number
 }
 
+export interface RenderSegmentsOptions {
+  captionText?: string
+  captionPosition?: CaptionPosition
+  musicBlob?: Blob
+  muteOriginalAudio?: boolean
+  musicVolume?: number
+}
+
 /**
  * Re-trims a video that was made by joining several clips, per original
  * clip, using the boundaries joinClips recorded when it made the video —
@@ -515,17 +558,19 @@ export interface SegmentTrim {
 export async function renderSegments(
   file: Blob,
   segments: SegmentTrim[],
-  captionText: string,
+  opts: RenderSegmentsOptions = {},
   onProgress?: (p: AutoEditProgress) => void,
-  captionPosition: CaptionPosition = 'bottom',
 ): Promise<Blob> {
+  const { captionText = '', captionPosition = 'bottom', musicBlob, muteOriginalAudio = false, musicVolume = 0.18 } = opts
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
 
   const inputName = 'segtrim-input.mp4'
+  const musicName = 'segtrim-music.mp3'
   const outputName = 'segtrim-output.mp4'
   await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  if (musicBlob) await ffmpeg.writeFile(musicName, new Uint8Array(await musicBlob.arrayBuffer()))
 
   try {
     onProgress?.({ phase: 'analyzing' })
@@ -540,19 +585,36 @@ export async function renderSegments(
         `[0:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS[a${i}]`)
       .join(';')
     const refs = keep.map((_, i) => `[v${i}][a${i}]`).join('')
-    let filterComplex = `${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`
+    const filterComplex: string[] = [`${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`]
 
     let videoOut = '[outv]'
     if (captionText.trim()) {
       const fontFile = await ensureFont(ffmpeg)
       const { x, y } = captionXY(captionPosition)
-      filterComplex += `;[outv]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':` +
-        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[outv2]`
+      filterComplex.push(
+        `[outv]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':` +
+        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[outv2]`,
+      )
       videoOut = '[outv2]'
     }
 
+    let audioOut = '[outa]'
+    const args = ['-i', inputName]
+    if (musicBlob) {
+      args.push('-stream_loop', '-1', '-i', musicName)
+      if (muteOriginalAudio) {
+        filterComplex.push(`[1:a]volume=1.0[outa2]`)
+      } else {
+        filterComplex.push(`[1:a]volume=${musicVolume}[music]`, `[outa][music]amix=inputs=2:duration=first:dropout_transition=2[outa2]`)
+      }
+      audioOut = '[outa2]'
+    }
+
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', videoOut, '-map', '[outa]', outputName])
+    args.push('-filter_complex', filterComplex.join(';'), '-map', videoOut, '-map', audioOut)
+    if (musicBlob) args.push('-shortest')
+    args.push(outputName)
+    await ffmpeg.exec(args)
 
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
@@ -562,6 +624,7 @@ export async function renderSegments(
     throw new AutoEditError(`Could not apply the per-clip trims. (${err instanceof Error ? err.message : String(err)})`)
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
+    if (musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }
