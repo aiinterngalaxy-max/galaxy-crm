@@ -120,6 +120,7 @@ let ffmpegSingleton: FFmpeg | null = null
  */
 function resetFFmpeg() {
   ffmpegSingleton = null
+  fontLoaded = false // the font lived in that instance's virtual FS, gone with it
 }
 
 /** Loaded once per page session — the core is ~25MB, not worth reloading per job. */
@@ -140,6 +141,25 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
   })
   ffmpegSingleton = ffmpeg
   return ffmpeg
+}
+
+let fontLoaded = false
+
+/**
+ * ffmpeg.wasm's core has no system fonts — unlike a desktop ffmpeg install,
+ * there is no fontconfig to fall back on, so drawtext either errors out or
+ * silently draws nothing until it's told exactly which font file to use.
+ * This fetches one real font into the virtual filesystem once per ffmpeg
+ * instance and every caller of drawtext passes its path via fontfile=.
+ */
+async function ensureFont(ffmpeg: FFmpeg): Promise<string> {
+  const fontFile = 'caption-font.ttf'
+  if (fontLoaded) return fontFile
+  const res = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf')
+  if (!res.ok) throw new AutoEditError('Could not load a font for captions/text overlays.')
+  await ffmpeg.writeFile(fontFile, new Uint8Array(await res.arrayBuffer()))
+  fontLoaded = true
+  return fontFile
 }
 
 async function probeDuration(ffmpeg: FFmpeg, inputName: string): Promise<number> {
@@ -438,15 +458,11 @@ export async function renderFinal(
     if (trimEnd > 0) args.push('-to', String(trimEnd))
 
     if (captionText.trim()) {
-      // Escaping for ffmpeg's drawtext filter: backslash, colon and single
-      // quote are all filter-syntax-significant.
-      const escaped = captionText
-        .replace(/\\/g, '\\\\')
-        .replace(/:/g, '\\:')
-        .replace(/'/g, "\\'")
+      const fontFile = await ensureFont(ffmpeg)
       args.push(
         '-vf',
-        `drawtext=text='${escaped}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60`,
+        `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':fontcolor=white:fontsize=42:` +
+        `box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60`,
       )
     }
     args.push(outputName)
@@ -454,6 +470,10 @@ export async function renderFinal(
     await ffmpeg.exec(args)
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not render the caption/trim onto the video. (${err instanceof Error ? err.message : String(err)})`)
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
@@ -511,6 +531,9 @@ export async function renderPlanned(
   try {
     onProgress?.({ phase: 'analyzing' })
 
+    const hasText = (opts.captionSegments?.length ?? 0) > 0 || !!opts.brandingText?.trim() || !!opts.ctaText?.trim()
+    const fontFile = hasText ? await ensureFont(ffmpeg) : null
+
     // A drawtext filter per caption line, each only visible in its own
     // window — capped so a long transcript can't build an enormous filter
     // chain (same reasoning as maxSegments elsewhere in this file).
@@ -519,19 +542,19 @@ export async function renderPlanned(
       const text = seg.text.trim()
       if (!text || seg.end <= seg.start) continue
       drawtext.push(
-        `drawtext=text='${escapeDrawtext(text)}':fontcolor=white:fontsize=34:box=1:boxcolor=black@0.55:` +
+        `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(text)}':fontcolor=white:fontsize=34:box=1:boxcolor=black@0.55:` +
         `boxborderw=10:x=(w-text_w)/2:y=h-th-50:enable='between(t,${seg.start.toFixed(2)},${seg.end.toFixed(2)})'`,
       )
     }
     if (opts.brandingText?.trim()) {
       drawtext.push(
-        `drawtext=text='${escapeDrawtext(opts.brandingText.trim())}':fontcolor=white:fontsize=26:box=1:` +
+        `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(opts.brandingText.trim())}':fontcolor=white:fontsize=26:box=1:` +
         `boxcolor=black@0.5:boxborderw=8:x=24:y=24`,
       )
     }
     if (opts.ctaText?.trim() && opts.ctaWindow && opts.ctaWindow.end > opts.ctaWindow.start) {
       drawtext.push(
-        `drawtext=text='${escapeDrawtext(opts.ctaText.trim())}':fontcolor=white:fontsize=38:box=1:` +
+        `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(opts.ctaText.trim())}':fontcolor=white:fontsize=38:box=1:` +
         `boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=(h-text_h)/2:` +
         `enable='between(t,${opts.ctaWindow.start.toFixed(2)},${opts.ctaWindow.end.toFixed(2)})'`,
       )
