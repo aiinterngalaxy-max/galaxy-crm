@@ -958,22 +958,45 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
               return (
                 <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.module ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-gray-300 truncate">{m.csvLabel}</span>
+                    <input
+                      type="text"
+                      className="form-input text-xs flex-1 bg-transparent border-transparent hover:border-gray-800 focus:border-gray-700 px-1 py-0.5"
+                      value={m.csvLabel}
+                      onChange={e => set(idx, { csvLabel: e.target.value })}
+                      title="Item name — click to edit"
+                    />
                     {m.module
                       ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-resolved</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
                       : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    <select className="form-input text-xs col-span-2 sm:col-span-1" value={m.module} onChange={e => set(idx, { module: e.target.value, auto: false })}>
-                      <option value="">— Module —</option>
-                      {ELYSIA_MODULES.map(mod => <option key={mod}>{mod}</option>)}
-                    </select>
-                    <select className="form-input text-xs" value={m.material} onChange={e => set(idx, { material: e.target.value })}>
-                      {ELYSIA_MATERIALS.map(mat => <option key={mat}>{mat}</option>)}
-                    </select>
-                    <select className="form-input text-xs" value={m.color} onChange={e => set(idx, { color: e.target.value })}>
-                      {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
-                    </select>
+                    <input
+                      type="text" list={`module-opts-${idx}`} placeholder="Module — type or pick"
+                      className="form-input text-xs col-span-2 sm:col-span-1"
+                      value={m.module} onChange={e => set(idx, { module: e.target.value, auto: false })}
+                    />
+                    <datalist id={`module-opts-${idx}`}>
+                      {ELYSIA_MODULES.map(mod => <option key={mod} value={mod} />)}
+                    </datalist>
+
+                    <input
+                      type="text" list={`material-opts-${idx}`} placeholder="Material"
+                      className="form-input text-xs"
+                      value={m.material} onChange={e => set(idx, { material: e.target.value })}
+                    />
+                    <datalist id={`material-opts-${idx}`}>
+                      {ELYSIA_MATERIALS.map(mat => <option key={mat} value={mat} />)}
+                    </datalist>
+
+                    <input
+                      type="text" list={`color-opts-${idx}`} placeholder="Colour"
+                      className="form-input text-xs"
+                      value={m.color} onChange={e => set(idx, { color: e.target.value })}
+                    />
+                    <datalist id={`color-opts-${idx}`}>
+                      {ELYSIA_COLORS.map(c => <option key={c} value={c} />)}
+                    </datalist>
+
                     <input type="number" min="0" className="form-input text-xs" placeholder="Qty"
                       value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })} />
                     <input type="number" min="0" className="form-input text-xs" placeholder="Unit ₹"
