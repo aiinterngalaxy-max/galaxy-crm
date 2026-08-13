@@ -152,7 +152,7 @@ const SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
   { value: 'justdial', label: 'JustDial' },
   { value: 'indiamart', label: 'IndiaMart' },
   { value: 'cold_call', label: 'Cold Call' },
-  { value: 'breville', label: 'Breville' },
+  { value: 'breville', label: 'Bellevie' },
   { value: 'other', label: 'Other' },
 ]
 

@@ -61,7 +61,7 @@ const SOURCE_OPTIONS = [
   { value: 'justdial',   label: 'JustDial' },
   { value: 'indiamart',  label: 'IndiaMART' },
   { value: 'cold_call',  label: 'Cold Calls / Msgs' },
-  { value: 'breville',   label: 'Breville' },
+  { value: 'breville',   label: 'Bellevie' },
   { value: 'other',      label: 'Other' },
 ]
 
