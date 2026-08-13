@@ -480,6 +480,75 @@ export async function renderFinal(
   }
 }
 
+export interface SegmentTrim {
+  /** Where this original clip starts/ends within the already-merged video. */
+  start: number
+  end: number
+  /** Extra seconds to cut from this segment's own start/end, on top of that. */
+  cutStart?: number
+  cutEnd?: number
+}
+
+/**
+ * Re-trims a video that was made by joining several clips, per original
+ * clip, using the boundaries joinClips recorded when it made the video —
+ * cutting further into "clip 2" doesn't require re-uploading anything,
+ * because the merged file already contains clip 2 at a known [start, end].
+ * A segment cut down to nothing (or past its own length) is dropped
+ * entirely rather than erroring, same as autoEditRemoveSilence's keep-list.
+ */
+export async function renderSegments(
+  file: Blob,
+  segments: SegmentTrim[],
+  captionText: string,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'segtrim-input.mp4'
+  const outputName = 'segtrim-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const keep = segments
+      .map((s) => ({ start: s.start + Math.max(0, s.cutStart ?? 0), end: s.end - Math.max(0, s.cutEnd ?? 0) }))
+      .filter((s) => s.end - s.start > 0.05)
+
+    if (keep.length === 0) throw new AutoEditError('Trimming every clip down to nothing would leave an empty video — loosen the cuts.')
+
+    const filters = keep
+      .map((s, i) => `[0:v]trim=start=${s.start}:end=${s.end},setpts=PTS-STARTPTS[v${i}];` +
+        `[0:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS[a${i}]`)
+      .join(';')
+    const refs = keep.map((_, i) => `[v${i}][a${i}]`).join('')
+    let filterComplex = `${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`
+
+    let videoOut = '[outv]'
+    if (captionText.trim()) {
+      const fontFile = await ensureFont(ffmpeg)
+      filterComplex += `;[outv]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':` +
+        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60[outv2]`
+      videoOut = '[outv2]'
+    }
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', videoOut, '-map', '[outa]', outputName])
+
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the per-clip trims. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 /** Escaping for ffmpeg's drawtext filter: backslash, colon and single quote are filter-syntax-significant. */
 function escapeDrawtext(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/\n/g, ' ')

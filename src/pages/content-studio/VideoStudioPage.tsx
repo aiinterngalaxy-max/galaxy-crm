@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, AutoEditError, type AutoEditProgress, type ClipInput } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim } from '@/lib/content-studio/autoEdit'
 import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -19,6 +19,15 @@ function parseJsonField<T>(raw: string | undefined): T | null {
   } catch {
     return null
   }
+}
+
+interface ClipSegmentRecord {
+  start: number
+  end: number
+  label: string
+  /** Extra trim applied after the merge, on top of whatever was cut before joining. */
+  cutStart?: number
+  cutEnd?: number
 }
 
 const CHECKLIST_LABELS: Record<keyof EditPlan['checklist'], string> = {
@@ -170,6 +179,7 @@ export function VideoStudioPage() {
   const linkAnalysis = useMemo(() => parseJsonField<LinkAnalysis>(job?.link_analysis), [job?.link_analysis])
   const transcript = useMemo(() => parseJsonField<Transcript>(job?.transcript), [job?.transcript])
   const plan = useMemo(() => parseJsonField<EditPlan>(job?.edit_plan), [job?.edit_plan])
+  const clipSegments = useMemo(() => parseJsonField<ClipSegmentRecord[]>(job?.clip_segments), [job?.clip_segments])
 
   /**
    * The AI analysis + plan step. Every input is real: the referral link is
@@ -342,11 +352,29 @@ export function VideoStudioPage() {
         ? await uploadToDrive(entries[0].file, (f) => setUploadPct(Math.round(f * 100)))
         : await uploadBlobToDrive(combined, name)
 
+      // Only worth recording when there's more than one clip — a segment
+      // list of one doesn't offer anything the plain trim_start/trim_end
+      // fields don't already, and each entry's boundary is only meaningful
+      // (i.e. only maps onto the actual joined output) once joinClips has
+      // actually applied that entry's own trim and concatenated it in.
+      let clipSegments = ''
+      if (entries.length > 1 && entries.every((e) => e.duration != null)) {
+        let cursor = 0
+        const segments = entries.map((e, i) => {
+          const trimmedDuration = Math.max(0, e.duration! - (e.trim.cutStart || 0) - (e.trim.cutEnd || 0))
+          const seg = { start: cursor, end: cursor + trimmedDuration, label: `Clip ${i + 1}` }
+          cursor += trimmedDuration
+          return seg
+        })
+        clipSegments = JSON.stringify(segments)
+      }
+
       const saved = await persist({
         raw_drive_id: driveFileId,
         raw_view_url: driveViewUrl,
         raw_name: name,
         status: 'Idle',
+        clip_segments: clipSegments,
         // A fresh upload invalidates whatever was generated/planned before.
         edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
         link_analysis: '', transcript: '', edit_plan: '',
@@ -491,7 +519,7 @@ export function VideoStudioPage() {
     await persist({
       raw_drive_id: '', raw_view_url: '', raw_name: '', status: 'Idle',
       edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
-      link_analysis: '', transcript: '', edit_plan: '',
+      link_analysis: '', transcript: '', edit_plan: '', clip_segments: '',
     })
   }
 
@@ -533,6 +561,43 @@ export function VideoStudioPage() {
     }
   }
 
+  function onSetSegmentCut(i: number, field: 'cutStart' | 'cutEnd', value: number) {
+    if (!clipSegments) return
+    const next = clipSegments.map((s, idx) => (idx === i ? { ...s, [field]: Math.max(0, value) } : s))
+    persist({ clip_segments: JSON.stringify(next) })
+  }
+
+  /**
+   * Same idea as onPreviewTrim, but per original clip — re-cuts the merged
+   * video using the boundaries joinClips recorded for each source clip, so
+   * "trim clip 2" works on the already-merged footage without re-uploading.
+   */
+  async function onPreviewSegments() {
+    if (!job || !clipSegments?.length) return
+    setError('')
+    setBusy(true)
+    setApplyingTrim(true)
+    setEditProgress(null)
+    try {
+      const base = editedBlobRef.current
+        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+      if (!base) throw new Error('No auto-edited footage to preview yet.')
+      const rendered = await renderSegments(
+        base,
+        clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
+        job.caption_text,
+        setEditProgress,
+      )
+      setPreview(rendered)
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setBusy(false)
+      setApplyingTrim(false)
+      setEditProgress(null)
+    }
+  }
+
   async function onExport() {
     if (!job?.edited_drive_id || !content) return
     setBusy(true)
@@ -541,11 +606,18 @@ export function VideoStudioPage() {
     try {
       await persist({ status: 'Exporting', error: '' })
       const source = editedBlobRef.current ?? (await downloadFromDrive(job.edited_drive_id))
-      const finalBlob = await renderFinal(
-        source,
-        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
-        setEditProgress,
-      )
+      const finalBlob = clipSegments?.length
+        ? await renderSegments(
+            source,
+            clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
+            job.caption_text,
+            setEditProgress,
+          )
+        : await renderFinal(
+            source,
+            { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
+            setEditProgress,
+          )
       setPreview(finalBlob)
       const { driveFileId, driveViewUrl } = await uploadBlobToDrive(finalBlob, `${content.title} (final).mp4`)
       await persist({ status: 'Exported', export_drive_id: driveFileId, export_view_url: driveViewUrl })
@@ -960,24 +1032,58 @@ export function VideoStudioPage() {
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Edit</h3>
             <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-gray-800 p-3">
-              <div>
-                <label className="form-label">Trim start (seconds)</label>
-                <input
-                  type="number" min="0" step="0.1" className="form-input"
-                  value={job?.trim_start ?? 0}
-                  onChange={(e) => persist({ trim_start: Number(e.target.value) || 0 })}
-                  disabled={busy}
-                />
-              </div>
-              <div>
-                <label className="form-label">Trim end (seconds, 0 = none)</label>
-                <input
-                  type="number" min="0" step="0.1" className="form-input"
-                  value={job?.trim_end ?? 0}
-                  onChange={(e) => persist({ trim_end: Number(e.target.value) || 0 })}
-                  disabled={busy}
-                />
-              </div>
+              {clipSegments?.length ? (
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="form-label">Per-clip trim (this footage was joined from {clipSegments.length} clips)</label>
+                  {clipSegments.map((seg, i) => (
+                    <div key={i} className="grid grid-cols-3 gap-2 items-end rounded-lg border border-gray-800 p-2">
+                      <span className="text-xs text-gray-400">
+                        {seg.label}
+                        <span className="block text-[10px] text-gray-600">{fmtTime(seg.start)}–{fmtTime(seg.end)}</span>
+                      </span>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Cut more from start (sec)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={seg.cutStart || ''} placeholder="0"
+                          onChange={(e) => onSetSegmentCut(i, 'cutStart', Number(e.target.value) || 0)}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Cut more from end (sec)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={seg.cutEnd || ''} placeholder="0"
+                          onChange={(e) => onSetSegmentCut(i, 'cutEnd', Number(e.target.value) || 0)}
+                          disabled={busy}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="form-label">Trim start (seconds)</label>
+                    <input
+                      type="number" min="0" step="0.1" className="form-input"
+                      value={job?.trim_start ?? 0}
+                      onChange={(e) => persist({ trim_start: Number(e.target.value) || 0 })}
+                      disabled={busy}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Trim end (seconds, 0 = none)</label>
+                    <input
+                      type="number" min="0" step="0.1" className="form-input"
+                      value={job?.trim_end ?? 0}
+                      onChange={(e) => persist({ trim_end: Number(e.target.value) || 0 })}
+                      disabled={busy}
+                    />
+                  </div>
+                </>
+              )}
               <div className="sm:col-span-2">
                 <label className="form-label">Caption / on-screen text (burned into the export)</label>
                 <textarea
@@ -988,8 +1094,12 @@ export function VideoStudioPage() {
                 />
               </div>
               <div className="sm:col-span-2 flex items-center gap-3">
-                <button onClick={onPreviewTrim} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-                  Preview trim & caption
+                <button
+                  onClick={clipSegments?.length ? onPreviewSegments : onPreviewTrim}
+                  disabled={busy}
+                  className="btn-secondary text-xs disabled:opacity-50"
+                >
+                  {clipSegments?.length ? 'Preview per-clip trims & caption' : 'Preview trim & caption'}
                 </button>
                 <p className="text-[11px] text-gray-600">
                   Regenerate (above) and the AI plan don't apply these — they're only ever used at Export. Click this

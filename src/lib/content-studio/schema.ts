@@ -188,6 +188,10 @@ export const SCHEMA: string[] = [
      link_analysis TEXT DEFAULT '',
      transcript TEXT DEFAULT '',
      edit_plan TEXT DEFAULT '',
+     -- Set by joinClips when raw footage came from 2+ clips: JSON array of
+     -- each original clip's [start,end] within the merged video, so it can
+     -- be trimmed further per-clip after the fact without re-uploading.
+     clip_segments TEXT DEFAULT '',
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
@@ -266,6 +270,10 @@ export const MIGRATE: string[] = [
      link_analysis TEXT DEFAULT '',
      transcript TEXT DEFAULT '',
      edit_plan TEXT DEFAULT '',
+     -- Set by joinClips when raw footage came from 2+ clips: JSON array of
+     -- each original clip's [start,end] within the merged video, so it can
+     -- be trimmed further per-clip after the fact without re-uploading.
+     clip_segments TEXT DEFAULT '',
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
@@ -273,6 +281,7 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_video_jobs ADD COLUMN link_analysis TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN transcript TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN edit_plan TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN clip_segments TEXT DEFAULT ''",
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.

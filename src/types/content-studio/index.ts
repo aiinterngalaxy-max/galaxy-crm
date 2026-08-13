@@ -233,6 +233,9 @@ export interface VideoJob {
   link_analysis: string;
   transcript: string;
   edit_plan: string;
+  // JSON array of {start,end,label,cutStart?,cutEnd?} — set when raw footage
+  // came from 2+ joined clips, so each can be trimmed further after the merge.
+  clip_segments: string;
   created_at: string;
   updated_at: string;
 }
