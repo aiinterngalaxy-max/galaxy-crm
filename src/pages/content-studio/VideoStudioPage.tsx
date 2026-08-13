@@ -53,7 +53,12 @@ function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan
     if (mode === 'plan') return 'Preparing captions and branding…'
     return 'Finding silence and dead air…'
   }
-  const pct = p.fraction != null ? ` ${Math.round(p.fraction * 100)}%` : ''
+  // ffmpeg's progress fraction is time-processed ÷ estimated total duration.
+  // For joinClips, that estimate comes from only the first input clip, so
+  // once processing runs past that clip's length the ratio climbs past 1 —
+  // real work is still happening, the percentage is just wrong. Clamped so
+  // the display never claims more than "done".
+  const pct = p.fraction != null ? ` ${Math.min(100, Math.round(p.fraction * 100))}%` : ''
   if (mode === 'join') return `Joining clips…${pct}`
   if (mode === 'plan') return `Rendering the styled video…${pct}`
   return `Rendering…${pct}`
