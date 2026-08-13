@@ -37,6 +37,19 @@ interface WorkflowTask {
   completed: boolean
 }
 
+// One row of the per-stage stock log — Type is always manual (e.g. "Elysia
+// IR"); sentAt/receivedAt stamp themselves the moment Sent/Received first
+// gets text, so nobody has to remember to log the time by hand.
+interface StockLogRow {
+  id: string
+  type: string
+  sent: string
+  sentAt: string
+  received: string
+  receivedAt: string
+  pending: string
+}
+
 interface WorkflowStage {
   id: string
   title: string
@@ -47,6 +60,8 @@ interface WorkflowStage {
   notes: string
   deadline: string
   status: 'locked' | 'in_progress' | 'completed'
+  // Optional: absent on stages created before this existed.
+  stockLog?: StockLogRow[]
 }
 
 // Sum of paymentAmount across completed stages — the project's collected-so-far
@@ -392,6 +407,43 @@ export function ProjectDetail() {
     } finally {
       setSavingStage(null)
     }
+  }
+
+  // ── Stock log (per-stage Send / Received / Pending table) ──────────────────────
+
+  function addStockRow(stage: WorkflowStage) {
+    const row: StockLogRow = {
+      id: crypto.randomUUID?.() ?? String(Date.now()),
+      type: '', sent: '', sentAt: '', received: '', receivedAt: '', pending: '',
+    }
+    const stockLog = [...(stage.stockLog ?? []), row]
+    setWorkflowStages(prev => prev.map(s => s.id === stage.id ? { ...s, stockLog } : s))
+    saveStageFields(stage, { stockLog })
+  }
+
+  // Local-only — called on every keystroke so typing feels normal. The Firestore
+  // write happens on blur (updateStockCell), same pattern as Notes/Deadline above.
+  function editStockCell(stage: WorkflowStage, rowId: string, field: keyof StockLogRow, value: string) {
+    const stockLog = (stage.stockLog ?? []).map(r => {
+      if (r.id !== rowId) return r
+      const next = { ...r, [field]: value }
+      // Stamps itself the moment the cell goes from empty to non-empty —
+      // never overwritten afterwards, so re-editing the text doesn't move the time.
+      if (field === 'sent' && value.trim() && !r.sentAt) next.sentAt = new Date().toLocaleString()
+      if (field === 'received' && value.trim() && !r.receivedAt) next.receivedAt = new Date().toLocaleString()
+      return next
+    })
+    setWorkflowStages(prev => prev.map(s => s.id === stage.id ? { ...s, stockLog } : s))
+  }
+
+  function saveStockLog(stage: WorkflowStage) {
+    saveStageFields(stage, { stockLog: stage.stockLog ?? [] })
+  }
+
+  function removeStockRow(stage: WorkflowStage, rowId: string) {
+    const stockLog = (stage.stockLog ?? []).filter(r => r.id !== rowId)
+    setWorkflowStages(prev => prev.map(s => s.id === stage.id ? { ...s, stockLog } : s))
+    saveStageFields(stage, { stockLog })
   }
 
   // ── Delete stage ─────────────────────────────────────────────────────────────
@@ -1178,6 +1230,86 @@ export function ProjectDetail() {
                           </span>
                         </label>
                       ))}
+                    </div>
+
+                    {/* Stock log: Type / Sent / Received / Pending, fully editable per row */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stock Log</p>
+                        <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />}
+                          onClick={() => addStockRow(stage)} className="text-indigo-400 hover:text-indigo-300">
+                          Add Row
+                        </Button>
+                      </div>
+                      {(stage.stockLog ?? []).length === 0 ? (
+                        <p className="text-xs text-gray-600">No stock movements logged yet.</p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-gray-800">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gray-800/60 text-left text-[11px] uppercase tracking-wider text-gray-500">
+                                <th className="px-3 py-2 font-semibold">Type</th>
+                                <th className="px-3 py-2 font-semibold">Sent</th>
+                                <th className="px-3 py-2 font-semibold whitespace-nowrap">Sent At</th>
+                                <th className="px-3 py-2 font-semibold">Received</th>
+                                <th className="px-3 py-2 font-semibold whitespace-nowrap">Received At</th>
+                                <th className="px-3 py-2 font-semibold">Pending</th>
+                                <th className="px-2 py-2 w-8" />
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-800">
+                              {(stage.stockLog ?? []).map(row => (
+                                <tr key={row.id}>
+                                  <td className="px-2 py-1.5">
+                                    <input
+                                      type="text" placeholder="e.g. Elysia IR"
+                                      value={row.type}
+                                      onChange={e => editStockCell(stage, row.id, 'type', e.target.value)}
+                                      onBlur={() => saveStockLog(stage)}
+                                      className="w-full min-w-[110px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <input
+                                      type="text" placeholder="What was sent"
+                                      value={row.sent}
+                                      onChange={e => editStockCell(stage, row.id, 'sent', e.target.value)}
+                                      onBlur={() => saveStockLog(stage)}
+                                      className="w-full min-w-[130px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500">{row.sentAt || '—'}</td>
+                                  <td className="px-2 py-1.5">
+                                    <input
+                                      type="text" placeholder="What was received"
+                                      value={row.received}
+                                      onChange={e => editStockCell(stage, row.id, 'received', e.target.value)}
+                                      onBlur={() => saveStockLog(stage)}
+                                      className="w-full min-w-[130px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-1.5 whitespace-nowrap text-xs text-gray-500">{row.receivedAt || '—'}</td>
+                                  <td className="px-2 py-1.5">
+                                    <input
+                                      type="text" placeholder="Pending"
+                                      value={row.pending}
+                                      onChange={e => editStockCell(stage, row.id, 'pending', e.target.value)}
+                                      onBlur={() => saveStockLog(stage)}
+                                      className="w-full min-w-[110px] bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5 text-center">
+                                    <button onClick={() => removeStockRow(stage, row.id)} title="Remove row"
+                                      className="text-gray-600 hover:text-red-400">
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
 
                     {/* Notes */}
