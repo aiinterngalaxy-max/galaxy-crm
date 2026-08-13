@@ -204,9 +204,6 @@ async function chatWithGroq(
   history: { role: string; content: string }[],
   context: string
 ): Promise<string> {
-  const API_KEY = import.meta.env.VITE_GROQ_API_KEY as string
-  if (!API_KEY) throw new Error('VITE_GROQ_API_KEY is not set')
-
   const today = new Date().toLocaleDateString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
@@ -235,29 +232,19 @@ Stock: the ELYSIA sections are live warehouse stock. CLOSING is the units in han
     apiMessages = [apiMessages[0], ...apiMessages.slice(-5)]
   }
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const res = await fetch('/api/ai/chat', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'system', content: sysPrompt }, ...apiMessages],
-      max_tokens: 500,
+      maxTokens: 500,
       temperature: 0.2,
     }),
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    console.error('Groq API error:', res.status, text)
-    let msg = `Gemini error ${res.status}`
-    try { msg = JSON.parse(text)?.error?.message ?? msg } catch { /* ignore */ }
-    throw new Error(msg)
-  }
-  const data = await res.json()
-  return (data.choices?.[0]?.message?.content as string) ?? ''
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `AI request failed (${res.status})`)
+  return String(data?.content ?? '')
 }
 
 export function CRMChatbot() {
