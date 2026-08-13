@@ -447,11 +447,32 @@ function captionXY(position: CaptionPosition = 'bottom'): { x: string; y: string
   }
 }
 
+export interface TimedCaption {
+  text: string
+  /** Seconds within the (already trimmed) video. Both 0/undefined = shown for the whole video. */
+  start?: number
+  end?: number
+  position?: CaptionPosition
+}
+
+/** One drawtext per caption, chained with commas — each windowed to its own [start,end] via enable=, or shown throughout if neither is set. */
+function buildCaptionChain(captions: TimedCaption[], fontFile: string): string {
+  return captions
+    .filter((c) => c.text.trim())
+    .map((c) => {
+      const { x, y } = captionXY(c.position ?? 'bottom')
+      const windowed = !!(c.start || c.end)
+      const enable = windowed ? `:enable='between(t,${c.start ?? 0},${c.end && c.end > 0 ? c.end : 999999})'` : ''
+      return `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(c.text.trim())}':fontcolor=white:fontsize=42:` +
+        `box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}${enable}`
+    })
+    .join(',')
+}
+
 export interface RenderFinalOptions {
   trimStart?: number
   trimEnd?: number
-  captionText?: string
-  captionPosition?: CaptionPosition
+  captions?: TimedCaption[]
   /** Operator-supplied track only — nothing here sources music on its own. */
   musicBlob?: Blob
   /** true = replace the clip's own audio with the music track entirely; false = mix under it. */
@@ -460,13 +481,13 @@ export interface RenderFinalOptions {
 }
 
 /**
- * Applies a manual trim, a burned-in caption, and (if set) music — the
- * Export step, run on whatever the operator approved.
+ * Applies a manual trim, any number of timed captions, and (if set) music —
+ * the Export step, run on whatever the operator approved.
  */
 export async function renderFinal(
   file: Blob,
   {
-    trimStart = 0, trimEnd = 0, captionText = '', captionPosition = 'bottom',
+    trimStart = 0, trimEnd = 0, captions = [],
     musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
   }: RenderFinalOptions,
   onProgress?: (p: AutoEditProgress) => void,
@@ -491,13 +512,10 @@ export async function renderFinal(
 
     const filters: string[] = []
     let videoMap = '0:v'
-    if (captionText.trim()) {
+    const activeCaptions = captions.filter((c) => c.text.trim())
+    if (activeCaptions.length) {
       const fontFile = await ensureFont(ffmpeg)
-      const { x, y } = captionXY(captionPosition)
-      filters.push(
-        `[0:v]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':fontcolor=white:fontsize=42:` +
-        `box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[vout]`,
-      )
+      filters.push(`[0:v]${buildCaptionChain(activeCaptions, fontFile)}[vout]`)
       videoMap = '[vout]'
     }
 
@@ -540,8 +558,7 @@ export interface SegmentTrim {
 }
 
 export interface RenderSegmentsOptions {
-  captionText?: string
-  captionPosition?: CaptionPosition
+  captions?: TimedCaption[]
   musicBlob?: Blob
   muteOriginalAudio?: boolean
   musicVolume?: number
@@ -561,7 +578,7 @@ export async function renderSegments(
   opts: RenderSegmentsOptions = {},
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
-  const { captionText = '', captionPosition = 'bottom', musicBlob, muteOriginalAudio = false, musicVolume = 0.18 } = opts
+  const { captions = [], musicBlob, muteOriginalAudio = false, musicVolume = 0.18 } = opts
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
@@ -588,12 +605,11 @@ export async function renderSegments(
     const filterComplex: string[] = [`${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`]
 
     let videoOut = '[outv]'
-    if (captionText.trim()) {
+    const activeCaptions = captions.filter((c) => c.text.trim())
+    if (activeCaptions.length) {
       const fontFile = await ensureFont(ffmpeg)
-      const { x, y } = captionXY(captionPosition)
       filterComplex.push(
-        `[outv]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':` +
-        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[outv2]`,
+        `[outv]${buildCaptionChain(activeCaptions, fontFile)}[outv2]`,
       )
       videoOut = '[outv2]'
     }

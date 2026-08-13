@@ -223,6 +223,9 @@ export interface VideoJob {
   trim_end: number;
   caption_text: string;
   caption_position: 'top' | 'bottom' | 'left' | 'right' | 'center';
+  // JSON array of {text,start,end,position} — any number of timed captions,
+  // each shown only in its own [start,end] window (or the whole video if unset).
+  captions: string;
   export_drive_id: string;
   export_view_url: string;
   error: string;

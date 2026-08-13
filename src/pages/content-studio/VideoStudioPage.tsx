@@ -3,8 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition } from '@/lib/content-studio/autoEdit'
-import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
+import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { Page, PageHeader } from '@/components/content-studio/ui'
@@ -28,19 +27,6 @@ interface ClipSegmentRecord {
   /** Extra trim applied after the merge, on top of whatever was cut before joining. */
   cutStart?: number
   cutEnd?: number
-}
-
-const CHECKLIST_LABELS: Record<keyof EditPlan['checklist'], string> = {
-  hook: 'Hook',
-  productShown: 'Product shown',
-  featureHighlight: 'Feature highlight',
-  demonstration: 'Demonstration',
-  benefits: 'Benefits',
-  cta: 'Referral CTA',
-  captions: 'Captions',
-  branding: 'App/product branding',
-  transitions: 'Transitions',
-  music: 'Background music',
 }
 
 /** ffmpeg.wasm handles these; anything else is rejected after upload. */
@@ -98,8 +84,6 @@ export function VideoStudioPage() {
   const [previewUrl, setPreviewUrl] = useState('')
   const [showOptions, setShowOptions] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [planBusy, setPlanBusy] = useState(false)
-  const [planStage, setPlanStage] = useState('')
   const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
   // start/end here are absolute timestamps within that clip's OWN timeline to
   // keep — e.g. start=5,end=10 keeps seconds 5-10, same as scrubbing a
@@ -113,7 +97,6 @@ export function VideoStudioPage() {
   const [applyingTrim, setApplyingTrim] = useState(false)
   const [musicFile, setMusicFile] = useState<File | null>(null)
   const [muteOriginalAudio, setMuteOriginalAudio] = useState(false)
-  const [applyingPlan, setApplyingPlan] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const clipInputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null])
   const musicInputRef = useRef<HTMLInputElement>(null)
@@ -180,73 +163,32 @@ export function VideoStudioPage() {
     }
   }
 
-  const linkAnalysis = useMemo(() => parseJsonField<LinkAnalysis>(job?.link_analysis), [job?.link_analysis])
-  const transcript = useMemo(() => parseJsonField<Transcript>(job?.transcript), [job?.transcript])
-  const plan = useMemo(() => parseJsonField<EditPlan>(job?.edit_plan), [job?.edit_plan])
   const clipSegments = useMemo(() => parseJsonField<ClipSegmentRecord[]>(job?.clip_segments), [job?.clip_segments])
 
-  /**
-   * The AI analysis + plan step. Every input is real: the referral link is
-   * actually fetched and read (vision pass over its own screenshot), the
-   * footage is actually transcribed (Groq Whisper) and actually scanned for
-   * dead air (the same silencedetect pass the auto-edit step uses below).
-   * A referral-link failure is non-fatal — the plan still runs on the
-   * footage alone — but a footage-read failure stops the whole thing, since
-   * there is nothing to plan against without it.
-   */
-  async function runAiPlan() {
-    if (!job || !content) return
-    setError('')
-    setPlanBusy(true)
-    try {
-      let nextLinkAnalysis = linkAnalysis
-      if (job.reference_url.trim()) {
-        setPlanStage('Reading the referral link…')
-        try {
-          nextLinkAnalysis = await analyzeReferralLink(job.reference_url.trim())
-          await persist({ link_analysis: JSON.stringify(nextLinkAnalysis) })
-        } catch (err) {
-          nextLinkAnalysis = null
-          setError(`Referral link analysis skipped: ${errText(err)}`)
-        }
-      }
+  // Any number of timed captions, each in its own [start,end] window (blank
+  // start+end = shown for the whole video). Falls back to the old single
+  // caption_text/caption_position pair so a job saved before this existed
+  // still shows its caption here instead of silently losing it.
+  const captionsList = useMemo((): TimedCaption[] => {
+    const parsed = parseJsonField<TimedCaption[]>(job?.captions)
+    if (parsed?.length) return parsed
+    if (job?.caption_text?.trim()) return [{ text: job.caption_text, position: job.caption_position }]
+    return []
+  }, [job?.captions, job?.caption_text, job?.caption_position])
 
-      setPlanStage('Reading the footage — duration, dead air, frame size…')
-      const raw = await getRawBlob(job)
-      const footage = await analyzeFootage(
-        raw,
-        { thresholdDb: job.silence_threshold_db, minSilenceSec: job.min_silence_sec },
-        (p) => setPlanStage(p.phase === 'analyzing' ? 'Reading the footage — duration, dead air, frame size…' : 'Extracting the audio track…'),
-      )
+  function onAddCaption() {
+    if (!job) return
+    persist({ captions: JSON.stringify([...captionsList, { text: '', start: 0, end: 0, position: 'bottom' as CaptionPosition }]) })
+  }
 
-      setPlanStage('Transcribing the speech (Groq Whisper)…')
-      let nextTranscript: Transcript | null = null
-      try {
-        nextTranscript = await transcribeAudio(footage.audioBlob)
-        await persist({ transcript: JSON.stringify(nextTranscript) })
-      } catch (err) {
-        setError(`Transcription skipped: ${errText(err)}`)
-      }
+  function onUpdateCaption(i: number, patch: Partial<TimedCaption>) {
+    if (!job) return
+    persist({ captions: JSON.stringify(captionsList.map((c, idx) => (idx === i ? { ...c, ...patch } : c))) })
+  }
 
-      setPlanStage('Building the editing plan…')
-      const orientation = footage.width && footage.height
-        ? (footage.width === footage.height ? 'square' : footage.width > footage.height ? 'landscape' : 'portrait')
-        : 'unknown'
-      const nextPlan = await generateEditPlan({
-        title: content.title,
-        appInfo: nextLinkAnalysis,
-        transcript: nextTranscript?.text ?? '',
-        durationSec: footage.durationSec,
-        silences: footage.silences,
-        orientation,
-      })
-      await persist({ edit_plan: JSON.stringify(nextPlan) })
-    } catch (err) {
-      handleError(err)
-    } finally {
-      setPlanBusy(false)
-      setPlanStage('')
-    }
+  function onRemoveCaption(i: number) {
+    if (!job) return
+    persist({ captions: JSON.stringify(captionsList.filter((_, idx) => idx !== i)) })
   }
 
   function onPickClip(i: number, e: React.ChangeEvent<HTMLInputElement>) {
@@ -451,65 +393,6 @@ export function VideoStudioPage() {
     if (next) await generate(next)
   }
 
-  /**
-   * What "Approve" on the AI plan actually does: start from the
-   * silence-trimmed cut (running it first if it hasn't run yet), then burn
-   * on the plan's recommendations — captions synced to the real transcript,
-   * the app name as a watermark, the CTA text during its window, and the
-   * operator's own music track if one was supplied. Nothing here rearranges
-   * clips, adds zooms/transitions, or sources music on its own.
-   */
-  async function onApprovePlan() {
-    if (!job || !plan || !content) return
-    setError('')
-    setBusy(true)
-    setApplyingPlan(true)
-    setEditProgress(null)
-    try {
-      await persist({ status: 'Generating', error: '' })
-
-      let base = editedBlobRef.current
-      if (!base) {
-        if (job.edited_drive_id) base = await downloadFromDrive(job.edited_drive_id)
-        else {
-          const raw = await getRawBlob(job)
-          base = await autoEditRemoveSilence(
-            raw,
-            { thresholdDb: job.silence_threshold_db, minSilenceSec: job.min_silence_sec },
-            setEditProgress,
-          )
-        }
-      }
-
-      const lastSeg = plan.timeline[plan.timeline.length - 1]
-      const rendered = await renderPlanned(base, {
-        captionSegments: plan.checklist.captions ? (transcript?.segments ?? []) : [],
-        brandingText: plan.checklist.branding ? (linkAnalysis?.appName ?? '') : '',
-        ctaText: plan.checklist.cta ? (linkAnalysis?.cta ?? '') : '',
-        ctaWindow: lastSeg ? { start: lastSeg.start, end: lastSeg.end } : undefined,
-        musicBlob: musicFile ?? undefined,
-      }, setEditProgress)
-
-      editedBlobRef.current = rendered
-      setPreview(rendered)
-      const { driveFileId, driveViewUrl } = await uploadBlobToDrive(rendered, `${content.title} (styled).mp4`)
-      await persist({
-        status: 'Generated',
-        edited_drive_id: driveFileId,
-        edited_view_url: driveViewUrl,
-        approved: 0, export_drive_id: '', export_view_url: '',
-      })
-    } catch (err) {
-      await updateVideoJob(job.id, { status: 'Failed', error: errText(err) }).catch(() => {})
-      const fresh = await ensureVideoJob(contentId).catch(() => null)
-      if (fresh) setJob(fresh)
-      handleError(err)
-    } finally {
-      setBusy(false)
-      setApplyingPlan(false)
-      setEditProgress(null)
-    }
-  }
 
   function onChangeFootage() {
     setClipSlots([null, null, null, null])
@@ -558,7 +441,7 @@ export function VideoStudioPage() {
       const rendered = await renderFinal(
         base,
         {
-          trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position,
+          trimStart: job.trim_start, trimEnd: job.trim_end, captions: captionsList,
           musicBlob: musicFile ?? undefined, muteOriginalAudio,
         },
         setEditProgress,
@@ -598,7 +481,7 @@ export function VideoStudioPage() {
         base,
         clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
         {
-          captionText: job.caption_text, captionPosition: job.caption_position,
+          captions: captionsList,
           musicBlob: musicFile ?? undefined, muteOriginalAudio,
         },
         setEditProgress,
@@ -626,7 +509,7 @@ export function VideoStudioPage() {
             source,
             clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
             {
-              captionText: job.caption_text, captionPosition: job.caption_position,
+              captions: captionsList,
               musicBlob: musicFile ?? undefined, muteOriginalAudio,
             },
             setEditProgress,
@@ -634,7 +517,7 @@ export function VideoStudioPage() {
         : await renderFinal(
             source,
             {
-              trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position,
+              trimStart: job.trim_start, trimEnd: job.trim_end, captions: captionsList,
               musicBlob: musicFile ?? undefined, muteOriginalAudio,
             },
             setEditProgress,
@@ -716,11 +599,11 @@ export function VideoStudioPage() {
 
       <div className="max-w-3xl space-y-5">
         <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
-          The AI plan step below actually reads your referral link and actually transcribes your footage (Groq) to
-          build a real editing plan. Approving it removes silence/dead air, then burns in real transcript captions,
-          the app name, and the referral CTA — all in this browser via ffmpeg.wasm, no external service. It does not
-          rearrange clips or add zooms/transitions, and it never sources music on its own — reusing a reference
-          video's actual track would be a copyright problem, so music only gets added if you supply your own track.
+          Auto-edit removes silence/dead air, then Section 4 · Edit lets you trim, add timed captions, position them,
+          and mix in your own music — all in this browser via ffmpeg.wasm, no external service. It does not
+          rearrange clips or add zooms/transitions/color effects yet, and it never sources music on its own —
+          reusing a reference video's actual track would be a copyright problem, so music only gets added if you
+          supply your own track.
         </div>
 
         {error && (
@@ -729,7 +612,7 @@ export function VideoStudioPage() {
 
         {editProgress && (
           <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-200">
-            {progressLabel(editProgress, joining ? 'join' : applyingPlan ? 'plan' : applyingTrim ? 'trim' : 'edit')}
+            {progressLabel(editProgress, joining ? 'join' : applyingTrim ? 'trim' : 'edit')}
           </div>
         )}
 
@@ -739,14 +622,13 @@ export function VideoStudioPage() {
           <input
             ref={referenceInputRef}
             className="form-input"
-            placeholder="https://… — the app/product link the AI plan should promote"
+            placeholder="https://… — the app/product link this piece is promoting"
             value={job?.reference_url ?? ''}
             onChange={(e) => persist({ reference_url: e.target.value })}
-            disabled={busy || planBusy}
+            disabled={busy}
           />
           <p className="text-[11px] text-gray-600 mt-1">
-            Analyzed for real when you generate the plan below — app name, features, benefits, CTA and (from a
-            screenshot, if the page has one) brand colors.
+            Stored as a note for whoever edits this piece — not applied automatically.
           </p>
         </section>
 
@@ -875,98 +757,11 @@ export function VideoStudioPage() {
           )}
         </section>
 
-        {/* ---------- 3. AI analysis & editing plan ---------- */}
-        {job?.raw_drive_id && (
-          <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">3 · AI analysis & plan</h3>
-
-            {planBusy ? (
-              <p className="text-sm text-gray-400">{planStage || 'Working…'} Don't close this tab.</p>
-            ) : !plan ? (
-              <button onClick={runAiPlan} disabled={busy || planBusy} className="btn-primary text-sm disabled:opacity-50">
-                Generate AI plan
-              </button>
-            ) : (
-              <div className="rounded-lg border border-gray-800 overflow-hidden">
-                {previewUrl && (
-                  <video src={previewUrl} controls className="w-full max-h-80 bg-black" />
-                )}
-
-                <div className="p-4 space-y-3">
-                  {linkAnalysis && (
-                    <div className="text-xs text-gray-400">
-                      <span className="font-semibold text-gray-200">{linkAnalysis.appName || 'App'}</span>
-                      {linkAnalysis.tagline && <span> — {linkAnalysis.tagline}</span>}
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">AI editing plan</p>
-                    <ul className="space-y-1 text-sm">
-                      {plan.timeline.map((t, i) => (
-                        <li key={i} className="flex gap-2 text-gray-300">
-                          <span className="text-gray-600 tabular-nums shrink-0">
-                            {fmtTime(t.start)}–{fmtTime(t.end)}
-                          </span>
-                          <span>{t.label}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">Checklist</p>
-                    <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                      {(Object.keys(CHECKLIST_LABELS) as Array<keyof EditPlan['checklist']>).map((key) => (
-                        <li key={key} className={plan.checklist[key] ? 'text-emerald-400' : 'text-gray-600'}>
-                          {plan.checklist[key] ? '✓' : '✕'} {CHECKLIST_LABELS[key]}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {plan.notes && <p className="text-xs text-gray-500 italic">{plan.notes}</p>}
-
-                  <p className="text-[11px] text-gray-600">
-                    Background music is set once, in Section 5 · Edit below — it applies here on Approve too, no
-                    need to add it twice.
-                  </p>
-
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      onClick={() => referenceInputRef.current?.focus()}
-                      disabled={busy || planBusy}
-                      className="btn-secondary text-xs disabled:opacity-50"
-                    >
-                      Edit
-                    </button>
-                    <button onClick={runAiPlan} disabled={busy || planBusy} className="btn-secondary text-xs disabled:opacity-50">
-                      ↻ Regenerate
-                    </button>
-                    <button
-                      onClick={onApprovePlan}
-                      disabled={busy || planBusy}
-                      className="btn-primary text-xs disabled:opacity-50"
-                    >
-                      {hasEdit ? '✓ Approve (re-render with plan)' : 'Approve → render with plan'}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-gray-600">
-                    Approve burns in real transcript captions, the app name, and the referral CTA (whichever the
-                    checklist above has checked) — plus your music track if you added one. It does not rearrange
-                    clips or add zooms/transitions yet.
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-        )}
-
         {/* ---------- auto-edit result: edit / change / regenerate ---------- */}
         {job?.raw_drive_id && (
           <section>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">4 · Auto-edit</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">3 · Auto-edit</h3>
               <button onClick={() => setShowOptions((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300">
                 {showOptions ? 'Hide options' : 'Options'}
               </button>
@@ -1026,7 +821,7 @@ export function VideoStudioPage() {
         {/* ---------- 4. edit the result ---------- */}
         {hasEdit && (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Edit</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">4 · Edit</h3>
             <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-gray-800 p-3">
               {clipSegments?.length ? (
                 <div className="sm:col-span-2 space-y-2">
@@ -1080,33 +875,70 @@ export function VideoStudioPage() {
                   </div>
                 </>
               )}
-              <div className="sm:col-span-2">
-                <label className="form-label">Caption / on-screen text (burned into the export)</label>
-                <textarea
-                  className="form-input" rows={2}
-                  value={job?.caption_text ?? ''}
-                  onChange={(e) => persist({ caption_text: e.target.value })}
-                  disabled={busy}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="form-label">Caption position</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {(['top', 'bottom', 'left', 'right', 'center'] as CaptionPosition[]).map((pos) => (
-                    <button
-                      key={pos}
-                      onClick={() => persist({ caption_position: pos })}
-                      disabled={busy}
-                      className={`rounded-md border px-2.5 py-1 text-xs font-semibold capitalize transition-colors disabled:opacity-50 ${
-                        (job?.caption_position ?? 'bottom') === pos
-                          ? 'bg-gold-500/20 border-gold-700/60 text-gold-500'
-                          : 'border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-                      }`}
-                    >
-                      {pos}
-                    </button>
-                  ))}
+              <div className="sm:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="form-label mb-0">Captions (burned into the export)</label>
+                  <button onClick={onAddCaption} disabled={busy} className="text-xs font-semibold text-gold-500 hover:underline disabled:opacity-50">
+                    + Add caption
+                  </button>
                 </div>
+                {captionsList.length === 0 && (
+                  <p className="text-[11px] text-gray-600">
+                    None yet — add one for the whole video, or several with their own time windows (e.g. one for the
+                    first 5 seconds, a different one in the middle, another at the end).
+                  </p>
+                )}
+                {captionsList.map((c, i) => (
+                  <div key={i} className="rounded-lg border border-gray-800 p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <textarea
+                        className="form-input flex-1" rows={2}
+                        value={c.text}
+                        onChange={(e) => onUpdateCaption(i, { text: e.target.value })}
+                        disabled={busy}
+                      />
+                      <button onClick={() => onRemoveCaption(i)} disabled={busy} className="text-xs text-rose-400 hover:underline disabled:opacity-50 shrink-0">
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-gray-600">Show from (sec, blank = start)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={c.start || ''} placeholder="0"
+                          onChange={(e) => onUpdateCaption(i, { start: Number(e.target.value) || 0 })}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Show until (sec, blank = end)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={c.end || ''} placeholder="end"
+                          onChange={(e) => onUpdateCaption(i, { end: Number(e.target.value) || 0 })}
+                          disabled={busy}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['top', 'bottom', 'left', 'right', 'center'] as CaptionPosition[]).map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => onUpdateCaption(i, { position: pos })}
+                          disabled={busy}
+                          className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold capitalize transition-colors disabled:opacity-50 ${
+                            (c.position ?? 'bottom') === pos
+                              ? 'bg-gold-500/20 border-gold-700/60 text-gold-500'
+                              : 'border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                          }`}
+                        >
+                          {pos}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="sm:col-span-2">
                 <label className="form-label">Background music (optional — your own licensed track)</label>
@@ -1169,7 +1001,7 @@ export function VideoStudioPage() {
         {/* ---------- 5. preview → approve → export ---------- */}
         {hasEdit && (
           <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">6 · Preview → Approve → Export</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Preview → Approve → Export</h3>
 
             {previewUrl ? (
               <video src={previewUrl} controls className="w-full max-h-96 rounded-lg border border-gray-800 bg-black" />
