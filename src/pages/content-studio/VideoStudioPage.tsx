@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition } from '@/lib/content-studio/autoEdit'
 import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -101,8 +101,11 @@ export function VideoStudioPage() {
   const [planBusy, setPlanBusy] = useState(false)
   const [planStage, setPlanStage] = useState('')
   const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
-  const [clipTrims, setClipTrims] = useState<{ cutStart: number; cutEnd: number }[]>(
-    Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })),
+  // start/end here are absolute timestamps within that clip's OWN timeline to
+  // keep — e.g. start=5,end=10 keeps seconds 5-10, same as scrubbing a
+  // trimmer to those two points. 0/0 means "keep the whole clip".
+  const [clipTrims, setClipTrims] = useState<{ start: number; end: number }[]>(
+    Array.from({ length: 4 }, () => ({ start: 0, end: 0 })),
   )
   const [clipDurations, setClipDurations] = useState<(number | null)[]>([null, null, null, null])
   const [replacingFootage, setReplacingFootage] = useState(false)
@@ -254,7 +257,7 @@ export function VideoStudioPage() {
     })
     setClipTrims((trims) => {
       const next = [...trims]
-      next[i] = { cutStart: 0, cutEnd: 0 }
+      next[i] = { start: 0, end: 0 }
       return next
     })
     setClipDurations((durs) => {
@@ -288,7 +291,7 @@ export function VideoStudioPage() {
     })
     setClipTrims((trims) => {
       const next = [...trims]
-      next[i] = { cutStart: 0, cutEnd: 0 }
+      next[i] = { start: 0, end: 0 }
       return next
     })
     setClipDurations((durs) => {
@@ -299,7 +302,7 @@ export function VideoStudioPage() {
     if (clipInputRefs.current[i]) clipInputRefs.current[i]!.value = ''
   }
 
-  function onSetClipTrim(i: number, field: 'cutStart' | 'cutEnd', value: number) {
+  function onSetClipTrim(i: number, field: 'start' | 'end', value: number) {
     setClipTrims((trims) => {
       const next = [...trims]
       next[i] = { ...next[i], [field]: Math.max(0, value) }
@@ -318,7 +321,7 @@ export function VideoStudioPage() {
   async function onUseClips() {
     const entries = clipSlots
       .map((file, i) => (file ? { file, trim: clipTrims[i], duration: clipDurations[i] } : null))
-      .filter((e): e is { file: File; trim: { cutStart: number; cutEnd: number }; duration: number | null } => !!e)
+      .filter((e): e is { file: File; trim: { start: number; end: number }; duration: number | null } => !!e)
     if (!entries.length || !job || !content) return
     setError('')
     setBusy(true)
@@ -326,10 +329,13 @@ export function VideoStudioPage() {
     try {
       await persist({ status: 'Uploading', error: '' })
 
-      const clipInputs: ClipInput[] = entries.map(({ file, trim, duration }) => ({
+      // trim.start/end are already the absolute [keep-from, keep-to]
+      // timestamps within that clip's own timeline — exactly what
+      // joinClips'/ffmpeg's trim filter wants, no conversion needed.
+      const clipInputs: ClipInput[] = entries.map(({ file, trim }) => ({
         blob: file,
-        trimStart: trim.cutStart > 0 ? trim.cutStart : undefined,
-        trimEnd: trim.cutEnd > 0 && duration ? Math.max((trim.cutStart || 0) + 0.1, duration - trim.cutEnd) : undefined,
+        trimStart: trim.start > 0 ? trim.start : undefined,
+        trimEnd: trim.end > 0 ? trim.end : undefined,
       }))
       const needsProcessing = clipInputs.length > 1 || clipInputs.some((c) => c.trimStart || c.trimEnd)
 
@@ -361,7 +367,9 @@ export function VideoStudioPage() {
       if (entries.length > 1 && entries.every((e) => e.duration != null)) {
         let cursor = 0
         const segments = entries.map((e, i) => {
-          const trimmedDuration = Math.max(0, e.duration! - (e.trim.cutStart || 0) - (e.trim.cutEnd || 0))
+          const keepStart = e.trim.start > 0 ? e.trim.start : 0
+          const keepEnd = e.trim.end > 0 ? Math.min(e.trim.end, e.duration!) : e.duration!
+          const trimmedDuration = Math.max(0, keepEnd - keepStart)
           const seg = { start: cursor, end: cursor + trimmedDuration, label: `Clip ${i + 1}` }
           cursor += trimmedDuration
           return seg
@@ -381,7 +389,7 @@ export function VideoStudioPage() {
       })
       editedBlobRef.current = null
       setClipSlots([null, null, null, null])
-      setClipTrims(Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })))
+      setClipTrims(Array.from({ length: 4 }, () => ({ start: 0, end: 0 })))
       setClipDurations([null, null, null, null])
       setReplacingFootage(false)
       if (saved) await generate(saved, combined)
@@ -504,7 +512,7 @@ export function VideoStudioPage() {
 
   function onChangeFootage() {
     setClipSlots([null, null, null, null])
-    setClipTrims(Array.from({ length: 4 }, () => ({ cutStart: 0, cutEnd: 0 })))
+    setClipTrims(Array.from({ length: 4 }, () => ({ start: 0, end: 0 })))
     setClipDurations([null, null, null, null])
     setReplacingFootage(true)
   }
@@ -548,7 +556,7 @@ export function VideoStudioPage() {
       if (!base) throw new Error('No auto-edited footage to preview yet.')
       const rendered = await renderFinal(
         base,
-        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
+        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position },
         setEditProgress,
       )
       setPreview(rendered)
@@ -587,6 +595,7 @@ export function VideoStudioPage() {
         clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
         job.caption_text,
         setEditProgress,
+        job.caption_position,
       )
       setPreview(rendered)
     } catch (err) {
@@ -612,10 +621,11 @@ export function VideoStudioPage() {
             clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
             job.caption_text,
             setEditProgress,
+            job.caption_position,
           )
         : await renderFinal(
             source,
-            { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
+            { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text, captionPosition: job.caption_position },
             setEditProgress,
           )
       setPreview(finalBlob)
@@ -756,8 +766,9 @@ export function VideoStudioPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-[11px] text-gray-600">
-                Add up to 4 clips — filmed as separate takes or angles, they're trimmed (per clip, if you set that
-                below) then joined in order into one video. Just one, with no trim, works exactly like a normal upload.
+                Add up to 4 clips — filmed as separate takes or angles. Trim start/end below are timestamps within
+                that clip's own footage (e.g. 5 to 10 keeps seconds 5-10 of THAT clip), then they're joined in order
+                into one video. Just one clip, with no trim, works exactly like a normal upload.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {clipSlots.map((file, i) => (
@@ -775,28 +786,29 @@ export function VideoStudioPage() {
                         <p className="text-xs text-gray-300 truncate">{file.name}</p>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-[10px] text-gray-600">Cut from start (sec)</label>
+                            <label className="text-[10px] text-gray-600">Trim start (sec)</label>
                             <input
                               type="number" min="0" step="0.5"
                               className="form-input py-1 text-xs"
-                              value={clipTrims[i]?.cutStart || ''}
+                              value={clipTrims[i]?.start || ''}
                               placeholder="0"
-                              onChange={(e) => onSetClipTrim(i, 'cutStart', Number(e.target.value) || 0)}
+                              onChange={(e) => onSetClipTrim(i, 'start', Number(e.target.value) || 0)}
                               disabled={busy}
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] text-gray-600">Cut from end (sec)</label>
+                            <label className="text-[10px] text-gray-600">Trim end (sec, blank = full)</label>
                             <input
                               type="number" min="0" step="0.5"
                               className="form-input py-1 text-xs"
-                              value={clipTrims[i]?.cutEnd || ''}
-                              placeholder="0"
-                              onChange={(e) => onSetClipTrim(i, 'cutEnd', Number(e.target.value) || 0)}
+                              value={clipTrims[i]?.end || ''}
+                              placeholder={clipDurations[i] != null ? clipDurations[i]!.toFixed(1) : '0'}
+                              onChange={(e) => onSetClipTrim(i, 'end', Number(e.target.value) || 0)}
                               disabled={busy}
                             />
                           </div>
                         </div>
+                        <p className="text-[10px] text-gray-600 mt-1">Keeps this clip's own {clipTrims[i]?.start || 0}s–{clipTrims[i]?.end || (clipDurations[i]?.toFixed(1) ?? '…')}s.</p>
                         {clipDurations[i] == null ? (
                           <p className="text-[10px] text-gray-600 mt-1">Reading length…</p>
                         ) : (
@@ -1092,6 +1104,25 @@ export function VideoStudioPage() {
                   onChange={(e) => persist({ caption_text: e.target.value })}
                   disabled={busy}
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="form-label">Caption position</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['top', 'bottom', 'left', 'right', 'center'] as CaptionPosition[]).map((pos) => (
+                    <button
+                      key={pos}
+                      onClick={() => persist({ caption_position: pos })}
+                      disabled={busy}
+                      className={`rounded-md border px-2.5 py-1 text-xs font-semibold capitalize transition-colors disabled:opacity-50 ${
+                        (job?.caption_position ?? 'bottom') === pos
+                          ? 'bg-gold-500/20 border-gold-700/60 text-gold-500'
+                          : 'border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="sm:col-span-2 flex items-center gap-3">
                 <button

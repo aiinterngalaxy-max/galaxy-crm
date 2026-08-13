@@ -434,13 +434,27 @@ export async function autoEditRemoveSilence(
   }
 }
 
+export type CaptionPosition = 'top' | 'bottom' | 'left' | 'right' | 'center'
+
+/** Where the caption box sits on the frame — same five spots regardless of which render path draws it. */
+function captionXY(position: CaptionPosition = 'bottom'): { x: string; y: string } {
+  switch (position) {
+    case 'top': return { x: '(w-text_w)/2', y: '60' }
+    case 'left': return { x: '40', y: '(h-text_h)/2' }
+    case 'right': return { x: 'w-text_w-40', y: '(h-text_h)/2' }
+    case 'center': return { x: '(w-text_w)/2', y: '(h-text_h)/2' }
+    case 'bottom': default: return { x: '(w-text_w)/2', y: 'h-th-60' }
+  }
+}
+
 /**
  * Applies a manual trim (and, if set, a simple burned-in caption) — the
  * Export step, run on whatever the operator approved.
  */
 export async function renderFinal(
   file: Blob,
-  { trimStart = 0, trimEnd = 0, captionText = '' }: { trimStart?: number; trimEnd?: number; captionText?: string },
+  { trimStart = 0, trimEnd = 0, captionText = '', captionPosition = 'bottom' }:
+    { trimStart?: number; trimEnd?: number; captionText?: string; captionPosition?: CaptionPosition },
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
   onProgress?.({ phase: 'loading' })
@@ -459,10 +473,11 @@ export async function renderFinal(
 
     if (captionText.trim()) {
       const fontFile = await ensureFont(ffmpeg)
+      const { x, y } = captionXY(captionPosition)
       args.push(
         '-vf',
         `drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':fontcolor=white:fontsize=42:` +
-        `box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60`,
+        `box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}`,
       )
     }
     args.push(outputName)
@@ -502,6 +517,7 @@ export async function renderSegments(
   segments: SegmentTrim[],
   captionText: string,
   onProgress?: (p: AutoEditProgress) => void,
+  captionPosition: CaptionPosition = 'bottom',
 ): Promise<Blob> {
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
@@ -529,8 +545,9 @@ export async function renderSegments(
     let videoOut = '[outv]'
     if (captionText.trim()) {
       const fontFile = await ensureFont(ffmpeg)
+      const { x, y } = captionXY(captionPosition)
       filterComplex += `;[outv]drawtext=fontfile=${fontFile}:text='${escapeDrawtext(captionText.trim())}':` +
-        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60[outv2]`
+        `fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=${x}:y=${y}[outv2]`
       videoOut = '[outv2]'
     }
 

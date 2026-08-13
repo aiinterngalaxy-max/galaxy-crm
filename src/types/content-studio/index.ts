@@ -222,6 +222,7 @@ export interface VideoJob {
   trim_start: number;
   trim_end: number;
   caption_text: string;
+  caption_position: 'top' | 'bottom' | 'left' | 'right' | 'center';
   export_drive_id: string;
   export_view_url: string;
   error: string;

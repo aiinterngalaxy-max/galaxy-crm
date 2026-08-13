@@ -775,7 +775,7 @@ export async function backfillShootLinks(): Promise<number> {
 const VIDEO_JOB_COLS =
   `id, content_id, reference_url, raw_drive_id, raw_view_url, raw_name, status,
    silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
-   trim_start, trim_end, caption_text, export_drive_id, export_view_url,
+   trim_start, trim_end, caption_text, caption_position, export_drive_id, export_view_url,
    error, regen_count, approved, approved_at, link_analysis, transcript, edit_plan,
    clip_segments, created_at, updated_at`
 
@@ -844,7 +844,7 @@ export async function updateVideoJob(id: number, data: Record<string, any>): Pro
   const editable = new Set([
     'reference_url', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
     'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
-    'trim_start', 'trim_end', 'caption_text', 'export_drive_id', 'export_view_url',
+    'trim_start', 'trim_end', 'caption_text', 'caption_position', 'export_drive_id', 'export_view_url',
     'error', 'regen_count', 'approved', 'link_analysis', 'transcript', 'edit_plan', 'clip_segments',
   ])
   const { sets, args } = applyEditable(data, editable)

@@ -178,6 +178,7 @@ export const SCHEMA: string[] = [
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
+     caption_position TEXT DEFAULT 'bottom',
      export_drive_id TEXT DEFAULT '',
      export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
@@ -260,6 +261,7 @@ export const MIGRATE: string[] = [
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
+     caption_position TEXT DEFAULT 'bottom',
      export_drive_id TEXT DEFAULT '',
      export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
@@ -282,6 +284,7 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_video_jobs ADD COLUMN transcript TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN edit_plan TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN clip_segments TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN caption_position TEXT DEFAULT 'bottom'",
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.
