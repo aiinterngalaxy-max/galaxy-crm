@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { autoEditRemoveSilence, analyzeFootage, joinClips, renderFinal, renderPlanned, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
 import { analyzeReferralLink, transcribeAudio, generateEditPlan, type LinkAnalysis, type Transcript, type EditPlan } from '@/lib/content-studio/videoPlan'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -45,12 +45,18 @@ function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function progressLabel(p: AutoEditProgress | null, joining = false): string {
+function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan' = 'edit'): string {
   if (!p) return ''
   if (p.phase === 'loading') return 'Loading the video engine (first time only)…'
-  if (p.phase === 'analyzing') return joining ? 'Reading clip formats…' : 'Finding silence and dead air…'
+  if (p.phase === 'analyzing') {
+    if (mode === 'join') return 'Reading clip formats…'
+    if (mode === 'plan') return 'Preparing captions and branding…'
+    return 'Finding silence and dead air…'
+  }
   const pct = p.fraction != null ? ` ${Math.round(p.fraction * 100)}%` : ''
-  return joining ? `Joining clips…${pct}` : `Rendering…${pct}`
+  if (mode === 'join') return `Joining clips…${pct}`
+  if (mode === 'plan') return `Rendering the styled video…${pct}`
+  return `Rendering…${pct}`
 }
 
 /**
@@ -81,8 +87,11 @@ export function VideoStudioPage() {
   const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
   const [replacingFootage, setReplacingFootage] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [musicFile, setMusicFile] = useState<File | null>(null)
+  const [applyingPlan, setApplyingPlan] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const clipInputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null])
+  const musicInputRef = useRef<HTMLInputElement>(null)
 
   // The raw File and the just-edited Blob stay in memory for this session so
   // Regenerate and Export don't need to re-download from Drive every time —
@@ -333,6 +342,66 @@ export function VideoStudioPage() {
     if (next) await generate(next)
   }
 
+  /**
+   * What "Approve" on the AI plan actually does: start from the
+   * silence-trimmed cut (running it first if it hasn't run yet), then burn
+   * on the plan's recommendations — captions synced to the real transcript,
+   * the app name as a watermark, the CTA text during its window, and the
+   * operator's own music track if one was supplied. Nothing here rearranges
+   * clips, adds zooms/transitions, or sources music on its own.
+   */
+  async function onApprovePlan() {
+    if (!job || !plan || !content) return
+    setError('')
+    setBusy(true)
+    setApplyingPlan(true)
+    setEditProgress(null)
+    try {
+      await persist({ status: 'Generating', error: '' })
+
+      let base = editedBlobRef.current
+      if (!base) {
+        if (job.edited_drive_id) base = await downloadFromDrive(job.edited_drive_id)
+        else {
+          const raw = await getRawBlob(job)
+          base = await autoEditRemoveSilence(
+            raw,
+            { thresholdDb: job.silence_threshold_db, minSilenceSec: job.min_silence_sec },
+            setEditProgress,
+          )
+        }
+      }
+
+      const lastSeg = plan.timeline[plan.timeline.length - 1]
+      const rendered = await renderPlanned(base, {
+        captionSegments: plan.checklist.captions ? (transcript?.segments ?? []) : [],
+        brandingText: plan.checklist.branding ? (linkAnalysis?.appName ?? '') : '',
+        ctaText: plan.checklist.cta ? (linkAnalysis?.cta ?? '') : '',
+        ctaWindow: lastSeg ? { start: lastSeg.start, end: lastSeg.end } : undefined,
+        musicBlob: musicFile ?? undefined,
+      }, setEditProgress)
+
+      editedBlobRef.current = rendered
+      setPreview(rendered)
+      const { driveFileId, driveViewUrl } = await uploadBlobToDrive(rendered, `${content.title} (styled).mp4`)
+      await persist({
+        status: 'Generated',
+        edited_drive_id: driveFileId,
+        edited_view_url: driveViewUrl,
+        approved: 0, export_drive_id: '', export_view_url: '',
+      })
+    } catch (err) {
+      await updateVideoJob(job.id, { status: 'Failed', error: errText(err) }).catch(() => {})
+      const fresh = await ensureVideoJob(contentId).catch(() => null)
+      if (fresh) setJob(fresh)
+      handleError(err)
+    } finally {
+      setBusy(false)
+      setApplyingPlan(false)
+      setEditProgress(null)
+    }
+  }
+
   function onChangeFootage() {
     setClipSlots([null, null, null, null])
     setReplacingFootage(true)
@@ -448,9 +517,10 @@ export function VideoStudioPage() {
       <div className="max-w-3xl space-y-5">
         <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
           The AI plan step below actually reads your referral link and actually transcribes your footage (Groq) to
-          build a real editing plan. Auto-edit itself currently only removes silence/dead air, in this browser via
-          ffmpeg.wasm — burning captions, branding, CTA overlays and music into the export is not built yet, so
-          Approve on the plan runs the silence-removal pass, not the full plan.
+          build a real editing plan. Approving it removes silence/dead air, then burns in real transcript captions,
+          the app name, and the referral CTA — all in this browser via ffmpeg.wasm, no external service. It does not
+          rearrange clips or add zooms/transitions, and it never sources music on its own — reusing a reference
+          video's actual track would be a copyright problem, so music only gets added if you supply your own track.
         </div>
 
         {error && (
@@ -459,7 +529,7 @@ export function VideoStudioPage() {
 
         {editProgress && (
           <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-200">
-            {progressLabel(editProgress, joining)}
+            {progressLabel(editProgress, joining ? 'join' : applyingPlan ? 'plan' : 'edit')}
           </div>
         )}
 
@@ -624,6 +694,38 @@ export function VideoStudioPage() {
 
                   {plan.notes && <p className="text-xs text-gray-500 italic">{plan.notes}</p>}
 
+                  <div>
+                    <label className="form-label">Background music (optional — your own licensed track)</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => musicInputRef.current?.click()}
+                        disabled={busy || planBusy}
+                        className="btn-secondary text-xs disabled:opacity-50"
+                      >
+                        {musicFile ? 'Replace track' : '+ Add music'}
+                      </button>
+                      {musicFile && (
+                        <>
+                          <span className="text-xs text-gray-400 truncate">{musicFile.name}</span>
+                          <button onClick={() => setMusicFile(null)} disabled={busy || planBusy} className="text-xs text-rose-400 hover:underline disabled:opacity-50">
+                            Remove
+                          </button>
+                        </>
+                      )}
+                      <input
+                        ref={musicInputRef}
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Nothing here sources music automatically — reusing a reference video's actual track would be a
+                      copyright problem, so this only mixes in a track you supply.
+                    </p>
+                  </div>
+
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
                       onClick={() => referenceInputRef.current?.focus()}
@@ -636,16 +738,17 @@ export function VideoStudioPage() {
                       ↻ Regenerate
                     </button>
                     <button
-                      onClick={() => job && generate(job)}
-                      disabled={busy || planBusy || status === 'Generating'}
+                      onClick={onApprovePlan}
+                      disabled={busy || planBusy}
                       className="btn-primary text-xs disabled:opacity-50"
                     >
-                      {hasEdit ? '✓ Approve (re-run auto-edit)' : 'Approve → run auto-edit'}
+                      {hasEdit ? '✓ Approve (re-render with plan)' : 'Approve → render with plan'}
                     </button>
                   </div>
                   <p className="text-[11px] text-gray-600">
-                    Approve runs the real silence-removal edit below — it does not yet burn in the captions/branding/CTA
-                    the plan recommends.
+                    Approve burns in real transcript captions, the app name, and the referral CTA (whichever the
+                    checklist above has checked) — plus your music track if you added one. It does not rearrange
+                    clips or add zooms/transitions yet.
                   </p>
                 </div>
               </div>

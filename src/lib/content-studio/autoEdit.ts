@@ -446,3 +446,110 @@ export async function renderFinal(
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }
+
+/** Escaping for ffmpeg's drawtext filter: backslash, colon and single quote are filter-syntax-significant. */
+function escapeDrawtext(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/\n/g, ' ')
+}
+
+export interface CaptionSegment {
+  start: number
+  end: number
+  text: string
+}
+
+export interface RenderPlanOptions {
+  /** Real transcript segments (from Whisper) — each shown on screen only during its own time window. */
+  captionSegments?: CaptionSegment[]
+  /** App/product name — shown as a small persistent watermark, top-left. */
+  brandingText?: string
+  /** Referral CTA text — shown large, centered, only during ctaWindow. */
+  ctaText?: string
+  ctaWindow?: { start: number; end: number }
+  /** A track the operator supplies themselves — nothing here sources or invents music, for licensing reasons. */
+  musicBlob?: Blob
+  /** 0-1, how loud the music plays under the original audio. */
+  musicVolume?: number
+}
+
+/**
+ * Burns the AI plan's recommendations onto an already-cut video: captions
+ * synced to the real transcript, the product name as a watermark, the CTA
+ * text during its window, and — only if the operator provided one — a music
+ * bed mixed under the original audio. This does not cut/rearrange/trim
+ * footage (autoEditRemoveSilence already did that) and does not add
+ * transitions or zooms; it is the text/branding/audio layer only.
+ */
+export async function renderPlanned(
+  file: Blob,
+  opts: RenderPlanOptions,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'plan-input.mp4'
+  const musicName = 'plan-music.mp3'
+  const outputName = 'plan-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  if (opts.musicBlob) await ffmpeg.writeFile(musicName, new Uint8Array(await opts.musicBlob.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+
+    // A drawtext filter per caption line, each only visible in its own
+    // window — capped so a long transcript can't build an enormous filter
+    // chain (same reasoning as maxSegments elsewhere in this file).
+    const drawtext: string[] = []
+    for (const seg of (opts.captionSegments ?? []).slice(0, 60)) {
+      const text = seg.text.trim()
+      if (!text || seg.end <= seg.start) continue
+      drawtext.push(
+        `drawtext=text='${escapeDrawtext(text)}':fontcolor=white:fontsize=34:box=1:boxcolor=black@0.55:` +
+        `boxborderw=10:x=(w-text_w)/2:y=h-th-50:enable='between(t,${seg.start.toFixed(2)},${seg.end.toFixed(2)})'`,
+      )
+    }
+    if (opts.brandingText?.trim()) {
+      drawtext.push(
+        `drawtext=text='${escapeDrawtext(opts.brandingText.trim())}':fontcolor=white:fontsize=26:box=1:` +
+        `boxcolor=black@0.5:boxborderw=8:x=24:y=24`,
+      )
+    }
+    if (opts.ctaText?.trim() && opts.ctaWindow && opts.ctaWindow.end > opts.ctaWindow.start) {
+      drawtext.push(
+        `drawtext=text='${escapeDrawtext(opts.ctaText.trim())}':fontcolor=white:fontsize=38:box=1:` +
+        `boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=(h-text_h)/2:` +
+        `enable='between(t,${opts.ctaWindow.start.toFixed(2)},${opts.ctaWindow.end.toFixed(2)})'`,
+      )
+    }
+    const vf = drawtext.length ? drawtext.join(',') : null
+
+    onProgress?.({ phase: 'rendering' })
+    const args = ['-i', inputName]
+    if (opts.musicBlob) {
+      args.push('-i', musicName)
+      const vol = opts.musicVolume ?? 0.18
+      const filterComplex = [
+        vf ? `[0:v]${vf}[v]` : null,
+        `[1:a]volume=${vol}[music]`,
+        `[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[a]`,
+      ].filter(Boolean).join(';')
+      args.push('-filter_complex', filterComplex, '-map', vf ? '[v]' : '0:v', '-map', '[a]', '-shortest')
+    } else if (vf) {
+      args.push('-vf', vf)
+    }
+    args.push(outputName)
+
+    await ffmpeg.exec(args)
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (!(err instanceof AutoEditError)) resetFFmpeg()
+    throw new AutoEditError(`Could not render the plan onto the video. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    if (opts.musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
