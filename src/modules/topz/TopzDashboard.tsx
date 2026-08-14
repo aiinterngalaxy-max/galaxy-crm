@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Car, Bus, Users, Pencil, Check, X, RotateCcw, TrendingUp, IndianRupee, CalendarClock, AlertCircle } from 'lucide-react'
+import { FileText, Car, Bus, Users, Pencil, Check, X, RotateCcw, TrendingUp, IndianRupee, CalendarClock, AlertCircle, Zap } from 'lucide-react'
 import { VEHICLES, getVehicles, setPriceOverride, getPriceOverrides, resetRateOverrides, fetchRateOverrides, type VehicleType, type Vehicle } from './data/rateCard'
 import { getBookings, getQuotations, type Booking, type SavedQuotation } from './data/storage'
 import toast from 'react-hot-toast'
@@ -84,6 +84,14 @@ export function TopzDashboard() {
     return age >= 7
   })
 
+  // ── Today's activity ─────────────────────────────────────────────────────
+  const todayStr = now.toDateString()
+  const todayQuotes = quotes.filter(q => new Date(q.createdAt).toDateString() === todayStr)
+  const todayFullQuotes = todayQuotes.filter(q => q.type !== 'quick').length
+  const todayQuickQuotes = todayQuotes.filter(q => q.type === 'quick').length
+  const todayConverted = todayQuotes.filter(q => q.status === 'converted').length
+  const todayQuotedValue = todayQuotes.reduce((s, q) => s + q.totalAmount, 0)
+
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 
   if (loading) return (
@@ -106,6 +114,28 @@ export function TopzDashboard() {
           style={{ background: 'linear-gradient(135deg,#f0c040,#c8960a)', color: '#1a1a2e', boxShadow: '0 4px 20px rgba(240,192,64,0.25)' }}>
           <FileText className="w-4 h-4" /> New Quotation
         </button>
+      </div>
+
+      {/* Today's activity */}
+      <div className="glass-card rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Zap className="w-4 h-4" style={{ color: '#25d366' }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-base)' }}>Today's Activity</p>
+        </div>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+          {[
+            { label: 'Total Quotes', value: todayQuotes.length, color: '#f0c040' },
+            { label: 'Full Quotes', value: todayFullQuotes, color: '#60a5fa' },
+            { label: 'WhatsApp Quick', value: todayQuickQuotes, color: '#25d366' },
+            { label: 'Converted', value: todayConverted, color: '#34d399' },
+            { label: 'Quoted Value', value: fmt(todayQuotedValue), color: '#fbbf24' },
+          ].map(tile => (
+            <div key={tile.label} className="text-center">
+              <p className="text-lg font-bold" style={{ color: tile.color }}>{tile.value}</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{tile.label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* KPI tiles */}

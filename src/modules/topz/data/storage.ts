@@ -20,7 +20,7 @@ export interface SavedQuotation {
   id: string
   quoteNo: string
   createdAt: string
-  status: 'draft' | 'sent' | 'converted'
+  status: 'draft' | 'sent' | 'follow_up' | 'lost' | 'converted'
   tripType: 'outstation' | 'local'
   isRoundTrip: boolean
   clientName: string
@@ -44,6 +44,18 @@ export interface SavedQuotation {
   extraCharges?: ExtraCharge[]
   /** Flat discount taken off the whole quote after add-ons, already reflected in totalAmount. */
   specialDiscount?: number
+  /** 'full' = built with the full quotation tool (default for pre-existing rows). 'quick' = fast WhatsApp quote. */
+  type?: 'full' | 'quick'
+  /** Where the enquiry came from. Quick Quotes default to 'WhatsApp'. */
+  source?: string
+  /** Freeform timing text for Quick Quotes, e.g. "6:30 AM – 11:00 PM". */
+  timing?: string
+  /** Freeform extra charges / terms text for Quick Quotes, e.g. "Toll/Parking extra, After 11PM +₹600". */
+  extraChargesText?: string
+  /** Freeform notes — for Quick Quotes, typically the pasted original WhatsApp message. */
+  notes?: string
+  /** Next follow-up date for a quote that hasn't converted or been lost yet. */
+  followUpDate?: string
 }
 
 export interface Booking {
