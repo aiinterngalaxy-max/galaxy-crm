@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Play, Pencil, Send, ChevronDown } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
-import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
+import { ensureVideoJob, updateVideoJob, updateContent, getContent, deleteContent } from '@/lib/content-studio/queries'
 import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -84,6 +84,13 @@ export function VideoStudioPage() {
   const [previewUrl, setPreviewUrl] = useState('')
   const [showOptions, setShowOptions] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showAutoEditInfo, setShowAutoEditInfo] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitMsg, setSubmitMsg] = useState('')
+  const footageSectionRef = useRef<HTMLElement>(null)
+  const autoEditSectionRef = useRef<HTMLElement>(null)
+  const editSectionRef = useRef<HTMLElement>(null)
+  const previewSectionRef = useRef<HTMLElement>(null)
   const [clipSlots, setClipSlots] = useState<(File | null)[]>([null, null, null, null])
   // start/end here are absolute timestamps within that clip's OWN timeline to
   // keep — e.g. start=5,end=10 keeps seconds 5-10, same as scrubbing a
@@ -539,6 +546,33 @@ export function VideoStudioPage() {
   const status = job?.status ?? 'Idle'
   const hasEdit = !!job?.edited_drive_id
 
+  function scrollToRef(ref: React.RefObject<HTMLElement>) {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function onPreviewVideo() {
+    scrollToRef(hasEdit ? previewSectionRef : footageSectionRef)
+  }
+
+  function onEditVideo() {
+    scrollToRef(hasEdit ? editSectionRef : job?.raw_drive_id ? autoEditSectionRef : footageSectionRef)
+  }
+
+  async function onSubmitForReview() {
+    if (!content || !confirm(`Submit "${content.title}" for review?`)) return
+    setSubmitting(true)
+    setSubmitMsg('')
+    try {
+      const updated = await updateContent(content.id, { stage: 'Review' }, viewer?.name)
+      setContent(updated)
+      setSubmitMsg('Submitted for review.')
+    } catch (err) {
+      setError(errText(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function handleDelete() {
     if (!content || !confirm(`Delete "${content.title}"? This cannot be undone.`)) return
     setDeleting(true)
@@ -591,20 +625,41 @@ export function VideoStudioPage() {
         </button>
       </div>
 
-      <PageHeader
-        title={content?.title ?? 'Video studio'}
-        subtitle={content?.brand_name}
-        right={<StatusStrip status={status} approved={!!job?.approved} />}
+      <ProjectHeader
+        content={content}
+        status={status}
+        approved={!!job?.approved}
+        editor={content?.editor}
+        onPreview={onPreviewVideo}
+        onEdit={onEditVideo}
+        onSubmitForReview={onSubmitForReview}
+        submitting={submitting}
+        busy={busy}
       />
 
       <div className="max-w-3xl space-y-5">
-        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
-          Auto-edit removes silence/dead air, then Section 4 · Edit lets you trim, add timed captions, position them,
-          and mix in your own music — all in this browser via ffmpeg.wasm, no external service. It does not
-          rearrange clips or add zooms/transitions/color effects yet, and it never sources music on its own —
-          reusing a reference video's actual track would be a copyright problem, so music only gets added if you
-          supply your own track.
+        <div className="rounded-lg border border-gray-800 bg-gray-900/60">
+          <button
+            onClick={() => setShowAutoEditInfo((s) => !s)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-[12px] font-semibold text-gray-400 hover:text-gray-200"
+          >
+            <span>ⓘ How Auto-Edit Works</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showAutoEditInfo ? 'rotate-180' : ''}`} />
+          </button>
+          {showAutoEditInfo && (
+            <div className="px-4 pb-3 text-[12px] text-gray-500 border-t border-gray-800 pt-3">
+              Auto-edit removes silence/dead air, then Section 4 · Edit lets you trim, add timed captions, position
+              them, and mix in your own music — all in this browser via ffmpeg.wasm, no external service. It does
+              not rearrange clips or add zooms/transitions/color effects yet, and it never sources music on its own
+              — reusing a reference video's actual track would be a copyright problem, so music only gets added if
+              you supply your own track.
+            </div>
+          )}
         </div>
+
+        {submitMsg && (
+          <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">{submitMsg}</div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>
@@ -633,7 +688,7 @@ export function VideoStudioPage() {
         </section>
 
         {/* ---------- 2. source footage ---------- */}
-        <section>
+        <section ref={footageSectionRef}>
           <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">2 · Raw footage</h3>
           {job?.raw_drive_id && !replacingFootage ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -759,7 +814,7 @@ export function VideoStudioPage() {
 
         {/* ---------- auto-edit result: edit / change / regenerate ---------- */}
         {job?.raw_drive_id && (
-          <section>
+          <section ref={autoEditSectionRef}>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">3 · Auto-edit</h3>
               <button onClick={() => setShowOptions((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300">
@@ -820,7 +875,7 @@ export function VideoStudioPage() {
 
         {/* ---------- 4. edit the result ---------- */}
         {hasEdit && (
-          <section>
+          <section ref={editSectionRef}>
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">4 · Edit</h3>
             <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-gray-800 p-3">
               {clipSegments?.length ? (
@@ -1000,7 +1055,7 @@ export function VideoStudioPage() {
 
         {/* ---------- 5. preview → approve → export ---------- */}
         {hasEdit && (
-          <section>
+          <section ref={previewSectionRef}>
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Preview → Approve → Export</h3>
 
             {previewUrl ? (
@@ -1056,6 +1111,83 @@ export function VideoStudioPage() {
         )}
       </div>
     </Page>
+  )
+}
+
+function ProjectHeader({
+  content,
+  status,
+  approved,
+  editor,
+  onPreview,
+  onEdit,
+  onSubmitForReview,
+  submitting,
+  busy,
+}: {
+  content: ContentRow | null
+  status: string
+  approved: boolean
+  editor?: string
+  onPreview: () => void
+  onEdit: () => void
+  onSubmitForReview: () => void
+  submitting: boolean
+  busy: boolean
+}) {
+  const subtitle = [content?.brand_name, content?.platform, content?.format].filter(Boolean).join(' ')
+  return (
+    <div className="mb-6 rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-4 sm:px-5 sm:py-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title flex items-center gap-2">
+            <span aria-hidden="true">🎬</span> {content?.title ?? 'Video studio'}
+          </h1>
+          {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+
+          <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              <dt className="text-gray-600">Status:</dt>
+              <dd><StatusStrip status={status} approved={approved} /></dd>
+            </div>
+            {editor && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Editor:</dt>
+                <dd className="text-gray-300">{editor}</dd>
+              </div>
+            )}
+            {content?.platform && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Platform:</dt>
+                <dd className="text-gray-300">{content.platform}</dd>
+              </div>
+            )}
+            {content?.format && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Format:</dt>
+                <dd className="text-gray-300">{content.format}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 no-print">
+          <button onClick={onPreview} className="btn-secondary text-xs inline-flex items-center gap-1.5">
+            <Play className="w-3.5 h-3.5" /> Preview Video
+          </button>
+          <button onClick={onEdit} className="btn-secondary text-xs inline-flex items-center gap-1.5">
+            <Pencil className="w-3.5 h-3.5" /> Edit Video
+          </button>
+          <button
+            onClick={onSubmitForReview}
+            disabled={busy || submitting}
+            className="btn-primary text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Send className="w-3.5 h-3.5" /> {submitting ? 'Submitting…' : 'Submit for Review'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
