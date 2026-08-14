@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { X, Pencil, MessageCircle, CalendarClock, CheckCircle, XCircle } from 'lucide-react'
+import { X, Pencil, MessageCircle, CalendarClock, CheckCircle, XCircle, Printer } from 'lucide-react'
 import type { SavedQuotation } from './data/storage'
+import { printQuickQuote } from './printQuickQuote'
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`
 const fmtDate = (iso: string) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
@@ -113,6 +114,10 @@ export function QuickQuoteDetail({ quote: q, onClose, onEdit, onConvert, onWhats
           <button onClick={onWhatsApp} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
             style={{ background: 'rgba(37,211,102,0.15)', color: '#25d366', border: '1px solid rgba(37,211,102,0.3)' }}>
             <MessageCircle className="w-3.5 h-3.5" /> Send WhatsApp
+          </button>
+          <button onClick={() => printQuickQuote({ quote: q })} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors"
+            style={{ borderColor: 'var(--glass-border)', color: 'var(--text-base)' }}>
+            <Printer className="w-3.5 h-3.5" /> Print PDF
           </button>
           {q.status !== 'converted' && q.status !== 'lost' && (
             <button onClick={() => setFollowUpOpen(o => !o)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"

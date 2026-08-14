@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { X, Zap, Send } from 'lucide-react'
+import { X, Zap, Send, Printer } from 'lucide-react'
 import { saveQuotation, TOPZ_TEAM, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { buildQuickQuoteMessage, openWhatsApp } from './whatsapp'
+import { printQuickQuote } from './printQuickQuote'
 import toast from 'react-hot-toast'
 
 const LAST_TEAM_MEMBER_KEY = 'topz-quick-quote-last-team-member'
@@ -37,6 +38,12 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [sentBy, setSentBy] = useState(initial?.sentBy ?? localStorage.getItem(LAST_TEAM_MEMBER_KEY) ?? '')
   const [saving, setSaving] = useState(false)
+  const [quoteNoPreview] = useState(initial?.quoteNo ?? quickQuoteNo())
+  const [includeTnc, setIncludeTnc] = useState(false)
+  const [selectedNotes, setSelectedNotes] = useState<Set<string>>(
+    new Set(['toll_extra', 'valid', 'advance'])
+  )
+  const [showNotePicker, setShowNotePicker] = useState(false)
 
   function validate(): string | null {
     if (!clientName.trim()) return 'Client name is required'
@@ -53,7 +60,7 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
     const vehicle = vehicles.find(v => v.name === vehicleName)
     return {
       id: initial?.id ?? uid(),
-      quoteNo: initial?.quoteNo ?? quickQuoteNo(),
+      quoteNo: quoteNoPreview,
       createdAt: initial?.createdAt ?? new Date().toISOString(),
       status,
       tripType: 'outstation',
@@ -102,6 +109,10 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
     } finally {
       setSaving(false)
     }
+  }
+
+  function handlePrint() {
+    printQuickQuote({ quote: buildQuote(initial?.status ?? 'draft'), includeTnc, selectedNotes })
   }
 
   return (
@@ -207,6 +218,56 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
             <option value="">—</option>
             {TOPZ_TEAM.map(name => <option key={name} value={name}>{name}</option>)}
           </select>
+        </div>
+
+        {/* Notes + Print */}
+        <div className="flex items-center gap-2 flex-wrap relative">
+          <button onClick={() => setShowNotePicker(p => !p)} type="button"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all"
+            style={showNotePicker
+              ? { background: 'rgba(240,192,64,0.12)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }
+              : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }}>
+            Notes ({selectedNotes.size})
+          </button>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs" style={labelStyle}>
+            <input type="checkbox" checked={includeTnc} onChange={e => setIncludeTnc(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer" />
+            T&amp;C
+          </label>
+          <button onClick={handlePrint} type="button"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ml-auto"
+            style={{ borderColor: 'var(--glass-border)', color: 'var(--text-base)' }}>
+            <Printer className="w-3.5 h-3.5" /> Print PDF
+          </button>
+          {showNotePicker && (
+            <div className="absolute bottom-full left-0 mb-2 z-50 rounded-2xl p-4 space-y-2 w-72 shadow-xl"
+              style={{ background: 'var(--sidebar-bg)', border: '1px solid var(--glass-border)' }}>
+              <p className="text-xs font-bold mb-2" style={{ color: 'var(--text-base)' }}>Notes in PDF</p>
+              {[
+                { id: 'toll_extra',  label: 'Toll, parking & taxes extra' },
+                { id: 'toll_incl',   label: 'Toll included, only parking extra' },
+                { id: 'atal_setu',   label: 'Atal Setu toll extra' },
+                { id: 'border_tax',  label: 'Border / interstate tax extra' },
+                { id: 'valid',       label: 'Quotation valid for 3 days' },
+                { id: 'advance',     label: '25% advance to confirm booking' },
+                { id: 'ref_image',   label: 'Vehicle images for reference only' },
+                { id: 'inclusive',   label: 'All-inclusive — no extras' },
+                { id: 'cancel',      label: 'Cancellation policy applies' },
+              ].map(n => (
+                <label key={n.id} className="flex items-center gap-2.5 cursor-pointer group">
+                  <input type="checkbox"
+                    checked={selectedNotes.has(n.id)}
+                    onChange={e => {
+                      const next = new Set(selectedNotes)
+                      e.target.checked ? next.add(n.id) : next.delete(n.id)
+                      setSelectedNotes(next)
+                    }}
+                    className="w-3.5 h-3.5 rounded accent-yellow-400 cursor-pointer shrink-0" />
+                  <span className="text-xs group-hover:text-white transition-colors" style={{ color: 'var(--text-muted)' }}>{n.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Actions */}

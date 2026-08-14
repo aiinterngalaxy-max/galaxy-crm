@@ -4,6 +4,7 @@ import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download
 import { getQuotations, deleteQuotation, updateQuotationStatus, saveQuotation, saveBooking, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { printQuotation } from './printQuotation'
+import { printQuickQuote } from './printQuickQuote'
 import { buildQuickQuoteMessage, openWhatsApp } from './whatsapp'
 import { QuickQuoteModal } from './QuickQuoteModal'
 import { QuickQuoteDetail } from './QuickQuoteDetail'
@@ -60,6 +61,7 @@ export function QuotationHistory() {
   useEffect(() => { refresh() }, [refresh])
 
   async function handlePrint(q: SavedQuotation) {
+    if (q.type === 'quick') { await printQuickQuote({ quote: q }); return }
     const vehicle = getVehicles().find(v => v.name === q.vehicleName)
     if (!vehicle) { toast.error('Vehicle data not found'); return }
     await printQuotation({
