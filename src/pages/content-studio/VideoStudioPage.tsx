@@ -139,7 +139,6 @@ export function VideoStudioPage() {
   const [uploadPct, setUploadPct] = useState(0)
   const [editProgress, setEditProgress] = useState<AutoEditProgress | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
-  const [showOptions, setShowOptions] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showAutoEditInfo, setShowAutoEditInfo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -991,15 +990,56 @@ export function VideoStudioPage() {
         {/* ---------- auto-edit result: edit / change / regenerate ---------- */}
         {job?.raw_drive_id && (
           <section ref={autoEditSectionRef}>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">3 · Auto-edit</h3>
-              <button onClick={() => setShowOptions((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300">
-                {showOptions ? 'Hide options' : 'Options'}
-              </button>
-            </div>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">🤖 Auto-Edit</h3>
+            <p className="text-[11px] text-gray-600 mb-3">
+              Let AI create a first cut from your uploaded footage. You can edit the result manually afterwards.
+            </p>
 
-            {showOptions && (
-              <div className="mb-3 grid grid-cols-2 gap-3 rounded-lg border border-gray-800 p-3 text-sm">
+            {status === 'Generating' ? (
+              <p className="text-sm text-gray-400">Auto-editing… this runs in your browser, so a long clip can take a few minutes. Don't close this tab.</p>
+            ) : !hasEdit ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+                  <span className="rounded-md border border-gray-800 px-2 py-1">Raw Footage</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded-md border border-gray-800 px-2 py-1">AI creates first cut</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded-md border border-gray-800 px-2 py-1">You edit the result</span>
+                </div>
+                <button
+                  onClick={() => job && generate(job)}
+                  disabled={busy}
+                  className="btn-primary text-sm disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  ✨ Generate First Cut
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-emerald-400">✓ First Cut Generated</p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={onPreviewVideo} disabled={busy} className="btn-secondary text-xs disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Play className="w-3.5 h-3.5" /> Preview
+                  </button>
+                  <button onClick={onEditVideo} disabled={busy} className="btn-secondary text-xs disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Pencil className="w-3.5 h-3.5" /> Edit Video
+                  </button>
+                  <button onClick={onRegenerate} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+                    ↻ Regenerate
+                  </button>
+                  <button onClick={onChangeFootage} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+                    Change Footage
+                  </button>
+                </div>
+                {job && job.regen_count > 0 && (
+                  <p className="text-[11px] text-gray-600">regenerated {job.regen_count}×</p>
+                )}
+              </div>
+            )}
+
+            <details className="mt-3">
+              <summary className="text-[11px] text-gray-600 cursor-pointer hover:text-gray-400">Advanced settings (silence sensitivity)</summary>
+              <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-gray-800 p-3 text-sm">
                 <div>
                   <label className="form-label">Silence threshold (dB)</label>
                   <input
@@ -1021,31 +1061,7 @@ export function VideoStudioPage() {
                   <p className="text-[11px] text-gray-600 mt-1">Shorter cuts more; catches natural pauses too.</p>
                 </div>
               </div>
-            )}
-
-            {status === 'Generating' ? (
-              <p className="text-sm text-gray-400">Auto-editing… this runs in your browser, so a long clip can take a few minutes. Don't close this tab.</p>
-            ) : !hasEdit ? (
-              <button
-                onClick={() => job && generate(job)}
-                disabled={busy}
-                className="btn-primary text-sm disabled:opacity-50"
-              >
-                Generate edit
-              </button>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <button onClick={onRegenerate} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-                  ↻ Regenerate
-                </button>
-                <button onClick={onChangeFootage} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-                  ⤒ Change footage
-                </button>
-                {job && job.regen_count > 0 && (
-                  <span className="text-[11px] text-gray-600 self-center">regenerated {job.regen_count}×</span>
-                )}
-              </div>
-            )}
+            </details>
           </section>
         )}
 
