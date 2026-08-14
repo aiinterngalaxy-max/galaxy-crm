@@ -327,6 +327,21 @@ export function VideoEditWorkspacePage() {
     commit(clips.map((c) => (c.id === clipId ? { ...c, cutEnd: Math.max(0, value) } : c)))
   }
 
+  // The Trim panel shows/accepts absolute "starts at" / "ends at" times (what
+  // people actually mean by "end it at 42 seconds"), converted to/from the
+  // cutStart/cutEnd amounts actually stored and rendered with.
+  function setStartAt(clipId: string, absTime: number) {
+    const c = clips.find((x) => x.id === clipId)
+    if (!c) return
+    setCutStart(clipId, Math.max(0, absTime - c.start))
+  }
+
+  function setEndAt(clipId: string, absTime: number) {
+    const c = clips.find((x) => x.id === clipId)
+    if (!c) return
+    setCutEnd(clipId, Math.max(0, c.end - absTime))
+  }
+
   function deleteClip(clipId: string) {
     if (aliveCount <= 1) return
     const next = clips.map((c) => (c.id === clipId ? { ...c, deleted: true } : c))
@@ -1035,19 +1050,19 @@ export function VideoEditWorkspacePage() {
               {selectedClip ? (
                 <div className="space-y-2">
                   <div>
-                    <label className="text-[10px] text-gray-600">Trim start (sec)</label>
+                    <label className="text-[10px] text-gray-600">Starts at (sec)</label>
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
-                      value={selectedClip.cutStart || ''} placeholder="0"
-                      onChange={(e) => setCutStart(selectedClip.id, Number(e.target.value) || 0)}
+                      value={Math.round((selectedClip.start + selectedClip.cutStart) * 10) / 10}
+                      onChange={(e) => setStartAt(selectedClip.id, Number(e.target.value) || 0)}
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-gray-600">Trim end (sec cut off)</label>
+                    <label className="text-[10px] text-gray-600">Ends at (sec)</label>
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
-                      value={selectedClip.cutEnd || ''} placeholder="0"
-                      onChange={(e) => setCutEnd(selectedClip.id, Number(e.target.value) || 0)}
+                      value={Math.round((selectedClip.end - selectedClip.cutEnd) * 10) / 10}
+                      onChange={(e) => setEndAt(selectedClip.id, Number(e.target.value) || 0)}
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
