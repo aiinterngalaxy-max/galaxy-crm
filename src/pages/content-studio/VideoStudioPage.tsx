@@ -671,17 +671,36 @@ export function VideoStudioPage() {
           </div>
         )}
 
-        {/* ---------- 1. referral / app link ---------- */}
+        {/* ---------- 1. reference ---------- */}
         <section>
-          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">1 · Referral / app link</h3>
-          <input
-            ref={referenceInputRef}
-            className="form-input"
-            placeholder="https://… — the app/product link this piece is promoting"
-            value={job?.reference_url ?? ''}
-            onChange={(e) => persist({ reference_url: e.target.value })}
-            disabled={busy}
-          />
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">🔗 Reference</h3>
+          <p className="text-[11px] text-gray-600 mb-2">
+            Add a website, app, social-media post, or reference video that the editor should use for this project.
+          </p>
+          <div className="space-y-2">
+            <div>
+              <label className="text-[10px] text-gray-600">Reference Link</label>
+              <input
+                ref={referenceInputRef}
+                className="form-input"
+                placeholder="Paste URL here"
+                value={job?.reference_url ?? ''}
+                onChange={(e) => persist({ reference_url: e.target.value })}
+                disabled={busy}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-600">Reference Notes (optional)</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                placeholder="Example: Use the same style, pacing, hook, or visual idea."
+                value={job?.reference_notes ?? ''}
+                onChange={(e) => persist({ reference_notes: e.target.value })}
+                disabled={busy}
+              />
+            </div>
+          </div>
           <p className="text-[11px] text-gray-600 mt-1">
             Stored as a note for whoever edits this piece — not applied automatically.
           </p>

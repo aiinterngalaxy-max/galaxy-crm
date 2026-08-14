@@ -209,6 +209,8 @@ export interface VideoJob {
   // Shown to whoever does the Edit step as a guide, AND (if it resolves)
   // analyzed by AI into link_analysis for the editing plan below.
   reference_url: string;
+  // What the editor should take from reference_url (style, pacing, hook, etc). Optional.
+  reference_notes: string;
   raw_drive_id: string;
   raw_view_url: string;
   raw_name: string;

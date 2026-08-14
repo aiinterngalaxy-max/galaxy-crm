@@ -167,6 +167,8 @@ export const SCHEMA: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
      reference_url TEXT DEFAULT '',
+     -- What the editor should take from reference_url (style, pacing, hook, etc).
+     reference_notes TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -253,6 +255,7 @@ export const MIGRATE: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
      reference_url TEXT DEFAULT '',
+     reference_notes TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -292,6 +295,7 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_video_jobs ADD COLUMN clip_segments TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN caption_position TEXT DEFAULT 'bottom'",
   "ALTER TABLE cmo_video_jobs ADD COLUMN captions TEXT DEFAULT '[]'",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN reference_notes TEXT DEFAULT ''",
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.
