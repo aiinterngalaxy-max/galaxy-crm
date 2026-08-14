@@ -6,28 +6,9 @@ import { ensureVideoJob, updateVideoJob, updateContent, getContent, deleteConten
 import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
+import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-
-/** job.link_analysis / transcript / edit_plan are stored as JSON strings — a
- *  blank or malformed value just means "not generated yet", never a crash. */
-function parseJsonField<T>(raw: string | undefined): T | null {
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
-interface ClipSegmentRecord {
-  start: number
-  end: number
-  label: string
-  /** Extra trim applied after the merge, on top of whatever was cut before joining. */
-  cutStart?: number
-  cutEnd?: number
-}
 
 /** ffmpeg.wasm handles these; anything else is rejected after upload. */
 const ACCEPTED = '.mp4,.mov,.webm,.m4v'
@@ -43,12 +24,6 @@ interface PendingClip {
 }
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err))
-
-function fmtTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
-}
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes / (1024 * 1024) >= 10 ? 0 : 1)} MB`
@@ -647,7 +622,14 @@ export function VideoStudioPage() {
   }
 
   function onEditVideo() {
-    scrollToRef(hasEdit ? editSectionRef : job?.raw_drive_id ? autoEditSectionRef : footageSectionRef)
+    // The dedicated editing workspace works on the generated first cut — with
+    // nothing generated yet, there's nothing to open, so point at Auto-Edit
+    // (or Raw footage, if there isn't footage to generate from either) instead.
+    if (hasEdit) {
+      navigate(`/content-studio/editing/${contentId}/edit`)
+      return
+    }
+    scrollToRef(job?.raw_drive_id ? autoEditSectionRef : footageSectionRef)
   }
 
   async function onSubmitForReview() {
