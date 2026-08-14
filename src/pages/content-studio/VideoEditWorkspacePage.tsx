@@ -312,6 +312,29 @@ export function VideoEditWorkspacePage() {
   const originalDuration = totalDuration
   const editedDuration = aliveClips.reduce((sum, c) => sum + Math.max(0, (c.end - c.cutEnd) - (c.start + c.cutStart)), 0)
 
+  // The "Starts at"/"Ends at" boxes are buffered as plain text and only
+  // committed on blur/Enter — committing on every keystroke meant clearing
+  // the box to type a new number briefly sent an empty string through as 0,
+  // which for "Ends at" means "cut off almost the whole clip".
+  const startAtValue = selectedClip ? Math.round((selectedClip.start + selectedClip.cutStart) * 10) / 10 : 0
+  const endAtValue = selectedClip ? Math.round((selectedClip.end - selectedClip.cutEnd) * 10) / 10 : 0
+  const [startAtInput, setStartAtInput] = useState('0')
+  const [endAtInput, setEndAtInput] = useState('0')
+  useEffect(() => {
+    setStartAtInput(String(startAtValue))
+    setEndAtInput(String(endAtValue))
+  }, [selectedId, startAtValue, endAtValue])
+
+  function commitStartAt() {
+    if (selectedClip && startAtInput.trim() !== '') setStartAt(selectedClip.id, Number(startAtInput) || 0)
+    else setStartAtInput(String(startAtValue))
+  }
+
+  function commitEndAt() {
+    if (selectedClip && endAtInput.trim() !== '') setEndAt(selectedClip.id, Number(endAtInput) || 0)
+    else setEndAtInput(String(endAtValue))
+  }
+
   function commit(next: EditClip[]) {
     setClips(next)
     setHistory((h) => [...h.slice(0, historyIndex + 1), next])
@@ -1065,16 +1088,20 @@ export function VideoEditWorkspacePage() {
                     <label className="text-[10px] text-gray-600">Starts at (sec)</label>
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
-                      value={Math.round((selectedClip.start + selectedClip.cutStart) * 10) / 10}
-                      onChange={(e) => setStartAt(selectedClip.id, Number(e.target.value) || 0)}
+                      value={startAtInput}
+                      onChange={(e) => setStartAtInput(e.target.value)}
+                      onBlur={commitStartAt}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                     />
                   </div>
                   <div>
                     <label className="text-[10px] text-gray-600">Ends at (sec)</label>
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
-                      value={Math.round((selectedClip.end - selectedClip.cutEnd) * 10) / 10}
-                      onChange={(e) => setEndAt(selectedClip.id, Number(e.target.value) || 0)}
+                      value={endAtInput}
+                      onChange={(e) => setEndAtInput(e.target.value)}
+                      onBlur={commitEndAt}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
