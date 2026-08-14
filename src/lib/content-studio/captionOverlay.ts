@@ -14,10 +14,15 @@
  */
 export type CaptionPosition = 'top' | 'bottom' | 'left' | 'right' | 'center'
 
+export type CaptionSize = 'sm' | 'md' | 'lg'
+
 export interface CaptionImageInput {
   text: string
   position?: CaptionPosition
+  size?: CaptionSize
 }
+
+const SIZE_SCALE: Record<CaptionSize, number> = { sm: 0.72, md: 1, lg: 1.35 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
@@ -49,8 +54,8 @@ export async function renderCaptionImage(
   const text = caption.text.trim()
   // Scaled off the frame height so captions read a consistent size whether
   // the footage is 720p or 4K — same ratio drawtext's fixed fontsize=42 gave
-  // on a roughly 1080-tall portrait clip.
-  const fontSize = Math.max(18, Math.round(frameHeight * 0.039))
+  // on a roughly 1080-tall portrait clip. size then scales that baseline.
+  const fontSize = Math.max(14, Math.round(frameHeight * 0.039 * SIZE_SCALE[caption.size ?? 'md']))
   ctx.font = `${fontSize}px sans-serif`
   ctx.textBaseline = 'middle'
 

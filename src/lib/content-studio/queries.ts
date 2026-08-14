@@ -26,7 +26,7 @@ import type {
 
 const PLATFORM_SET = new Set<string>(PLATFORMS)
 
-async function logActivity(
+export async function logActivity(
   entity_type: string,
   entity_id: number,
   action: string,
@@ -777,7 +777,10 @@ const VIDEO_JOB_COLS =
    silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
    trim_start, trim_end, caption_text, caption_position, captions, export_drive_id, export_view_url,
    error, regen_count, approved, approved_at, link_analysis, transcript, edit_plan,
-   clip_segments, created_at, updated_at`
+   clip_segments, review_status, review_feedback, reviewed_by, reviewed_at, submitted_by, submitted_at,
+   music_drive_id, music_view_url, music_name, music_volume, music_start, music_end,
+   mute_original_audio, original_volume, music_fade_in, music_fade_out,
+   created_at, updated_at`
 
 export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
@@ -880,6 +883,9 @@ export async function updateVideoJob(id: number, data: Record<string, any>): Pro
     'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
     'trim_start', 'trim_end', 'caption_text', 'caption_position', 'captions', 'export_drive_id', 'export_view_url',
     'error', 'regen_count', 'approved', 'link_analysis', 'transcript', 'edit_plan', 'clip_segments',
+    'review_status', 'review_feedback', 'reviewed_by', 'reviewed_at', 'submitted_by', 'submitted_at',
+    'music_drive_id', 'music_view_url', 'music_name', 'music_volume', 'music_start', 'music_end',
+    'mute_original_audio', 'original_volume', 'music_fade_in', 'music_fade_out',
   ])
   const { sets, args } = applyEditable(data, editable)
   if (!sets.length) throw new Error('no editable fields')
@@ -1103,6 +1109,16 @@ export function getActivity(type?: string): Promise<ActivityEntry[]> {
     return all<ActivityEntry>(`SELECT ${ACTIVITY_COLS} FROM cmo_activity_log WHERE entity_type=? ORDER BY id DESC LIMIT 200`, [type])
   }
   return all<ActivityEntry>(`SELECT ${ACTIVITY_COLS} FROM cmo_activity_log ORDER BY id DESC LIMIT 200`)
+}
+
+/** Used for the video workspace's Review History — reuses the same activity
+ *  log every other stage-change/publish event already writes to, filtered
+ *  down to one content piece instead of a whole type. */
+export function getActivityForEntity(entityType: string, entityId: number): Promise<ActivityEntry[]> {
+  return all<ActivityEntry>(
+    `SELECT ${ACTIVITY_COLS} FROM cmo_activity_log WHERE entity_type=? AND entity_id=? ORDER BY id DESC LIMIT 50`,
+    [entityType, entityId],
+  )
 }
 
 // ---------- search ----------

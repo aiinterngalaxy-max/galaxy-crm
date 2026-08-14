@@ -242,6 +242,27 @@ export interface VideoJob {
   // JSON array of {start,end,label,cutStart?,cutEnd?} — set when raw footage
   // came from 2+ joined clips, so each can be trimmed further after the merge.
   clip_segments: string;
+  // Reviewer sign-off on this edit, layered on top of cmo_content.stage —
+  // see schema.ts's cmo_video_jobs comment for why this exists separately.
+  review_status: '' | 'ready_for_review' | 'approved' | 'changes_requested';
+  review_feedback: string;
+  reviewed_by: string;
+  reviewed_at: string;
+  submitted_by: string;
+  submitted_at: string;
+  // Background music, uploaded to Drive the same way raw/edited footage is.
+  music_drive_id: string;
+  music_view_url: string;
+  music_name: string;
+  music_volume: number;
+  // Where in the VIDEO's own timeline the music starts/stops (0/0 = plays
+  // from the start for the whole video).
+  music_start: number;
+  music_end: number;
+  mute_original_audio: number; // 0/1
+  original_volume: number;
+  music_fade_in: number;
+  music_fade_out: number;
   created_at: string;
   updated_at: string;
 }

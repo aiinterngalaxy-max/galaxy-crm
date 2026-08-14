@@ -436,6 +436,7 @@ export async function autoEditRemoveSilence(
 }
 
 export type CaptionPosition = 'top' | 'bottom' | 'left' | 'right' | 'center'
+export type CaptionSize = 'sm' | 'md' | 'lg'
 
 export interface TimedCaption {
   text: string
@@ -443,6 +444,9 @@ export interface TimedCaption {
   start?: number
   end?: number
   position?: CaptionPosition
+  size?: CaptionSize
+  /** 'text' = the free-standing Text tool, 'caption' (default) = the Captions tool — same storage/render path, just two labels in the editor UI. */
+  kind?: 'text' | 'caption'
 }
 
 /**
@@ -471,7 +475,7 @@ async function planCaptionOverlays(
   let cur = startLabel
   for (let i = 0; i < active.length; i++) {
     const cap = active[i]
-    const png = await renderCaptionImage({ text: cap.text, position: cap.position }, width, height)
+    const png = await renderCaptionImage({ text: cap.text, position: cap.position, size: cap.size }, width, height)
     const name = `capimg-${pngInputsFrom + i}.png`
     await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))
     // -loop 1: a still image is one frame by default, which would make it
@@ -488,6 +492,67 @@ async function planCaptionOverlays(
   return { loadArgs, filterLines, videoLabel: cur }
 }
 
+/**
+ * Builds the audio filter_complex lines shared by renderFinal/renderSegments:
+ * volume/mute on the original track, and (if a music input index is given)
+ * delaying music to musicStart, capping it at musicEnd, fading it in/out,
+ * then mixing it under (or replacing) the original. originalAudioLabel is
+ * whatever label already holds the trimmed/concatenated original audio
+ * (e.g. '0:a' or '[outa]') going in; the returned label is what to `-map`.
+ */
+function buildAudioFilters(opts: {
+  originalAudioLabel: string
+  musicInputIndex: number | null
+  muteOriginalAudio: boolean
+  originalVolume: number
+  musicVolume: number
+  musicStart: number
+  musicEnd: number
+  fadeIn: number
+  fadeOut: number
+}): { filterLines: string[]; audioLabel: string } {
+  const { originalAudioLabel, musicInputIndex, muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut } = opts
+  const filters: string[] = []
+
+  if (musicInputIndex == null) {
+    if (originalVolume === 1) return { filterLines: [], audioLabel: originalAudioLabel }
+    filters.push(`${originalAudioLabel}volume=${originalVolume}[aout]`)
+    return { filterLines: filters, audioLabel: '[aout]' }
+  }
+
+  let m = `[${musicInputIndex}:a]`
+  if (musicStart > 0) {
+    const ms = Math.round(musicStart * 1000)
+    filters.push(`${m}adelay=${ms}|${ms}[mdelay]`)
+    m = '[mdelay]'
+  }
+  if (musicEnd > musicStart) {
+    filters.push(`${m}atrim=end=${musicEnd}[mtrim]`)
+    m = '[mtrim]'
+  }
+  if (fadeIn > 0) {
+    filters.push(`${m}afade=t=in:st=${musicStart}:d=${fadeIn}[mfin]`)
+    m = '[mfin]'
+  }
+  if (fadeOut > 0 && musicEnd > musicStart) {
+    const fadeStart = Math.max(musicStart, musicEnd - fadeOut)
+    filters.push(`${m}afade=t=out:st=${fadeStart}:d=${fadeOut}[mfout]`)
+    m = '[mfout]'
+  }
+  filters.push(`${m}volume=${musicVolume}[music]`)
+
+  if (muteOriginalAudio) {
+    filters.push(`[music]anull[aout]`)
+  } else {
+    const origLabel = originalVolume === 1 ? originalAudioLabel : (() => {
+      filters.push(`${originalAudioLabel}volume=${originalVolume}[origvol]`)
+      return '[origvol]'
+    })()
+    filters.push(`${origLabel}[music]amix=inputs=2:duration=first:dropout_transition=2[aout]`)
+  }
+  return { filterLines: filters, audioLabel: '[aout]' }
+}
+
 export interface RenderFinalOptions {
   trimStart?: number
   trimEnd?: number
@@ -497,6 +562,13 @@ export interface RenderFinalOptions {
   /** true = replace the clip's own audio with the music track entirely; false = mix under it. */
   muteOriginalAudio?: boolean
   musicVolume?: number
+  /** Where in the video's own (already-trimmed) timeline the music starts/stops. 0/0 = plays from the start for the whole video. */
+  musicStart?: number
+  musicEnd?: number
+  fadeIn?: number
+  fadeOut?: number
+  /** Volume on the clip's own audio track, independent of music. 1 = unchanged. */
+  originalVolume?: number
 }
 
 /**
@@ -508,6 +580,7 @@ export async function renderFinal(
   {
     trimStart = 0, trimEnd = 0, captions = [],
     musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
+    musicStart = 0, musicEnd = 0, fadeIn = 0, fadeOut = 0, originalVolume = 1,
   }: RenderFinalOptions,
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
@@ -549,15 +622,13 @@ export async function renderFinal(
     const filters = [...filterLines]
     let videoMap = filterLines.length ? videoLabel : '0:v'
 
-    let audioMap = '0:a'
-    if (musicBlob) {
-      if (muteOriginalAudio) {
-        filters.push(`[${musicInputIndex}:a]volume=1.0[aout]`)
-      } else {
-        filters.push(`[${musicInputIndex}:a]volume=${musicVolume}[music]`, `[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]`)
-      }
-      audioMap = '[aout]'
-    }
+    const { filterLines: audioFilters, audioLabel } = buildAudioFilters({
+      originalAudioLabel: '0:a',
+      musicInputIndex: musicBlob ? musicInputIndex : null,
+      muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut,
+    })
+    filters.push(...audioFilters)
+    const audioMap = audioLabel
 
     if (filters.length) args.push('-filter_complex', filters.join(';'))
     args.push('-map', videoMap, '-map', audioMap)
@@ -593,6 +664,11 @@ export interface RenderSegmentsOptions {
   musicBlob?: Blob
   muteOriginalAudio?: boolean
   musicVolume?: number
+  musicStart?: number
+  musicEnd?: number
+  fadeIn?: number
+  fadeOut?: number
+  originalVolume?: number
 }
 
 /**
@@ -609,7 +685,10 @@ export async function renderSegments(
   opts: RenderSegmentsOptions = {},
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
-  const { captions = [], musicBlob, muteOriginalAudio = false, musicVolume = 0.18 } = opts
+  const {
+    captions = [], musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
+    musicStart = 0, musicEnd = 0, fadeIn = 0, fadeOut = 0, originalVolume = 1,
+  } = opts
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
@@ -642,18 +721,16 @@ export async function renderSegments(
     filterComplex.push(...filterLines)
     const videoOut = videoLabel
 
-    let audioOut = '[outa]'
     const args = ['-i', inputName, ...loadArgs]
     const musicInputIndex = 1 + capNames.length
-    if (musicBlob) {
-      args.push('-stream_loop', '-1', '-i', musicName)
-      if (muteOriginalAudio) {
-        filterComplex.push(`[${musicInputIndex}:a]volume=1.0[outa2]`)
-      } else {
-        filterComplex.push(`[${musicInputIndex}:a]volume=${musicVolume}[music]`, `[outa][music]amix=inputs=2:duration=first:dropout_transition=2[outa2]`)
-      }
-      audioOut = '[outa2]'
-    }
+    if (musicBlob) args.push('-stream_loop', '-1', '-i', musicName)
+
+    const { filterLines: audioFilters, audioLabel: audioOut } = buildAudioFilters({
+      originalAudioLabel: '[outa]',
+      musicInputIndex: musicBlob ? musicInputIndex : null,
+      muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut,
+    })
+    filterComplex.push(...audioFilters)
 
     onProgress?.({ phase: 'rendering' })
     args.push('-filter_complex', filterComplex.join(';'), '-map', videoOut, '-map', audioOut)
