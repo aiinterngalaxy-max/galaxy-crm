@@ -811,8 +811,36 @@ function ensureContentStudioSchema(): Promise<void> {
   return schemaReady
 }
 
+// Column adds (MIGRATE) run separately from CREATE TABLE (SCHEMA/applySchema)
+// and are also triggered on layout mount (see ContentStudioLayout), but that
+// runs in parallel with — not before — the page's own first query. A reader
+// that lands on a column added after their install first ran can race it and
+// see "no such column" once; this lets that same query self-heal by applying
+// migrations and retrying, instead of surfacing a raw SQL error.
+let migrationsReady: Promise<void> | null = null
+function ensureContentStudioMigrations(): Promise<void> {
+  if (!migrationsReady) {
+    migrationsReady = (async () => {
+      for (const sql of MIGRATE) {
+        try {
+          await run(sql)
+        } catch (err) {
+          if (!/duplicate column/i.test(err instanceof Error ? err.message : String(err))) {
+            console.error('Content Studio migration failed for one statement:', err)
+          }
+        }
+      }
+    })()
+  }
+  return migrationsReady
+}
+
 function isMissingTable(err: unknown): boolean {
   return /no such table/i.test(err instanceof Error ? err.message : String(err))
+}
+
+function isMissingColumn(err: unknown): boolean {
+  return /no such column/i.test(err instanceof Error ? err.message : String(err))
 }
 
 async function ensureVideoJobOnce(contentId: number): Promise<VideoJob> {
@@ -834,9 +862,15 @@ export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
   try {
     return await ensureVideoJobOnce(contentId)
   } catch (err) {
-    if (!isMissingTable(err)) throw err
-    await ensureContentStudioSchema()
-    return ensureVideoJobOnce(contentId)
+    if (isMissingTable(err)) {
+      await ensureContentStudioSchema()
+      return ensureVideoJobOnce(contentId)
+    }
+    if (isMissingColumn(err)) {
+      await ensureContentStudioMigrations()
+      return ensureVideoJobOnce(contentId)
+    }
+    throw err
   }
 }
 
