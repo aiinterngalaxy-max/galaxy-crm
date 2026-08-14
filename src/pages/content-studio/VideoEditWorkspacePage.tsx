@@ -409,17 +409,29 @@ export function VideoEditWorkspacePage() {
   function onHandleMouseMove(e: MouseEvent) {
     const d = dragRef.current
     if (!d) return
+    const clip = clipsRef.current.find((c) => c.id === d.clipId)
+    if (!clip) return
     const deltaSec = (e.clientX - d.startX) / d.pxPerSec
-    setClips((prev) => prev.map((c) => {
-      if (c.id !== d.clipId) return c
-      const span = c.end - c.start
-      if (d.edge === 'start') {
-        const maxCut = Math.max(0, span - c.cutEnd - 0.2)
-        return { ...c, cutStart: Math.min(maxCut, Math.max(0, d.startVal + deltaSec)) }
-      }
-      const maxCut = Math.max(0, span - c.cutStart - 0.2)
-      return { ...c, cutEnd: Math.min(maxCut, Math.max(0, d.startVal - deltaSec)) }
-    }))
+    const span = clip.end - clip.start
+    let newCutStart = clip.cutStart
+    let newCutEnd = clip.cutEnd
+    if (d.edge === 'start') {
+      const maxCut = Math.max(0, span - clip.cutEnd - 0.2)
+      newCutStart = Math.min(maxCut, Math.max(0, d.startVal + deltaSec))
+    } else {
+      const maxCut = Math.max(0, span - clip.cutStart - 0.2)
+      newCutEnd = Math.min(maxCut, Math.max(0, d.startVal - deltaSec))
+    }
+    setClips((prev) => prev.map((c) => (c.id === d.clipId ? { ...c, cutStart: newCutStart, cutEnd: newCutEnd } : c)))
+
+    // Not a live re-render (ffmpeg can't do that fast) — just seeks the
+    // already-loaded video to roughly the frame this handle now points at,
+    // so dragging feels responsive even though the real trimmed result only
+    // comes from clicking Preview.
+    const seekTo = d.edge === 'start' ? clip.start + newCutStart : clip.end - newCutEnd
+    if (videoRef.current && duration > 0) {
+      videoRef.current.currentTime = Math.max(0, Math.min(duration, seekTo))
+    }
   }
 
   function onHandleMouseUp() {
