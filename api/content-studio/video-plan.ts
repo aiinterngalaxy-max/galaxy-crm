@@ -279,25 +279,19 @@ function checkNotBotWalled(url: string, meta: PageMeta) {
   }
 }
 
-async function analyzeStyle(url: string): Promise<StyleProfile> {
-  if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
-  const meta = await fetchPageMeta(url)
-  checkNotBotWalled(url, meta)
-  if (!meta.image) {
-    throw new Error("Couldn't find a cover image on that link to analyze — it may block automated visits, or have no preview image.")
-  }
-  const dataUrl = await fetchAsDataUrl(meta.image)
-  if (!dataUrl) throw new Error("Couldn't load that link's cover image.")
-
+/** The actual vision call + response parsing, shared by both entry points
+ *  below — a link's fetched cover image and a directly-uploaded one are
+ *  analyzed identically from this point on. */
+async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Promise<StyleProfile> {
   const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
-    { type: 'text', text: `Page title (context only, not the subject): ${meta.title || '(none)'}` },
+    { type: 'text', text: `Page title (context only, not the subject): ${titleHint || '(none)'}` },
     { type: 'image_url', image_url: { url: dataUrl } },
   ], 400)
 
   const parsed = extractJson<Record<string, unknown>>(raw, '{')
   if (!parsed) {
     throw new Error(
-      'The model could not read a usable style from that image — this can happen when the link\'s cover image isn\'t the actual reel (some platforms block real previews). Try again, or try a different link.',
+      'The model could not read a usable style from that image — try again, or try a different/clearer image.',
     )
   }
 
@@ -318,6 +312,33 @@ async function analyzeStyle(url: string): Promise<StyleProfile> {
     captionPosition: positions.includes(parsed.captionPosition as StyleCaptionPosition) ? (parsed.captionPosition as StyleCaptionPosition) : 'bottom',
     vibe: String(parsed.vibe || ''),
   }
+}
+
+async function analyzeStyle(url: string): Promise<StyleProfile> {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
+  const meta = await fetchPageMeta(url)
+  checkNotBotWalled(url, meta)
+  if (!meta.image) {
+    throw new Error("Couldn't find a cover image on that link to analyze — it may block automated visits, or have no preview image. Try uploading a screenshot of the reel's cover instead.")
+  }
+  const dataUrl = await fetchAsDataUrl(meta.image)
+  if (!dataUrl) throw new Error("Couldn't load that link's cover image. Try uploading a screenshot of the reel's cover instead.")
+  return analyzeStyleFromDataUrl(dataUrl, meta.title)
+}
+
+/**
+ * For platforms that block server-side fetches entirely (Instagram, TikTok)
+ * — rather than trying to work around that block, the operator grabs the
+ * cover image themselves (screenshot, or "save image") using their own
+ * legitimate access, and uploads it directly. Same analysis, same output
+ * shape, just sourced honestly instead of scraped.
+ */
+async function analyzeStyleImage(imageBase64: string, mime: string): Promise<StyleProfile> {
+  if (!imageBase64) throw new Error('No image uploaded.')
+  const bytes = Buffer.from(imageBase64, 'base64')
+  if (bytes.byteLength > 8_000_000) throw new Error('That image is too large — try a smaller screenshot (under 8MB).')
+  const dataUrl = `data:${mime || 'image/jpeg'};base64,${imageBase64}`
+  return analyzeStyleFromDataUrl(dataUrl, '')
 }
 
 // ─── transcribe ─────────────────────────────────────────────────────────────
@@ -443,6 +464,10 @@ export default async function handler(req: Req, res: Res) {
     }
     if (action === 'analyzeStyle') {
       res.status(200).json(await analyzeStyle(String(body.url || '').trim()))
+      return
+    }
+    if (action === 'analyzeStyleImage') {
+      res.status(200).json(await analyzeStyleImage(String(body.imageBase64 || ''), String(body.mime || '')))
       return
     }
     if (action === 'transcribe') {

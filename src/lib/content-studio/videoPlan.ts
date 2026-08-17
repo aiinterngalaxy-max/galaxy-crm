@@ -89,6 +89,15 @@ export function analyzeReferenceStyle(url: string): Promise<ReferenceStyleProfil
   return callVideoPlan('analyzeStyle', { url })
 }
 
+/** For links the server can't fetch (Instagram/TikTok block non-browser
+ *  requests entirely) — the operator screenshots or saves the reel's cover
+ *  image themselves, using their own legitimate access, and this analyzes
+ *  that directly instead. Same output shape as analyzeReferenceStyle. */
+export async function analyzeReferenceStyleImage(image: Blob): Promise<ReferenceStyleProfile> {
+  const imageBase64 = await blobToBase64(image)
+  return callVideoPlan('analyzeStyleImage', { imageBase64, mime: image.type })
+}
+
 /**
  * Turns a style profile into real, validated AI Edit commands (crop +
  * color grade, plus a restyle of existing captions if any exist) — built

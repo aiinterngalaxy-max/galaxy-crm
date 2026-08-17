@@ -24,7 +24,7 @@ import {
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt } from '@/lib/content-studio/videoEditShared'
-import { transcribeAudio, analyzeReferenceStyle, styleProfileToCommands } from '@/lib/content-studio/videoPlan'
+import { transcribeAudio, analyzeReferenceStyle, analyzeReferenceStyleImage, styleProfileToCommands } from '@/lib/content-studio/videoPlan'
 import { Page } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
@@ -1193,6 +1193,18 @@ export function VideoEditWorkspacePage() {
   const [styleMatching, setStyleMatching] = useState(false)
   const [styleError, setStyleError] = useState('')
   const [styleVibe, setStyleVibe] = useState('')
+  const styleImageInputRef = useRef<HTMLInputElement>(null)
+
+  function applyStyleProfile(profile: Awaited<ReturnType<typeof analyzeReferenceStyle>>) {
+    const textLayers = overlays.map((o) => ({ id: o.id, text: o.text, start: o.start, end: o.end }))
+    const commands = styleProfileToCommands(profile, { durationSec: duration || 0, hasMusic, textLayers })
+    if (!commands.length) {
+      setStyleError("Couldn't turn that reference's style into any changes — try a different link/image.")
+      return
+    }
+    setStyleVibe(profile.vibe)
+    setAiPendingCommands(commands)
+  }
 
   async function matchReferenceStyle() {
     const url = styleUrl.trim()
@@ -1202,19 +1214,32 @@ export function VideoEditWorkspacePage() {
     setAiPendingCommands(null)
     setStyleMatching(true)
     try {
-      const profile = await analyzeReferenceStyle(url)
-      const textLayers = overlays.map((o) => ({ id: o.id, text: o.text, start: o.start, end: o.end }))
-      const commands = styleProfileToCommands(profile, { durationSec: duration || 0, hasMusic, textLayers })
-      if (!commands.length) {
-        setStyleError("Couldn't turn that reference's style into any changes — try a different link.")
-        return
-      }
-      setStyleVibe(profile.vibe)
-      setAiPendingCommands(commands)
+      applyStyleProfile(await analyzeReferenceStyle(url))
     } catch (err) {
       setStyleError(errText(err))
     } finally {
       setStyleMatching(false)
+    }
+  }
+
+  /** For Instagram/TikTok links, which block the server-side fetch above
+   *  entirely (verified: they serve a blank, login-walled page to any
+   *  non-browser request — not something to work around, since that would
+   *  mean bypassing their bot-detection). The operator grabs the cover
+   *  image themselves — screenshot, or "save image" from their own
+   *  logged-in browser — and this analyzes that upload directly instead. */
+  async function matchReferenceStyleFromImage(file: File) {
+    setStyleError('')
+    setStyleVibe('')
+    setAiPendingCommands(null)
+    setStyleMatching(true)
+    try {
+      applyStyleProfile(await analyzeReferenceStyleImage(file))
+    } catch (err) {
+      setStyleError(errText(err))
+    } finally {
+      setStyleMatching(false)
+      if (styleImageInputRef.current) styleImageInputRef.current.value = ''
     }
   }
 
@@ -1789,6 +1814,23 @@ export function VideoEditWorkspacePage() {
                 disabled={styleMatching || aiInterpreting || aiApplying || !sourceBlobRef.current}
               >
                 {styleMatching ? 'Analyzing style…' : 'Analyze & Match Style'}
+              </button>
+              <p className="text-[10px] text-gray-600 text-center">
+                Instagram/TikTok links block this — they need a real login, and I won't try to bypass that.
+              </p>
+              <input
+                ref={styleImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) matchReferenceStyleFromImage(f) }}
+              />
+              <button
+                className="btn-secondary text-xs w-full disabled:opacity-50"
+                onClick={() => styleImageInputRef.current?.click()}
+                disabled={styleMatching || aiInterpreting || aiApplying || !sourceBlobRef.current}
+              >
+                {styleMatching ? 'Analyzing style…' : 'Or Upload a Screenshot of the Reel Instead'}
               </button>
               {styleError && <p className="text-[11px] text-rose-400">{styleError}</p>}
               {styleVibe && (
