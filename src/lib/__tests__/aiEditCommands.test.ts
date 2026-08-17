@@ -170,6 +170,35 @@ describe('validateCommand', () => {
       expect(validateCommand({ type: 'text', text: 'Hi', backgroundOpacity: 1.5 }, ctx)).toHaveProperty('error')
       expect(validateCommand({ type: 'text', text: 'Hi', backgroundOpacity: -0.1 }, ctx)).toHaveProperty('error')
     })
+
+    describe('entrance animation (TEST: "text sliding down from the top, one line at a time")', () => {
+      it('accepts a slide-down entrance directly on a brand-new text', () => {
+        const result = validateCommand({ type: 'text', text: 'Hey', start: 0, end: 1.2, animation: 'slide-down' }, ctx)
+        expect(result).toMatchObject({ animation: 'slide-down' })
+      })
+      it('accepts slide-up and fade too', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'slide-up' }, ctx)).toMatchObject({ animation: 'slide-up' })
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'fade' }, ctx)).toMatchObject({ animation: 'fade' })
+      })
+      it('rejects an unrecognized animation rather than silently dropping it', () => {
+        const result = validateCommand({ type: 'text', text: 'Hi', animation: 'bounce' }, ctx)
+        expect(result).toEqual({ error: expect.stringContaining('bounce') })
+      })
+      it('accepts a custom animationDuration', () => {
+        const result = validateCommand({ type: 'text', text: 'Hi', animation: 'fade', animationDuration: 1.5 }, ctx)
+        expect(result).toMatchObject({ animationDuration: 1.5 })
+      })
+      it('rejects an animationDuration outside 0-3 seconds', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'fade', animationDuration: 5 }, ctx)).toHaveProperty('error')
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'fade', animationDuration: 0 }, ctx)).toHaveProperty('error')
+      })
+      it('a multi-line staggered intro is several separate text commands sharing the same animation', () => {
+        const first = validateCommand({ type: 'text', text: 'Hey', start: 0, end: 1.2, animation: 'slide-down' }, ctx)
+        const second = validateCommand({ type: 'text', text: "I'm the CEO of Galaxy", start: 1, end: 3.5, animation: 'slide-down' }, ctx)
+        expect(first).toMatchObject({ text: 'Hey', start: 0, end: 1.2, animation: 'slide-down' })
+        expect(second).toMatchObject({ text: "I'm the CEO of Galaxy", start: 1, end: 3.5, animation: 'slide-down' })
+      })
+    })
   })
 
   describe('remove_text (context-aware: resolves an existing layer, never asks for font/size/color/position/timing)', () => {

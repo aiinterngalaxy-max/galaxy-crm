@@ -476,6 +476,14 @@ export interface TimedCaption {
   fontFamily?: string
   backgroundColor?: string
   backgroundOpacity?: number
+  /** How the caption enters at its own `start` — 'slide-down' comes from
+   *  above into its resting position, 'slide-up' from below, 'fade' just
+   *  opacity-ins in place. Omitted/undefined = appears instantly, the
+   *  original behavior. Has no effect on a caption with no start/end
+   *  window (shown for the whole video — there's no "entrance" to animate). */
+  animation?: 'slide-down' | 'slide-up' | 'fade'
+  /** Seconds the entrance animation takes — default 0.4 if animation is set. */
+  animationDuration?: number
 }
 
 /**
@@ -517,10 +525,36 @@ async function planCaptionOverlays(
     // whole enable= window (or the whole video, if there's no window).
     loadArgs.push('-loop', '1', '-i', name)
 
+    const idx = pngInputsFrom + i
     const windowed = !!(cap.start || cap.end)
-    const enable = windowed ? `:enable='between(t,${cap.start ?? 0},${cap.end && cap.end > 0 ? cap.end : 999999})'` : ''
-    const next = `[capout${pngInputsFrom + i}]`
-    filterLines.push(`${cur}[${pngInputsFrom + i}:v]overlay=0:0${enable}${next}`)
+    const start = cap.start ?? 0
+    const end = cap.end && cap.end > 0 ? cap.end : 999999
+    const enable = windowed ? `:enable='between(t,${start},${end})'` : ''
+
+    // Slide-down/up shifts the WHOLE transparent PNG vertically over the
+    // animation window — since everything except the drawn text/box is
+    // transparent, moving the image moves only the visible text, exactly
+    // like moving the overlay's y position would if the text were its own
+    // layer. Fade instead pre-fades the PNG's own alpha channel (via the
+    // `fade` filter's alpha=1 mode) before it ever reaches `overlay`.
+    // Only meaningful with a real time window — a caption shown for the
+    // whole video has no "entrance" moment to animate.
+    let source = `[${idx}:v]`
+    let y = '0'
+    if (windowed && cap.animation) {
+      const animDur = cap.animationDuration && cap.animationDuration > 0 ? cap.animationDuration : 0.4
+      if (cap.animation === 'slide-down' || cap.animation === 'slide-up') {
+        const offset = cap.animation === 'slide-down' ? -Math.round(height * 0.25) : Math.round(height * 0.25)
+        y = `'(${offset})*max(0\\,1-(t-${start})/${animDur})'`
+      } else if (cap.animation === 'fade') {
+        const faded = `[capfade${idx}]`
+        filterLines.push(`[${idx}:v]format=yuva420p,fade=t=in:st=${start}:d=${animDur}:alpha=1${faded}`)
+        source = faded
+      }
+    }
+
+    const next = `[capout${idx}]`
+    filterLines.push(`${cur}${source}overlay=x=0:y=${y}${enable}${next}`)
     cur = next
   }
   return { loadArgs, filterLines, videoLabel: cur }

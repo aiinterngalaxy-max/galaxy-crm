@@ -18,7 +18,7 @@ import {
 } from '@/lib/content-studio/autoEdit'
 import {
   interpretInstruction, targetToCenter, directionToPanPoints,
-  describeAiCommand, describeAiCommandCard,
+  describeAiCommand, describeAiCommandCard, FONT_FAMILIES,
   type EditCommand, type EffectType,
 } from '@/lib/content-studio/aiEditCommands'
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
@@ -80,6 +80,11 @@ interface Overlay {
   fontFamily?: string
   backgroundColor?: string
   backgroundOpacity?: number
+  /** How this overlay enters at its own start time — omitted means appears
+   *  instantly, the original behavior. See TimedCaption in autoEdit.ts for
+   *  the actual rendering (a time-varying overlay position/alpha). */
+  animation?: 'slide-down' | 'slide-up' | 'fade'
+  animationDuration?: number
 }
 
 function overlayToTimedCaption(o: Overlay): TimedCaption {
@@ -88,6 +93,7 @@ function overlayToTimedCaption(o: Overlay): TimedCaption {
     color: o.color, bold: o.bold, outlineColor: o.outlineColor, outlineWidth: o.outlineWidth,
     fontFamily: o.fontFamily, italic: o.italic, underline: o.underline, strikethrough: o.strikethrough,
     backgroundColor: o.backgroundColor, backgroundOpacity: o.backgroundOpacity,
+    animation: o.animation, animationDuration: o.animationDuration,
   }
 }
 
@@ -678,7 +684,7 @@ export function VideoEditWorkspacePage() {
     })))
   }, [job])
 
-  const emptyForm = { text: '', start: 0, end: 5, position: 'bottom' as CaptionPosition, size: 'md' as CaptionSize }
+  const emptyForm: Omit<Overlay, 'id' | 'kind'> = { text: '', start: 0, end: 5, position: 'bottom', size: 'md' }
   const [textForm, setTextForm] = useState(emptyForm)
   const [captionForm, setCaptionForm] = useState({ ...emptyForm, start: 3, end: 6 })
   const [showTextForm, setShowTextForm] = useState(false)
@@ -686,9 +692,7 @@ export function VideoEditWorkspacePage() {
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) ?? null
 
-  type OverlayStyleFields = Partial<Pick<Overlay, 'color' | 'bold' | 'italic' | 'underline' | 'strikethrough' | 'outlineColor' | 'outlineWidth' | 'fontFamily' | 'backgroundColor' | 'backgroundOpacity'>>
-
-  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & OverlayStyleFields) {
+  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm) {
     if (!form.text.trim()) return
     const id = `ov-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setOverlays((prev) => [...prev, { id, kind, ...form }])
@@ -1110,6 +1114,10 @@ export function VideoEditWorkspacePage() {
   // the operator clicks Apply. Nothing here ever runs unreviewed.
   const [aiEditPrompt, setAiEditPrompt] = useState('')
   const [aiEditError, setAiEditError] = useState('')
+  // A clarification is the AI asking for missing info, not a failure — kept
+  // visually distinct (gold, not red) so it doesn't read as something having
+  // gone wrong.
+  const [aiEditQuestion, setAiEditQuestion] = useState('')
   const [aiPendingCommands, setAiPendingCommands] = useState<EditCommand[] | null>(null)
   const [aiInterpreting, setAiInterpreting] = useState(false)
   const [aiApplying, setAiApplying] = useState(false)
@@ -1120,9 +1128,11 @@ export function VideoEditWorkspacePage() {
     const instruction = aiEditPrompt.trim()
     if (!instruction) {
       setAiEditError('Please enter an editing instruction.')
+      setAiEditQuestion('')
       return
     }
     setAiEditError('')
+    setAiEditQuestion('')
     setAiPendingCommands(null)
 
     // "Undo that."/"Redo." are handled directly through the real undo/redo
@@ -1150,7 +1160,7 @@ export function VideoEditWorkspacePage() {
       const lastEffectType = topSnap?.effectTypes?.length === 1 ? (topSnap.effectTypes[0] as EffectType) : undefined
       const result = await interpretInstruction(instruction, { durationSec: duration || 0, hasMusic, textLayers, lastEffectType })
       if (result.clarification) {
-        setAiEditError(result.clarification)
+        setAiEditQuestion(result.clarification)
       } else if (result.commands?.length) {
         setAiPendingCommands(result.commands)
       } else {
@@ -1444,8 +1454,18 @@ export function VideoEditWorkspacePage() {
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
                   />
+                  <style>{`
+                    @keyframes ov-slide-down { from { transform: translateY(-40px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+                    @keyframes ov-slide-up { from { transform: translateY(40px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+                    @keyframes ov-fade { from { opacity: 0 } to { opacity: 1 } }
+                  `}</style>
                   {overlays.filter((o) => o.text.trim() && isOverlayActive(o, curTime)).map((o) => (
                     <div
+                      // React mounts a fresh DOM node each time this becomes
+                      // active (the .filter() above excludes it while
+                      // inactive, so re-entering means a real re-mount, not
+                      // an update) — that's what makes the CSS animation
+                      // below replay on every entrance.
                       key={o.id}
                       className={`absolute ${POSITION_CLASS[o.position]} ${SIZE_CLASS[o.size]} rounded-md bg-black/60 text-center max-w-[90%] pointer-events-none ${o.bold ? 'font-bold' : 'font-semibold'}`}
                       style={{
@@ -1457,6 +1477,7 @@ export function VideoEditWorkspacePage() {
                         backgroundColor: (o.backgroundColor || o.backgroundOpacity != null)
                           ? `color-mix(in srgb, ${o.backgroundColor ?? '#000000'} ${Math.round((o.backgroundOpacity ?? 0.6) * 100)}%, transparent)`
                           : undefined,
+                        animation: o.animation ? `ov-${o.animation} ${o.animationDuration ?? 0.4}s ease-out` : undefined,
                       }}
                     >
                       {o.text}
@@ -1740,6 +1761,7 @@ export function VideoEditWorkspacePage() {
               )}
 
               {aiEditError && <p className="text-[11px] text-rose-400">{aiEditError}</p>}
+              {aiEditQuestion && <p className="text-[11px] text-gold-400">{aiEditQuestion}</p>}
               {aiLastApplied && !aiPendingCommands && (
                 <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 p-2 space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-500">✓ AI Edit Applied</p>
@@ -2041,11 +2063,14 @@ export function VideoEditWorkspacePage() {
 function OverlayForm({
   form, setForm, onSubmit, submitLabel,
 }: {
-  form: { text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
+  form: Omit<Overlay, 'id' | 'kind'>
   setForm: (f: any) => void
   onSubmit: () => void
   submitLabel: string
 }) {
+  const toggleBtn = (active: boolean) =>
+    `flex-1 rounded-md border px-2 py-1 text-[10px] font-semibold ${active ? 'border-gold-600 bg-gold-500/20 text-gold-400' : 'border-gray-800 text-gray-500 hover:border-gray-700'}`
+
   return (
     <div className="mt-2 space-y-2">
       <div>
@@ -2082,6 +2107,56 @@ function OverlayForm({
               {s === 'sm' ? 'Small' : s === 'md' ? 'Medium' : 'Large'}
             </button>
           ))}
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] text-gray-600">Style</label>
+        <div className="flex gap-1 mt-0.5">
+          <button type="button" onClick={() => setForm({ ...form, bold: !form.bold })} className={toggleBtn(!!form.bold)} style={{ fontWeight: 700 }}>B</button>
+          <button type="button" onClick={() => setForm({ ...form, italic: !form.italic })} className={toggleBtn(!!form.italic)} style={{ fontStyle: 'italic' }}>I</button>
+          <button type="button" onClick={() => setForm({ ...form, underline: !form.underline })} className={toggleBtn(!!form.underline)} style={{ textDecoration: 'underline' }}>U</button>
+          <button type="button" onClick={() => setForm({ ...form, strikethrough: !form.strikethrough })} className={toggleBtn(!!form.strikethrough)} style={{ textDecoration: 'line-through' }}>S</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-gray-600">Font</label>
+          <select
+            className="form-input py-1 text-xs"
+            value={form.fontFamily ?? ''}
+            onChange={(e) => setForm({ ...form, fontFamily: e.target.value || undefined })}
+          >
+            <option value="">Default</option>
+            {FONT_FAMILIES.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-600">Color</label>
+          <input
+            type="color"
+            className="form-input py-0.5 px-1 h-[30px] w-full"
+            value={form.color ?? '#ffffff'}
+            onChange={(e) => setForm({ ...form, color: e.target.value })}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-gray-600">Background</label>
+          <input
+            type="color"
+            className="form-input py-0.5 px-1 h-[30px] w-full"
+            value={form.backgroundColor ?? '#000000'}
+            onChange={(e) => setForm({ ...form, backgroundColor: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-600">Background opacity ({Math.round((form.backgroundOpacity ?? 0.6) * 100)}%)</label>
+          <input
+            type="range" min="0" max="1" step="0.05" className="w-full mt-2.5"
+            value={form.backgroundOpacity ?? 0.6}
+            onChange={(e) => setForm({ ...form, backgroundOpacity: Number(e.target.value) })}
+          />
         </div>
       </div>
       <button onClick={onSubmit} disabled={!form.text.trim()} className="btn-primary text-xs w-full disabled:opacity-50">
