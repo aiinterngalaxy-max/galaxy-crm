@@ -34,26 +34,70 @@ export interface ZoomCommand { type: 'zoom'; start: number; end: number; fromSca
 export type PanDirection = 'left-to-right' | 'right-to-left' | 'top-to-bottom' | 'bottom-to-top'
 export interface PanCommand { type: 'pan'; start: number; end: number; direction: PanDirection; scale: number }
 export interface SpeedCommand { type: 'speed'; start: number; end: number; factor: number }
-export interface TextCommand { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
-export interface CaptionCommand { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
-/** Removes an existing text/caption overlay that occupies [start,end] — as
- *  opposed to `text`/`caption`, which only ever ADD an overlay. `text` here
- *  is an optional hint (e.g. "Galaxy Home Automation") used to disambiguate
- *  when more than one overlay sits in the same time window; it is never
- *  required, since the instruction may only give a time range. */
-export interface RemoveTextCommand { type: 'remove_text'; start: number; end: number; text?: string }
+export interface TextCommand { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize; fontFamily?: string }
+export interface CaptionCommand { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize; fontFamily?: string }
+/** Removes an existing text/caption overlay — as opposed to `text`/
+ *  `caption`, which only ever ADD one. Resolved to a concrete `overlayId`
+ *  by validateCommand (using the project's actual current layers, passed in
+ *  via ctx.textLayers), NOT by the AI guessing an id — the AI only ever
+ *  supplies a wording/time hint if the instruction named one. `text` here
+ *  is the matched layer's own current text, for display only. */
+export interface RemoveTextCommand { type: 'remove_text'; overlayId: string; text: string }
 export interface AudioVolumeCommand { type: 'audio_volume'; volume: number }
 export interface MuteCommand { type: 'mute'; muted: boolean }
 export interface MusicCommand { type: 'music'; action: 'volume' | 'remove'; volume?: number }
 export interface LoopCommand { type: 'loop'; times: number }
+export interface BlurCommand { type: 'blur'; start: number; end: number; strength: number }
+export interface PixelateCommand { type: 'pixelate'; start: number; end: number; strength: number }
+export interface ColorCommand {
+  type: 'color'; start: number; end: number
+  brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; warmth?: number; vignette?: number
+}
+export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: number }
+export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
+export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
+export interface ReverseCommand { type: 'reverse' }
+/** Modifies an EXISTING text/caption overlay rather than adding one.
+ *  `overlayId`/`text` are resolved by validateCommand the same way as
+ *  RemoveTextCommand (never guessed by the AI) — ONLY the fields the
+ *  instruction actually named are set; everything else about the layer
+ *  (font size, position, timing, other styling) is left untouched by the
+ *  caller, which patches rather than replaces. */
+export interface TextStyleCommand {
+  type: 'text_style'; overlayId: string; text: string
+  color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number
+  position?: CaptionPosition; size?: CaptionSize; fontFamily?: string
+}
+/** Auto-generates timed captions from the video's own speech (real
+ *  transcription via the app's existing Whisper integration) — not a guess,
+ *  not fake captions. */
+export interface CaptionsAutoCommand { type: 'captions_auto' }
+export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
+
+/** Every hard-baked (pixel-level) effect type — the same set commitNewSource
+ *  can tag a history snapshot with, so "remove the blur" can check whether
+ *  the blur really is the single most recent change before touching undo. */
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction']
+/** Removes the most recently applied hard-baked effect via the editor's own
+ *  Undo — only valid when that effect is EXACTLY the top of the undo stack
+ *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
+ *  out of the pixels any other way. If something else was baked at the same
+ *  time, or other edits happened since, this is correctly refused rather
+ *  than faked — see validateCommand's 'remove_effect' case. */
+export interface RemoveEffectCommand { type: 'remove_effect'; effectType: EffectType }
 
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
+  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand
+  | TextStyleCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop',
+  'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
+  'text_style', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
 
 const CROP_ASPECTS: CropAspect[] = ['9:16', '1:1', '4:5', '16:9', '4:3']
@@ -61,6 +105,16 @@ const ZOOM_TARGETS: ZoomTarget[] = ['center', 'left', 'right', 'top', 'bottom']
 const PAN_DIRECTIONS: PanDirection[] = ['left-to-right', 'right-to-left', 'top-to-bottom', 'bottom-to-top']
 const CAPTION_POSITIONS: CaptionPosition[] = ['top', 'bottom', 'left', 'right', 'center']
 const CAPTION_SIZES: CaptionSize[] = ['sm', 'md', 'lg']
+/** Fonts actually available on renderCaptionImage's canvas-drawn overlay
+ *  (captionOverlay.ts) and in the live-preview CSS — an allowlist rather
+ *  than a passthrough, same reasoning as every other validated field: a
+ *  freeform string here would just silently fall back to sans-serif with
+ *  no way for the operator to know why their requested font didn't apply. */
+export const FONT_FAMILIES = [
+  'sans-serif', 'serif', 'monospace',
+  'Arial', 'Helvetica', 'Verdana', 'Trebuchet MS', 'Tahoma',
+  'Times New Roman', 'Georgia', 'Courier New', 'Impact', 'Comic Sans MS',
+] as const
 
 /** A named zoom/pan target as a fraction-of-frame center point. */
 export function targetToCenter(target: string): { x: number; y: number } {
@@ -83,9 +137,29 @@ export function directionToPanPoints(direction: PanDirection): { fromX: number; 
   }
 }
 
+/** An existing text/caption overlay as the AI parser needs to see it —
+ *  enough to resolve "the Galaxy Home Automation text" / "it" / "that text"
+ *  to a real layer without asking the user to repeat information the
+ *  project already has. */
+export interface ContextTextLayer {
+  id: string
+  text: string
+  start: number
+  end: number
+}
+
 export interface InterpretContext {
   durationSec: number
   hasMusic: boolean
+  /** All current text/caption overlays — required for remove_text/text_style
+   *  to resolve without asking unnecessary questions; omit only when there
+   *  is truly no editing project loaded yet. */
+  textLayers?: ContextTextLayer[]
+  /** The type of the single most recent hard-baked effect, if the last
+   *  history entry was exactly one effect and nothing else — see
+   *  RemoveEffectCommand. Omit/undefined if the last change wasn't an
+   *  effect, combined several, or there's no history yet. */
+  lastEffectType?: EffectType
 }
 
 export interface ValidationError {
@@ -94,6 +168,49 @@ export interface ValidationError {
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+
+/** Case-insensitively resolves a requested font name to one of
+ *  FONT_FAMILIES — undefined if missing or not a supported font. */
+function resolveFontFamily(v: unknown): string | undefined {
+  const raw = str(v)
+  if (!raw || !raw.trim()) return undefined
+  return FONT_FAMILIES.find((f) => f.toLowerCase() === raw.trim().toLowerCase())
+}
+
+/**
+ * Resolves a text/caption reference (an optional wording hint and/or time
+ * window from the instruction) against the project's REAL current layers —
+ * this is the actual state-management fix: the AI never invents/echoes a
+ * layer id, and never needs to be asked for font/size/position/timing just
+ * to identify WHICH layer, because those aren't needed to identify it.
+ *
+ * Priority: unique text-substring match > unique time-overlap match among
+ * text matches > "there's only one layer anyway" > ask, listing every
+ * layer's text so the question itself carries no wasted round-trip.
+ */
+function resolveTextLayer(c: Record<string, unknown>, ctx: InterpretContext): ContextTextLayer | ValidationError {
+  const layers = ctx.textLayers ?? []
+  if (!layers.length) return { error: 'There is no text or caption on this video yet.' }
+
+  const textHint = str(c.text)
+  const start = num(c.start)
+  const end = num(c.end)
+
+  let candidates = layers
+  if (textHint && textHint.trim()) {
+    const byText = layers.filter((l) => l.text.toLowerCase().includes(textHint.trim().toLowerCase()))
+    if (byText.length) candidates = byText
+  }
+  if (candidates.length > 1 && start != null && end != null) {
+    const byTime = candidates.filter((l) => l.start < end && l.end > start)
+    if (byTime.length) candidates = byTime
+  }
+  if (candidates.length === 1) return candidates[0]
+  if (layers.length === 1) return layers[0]
+
+  const names = (candidates.length > 1 ? candidates : layers).map((l) => `"${l.text}"`).join(', ')
+  return { error: `Which text did you mean — ${names}?` }
+}
 
 function timeWindow(c: Record<string, unknown>, ctx: InterpretContext): { start: number; end: number } | ValidationError {
   const start = num(c.start)
@@ -187,14 +304,16 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       const position = (positionRaw && CAPTION_POSITIONS.includes(positionRaw as CaptionPosition) ? positionRaw : 'bottom') as CaptionPosition
       const sizeRaw = str(c.size)
       const size = (sizeRaw && CAPTION_SIZES.includes(sizeRaw as CaptionSize) ? sizeRaw : 'md') as CaptionSize
-      return { type: type as 'text' | 'caption', text: text.trim(), start, end, position, size }
+      const fontFamily = resolveFontFamily(c.fontFamily)
+      return type === 'text'
+        ? { type: 'text', text: text.trim(), start, end, position, size, ...(fontFamily ? { fontFamily } : {}) }
+        : { type: 'caption', text: text.trim(), start, end, position, size, ...(fontFamily ? { fontFamily } : {}) }
     }
 
     case 'remove_text': {
-      const w = timeWindow(c, ctx)
-      if ('error' in w) return w
-      const text = str(c.text)
-      return { type: 'remove_text', ...w, ...(text ? { text } : {}) }
+      const resolved = resolveTextLayer(c, ctx)
+      if ('error' in resolved) return resolved
+      return { type: 'remove_text', overlayId: resolved.id, text: resolved.text }
     }
 
     case 'audio_volume': {
@@ -229,6 +348,121 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'loop', times }
     }
 
+    case 'blur':
+    case 'pixelate': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${type === 'blur' ? 'Blur' : 'Pixelate'} strength has to be between 1 and 20.` }
+      return { type: type as 'blur' | 'pixelate', ...w, strength }
+    }
+
+    case 'color': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const brightness = num(c.brightness)
+      const contrast = num(c.contrast)
+      const saturation = num(c.saturation)
+      const warmth = num(c.warmth)
+      const vignette = num(c.vignette)
+      const grayscale = typeof c.grayscale === 'boolean' ? c.grayscale : undefined
+      if (brightness == null && contrast == null && saturation == null && warmth == null && vignette == null && grayscale == null) {
+        return { error: 'Missing what to adjust (brightness, contrast, saturation, warmth, vignette, or grayscale).' }
+      }
+      if (brightness != null && (brightness < -1 || brightness > 1)) return { error: 'Brightness has to be between -1 and 1.' }
+      if (contrast != null && (contrast < 0 || contrast > 3)) return { error: 'Contrast has to be between 0 and 3.' }
+      if (saturation != null && (saturation < 0 || saturation > 3)) return { error: 'Saturation has to be between 0 and 3.' }
+      if (warmth != null && (warmth < -1 || warmth > 1)) return { error: 'Warmth has to be between -1 (cooler) and 1 (warmer).' }
+      if (vignette != null && (vignette < 0 || vignette > 1)) return { error: 'Vignette has to be between 0 and 1.' }
+      return {
+        type: 'color', ...w,
+        ...(brightness != null ? { brightness } : {}),
+        ...(contrast != null ? { contrast } : {}),
+        ...(saturation != null ? { saturation } : {}),
+        ...(grayscale != null ? { grayscale } : {}),
+        ...(warmth != null ? { warmth } : {}),
+        ...(vignette != null ? { vignette } : {}),
+      }
+    }
+
+    case 'fade': {
+      const direction = str(c.direction)
+      if (direction !== 'in' && direction !== 'out') return { error: 'Fade needs a direction — "in" or "out".' }
+      const duration = num(c.duration) ?? 1
+      if (duration <= 0 || duration > 10) return { error: 'Fade duration has to be between 0 and 10 seconds.' }
+      return { type: 'fade', direction, duration }
+    }
+
+    case 'rotate': {
+      const degrees = num(c.degrees)
+      if (degrees !== 90 && degrees !== 180 && degrees !== 270) return { error: 'Rotate needs 90, 180, or 270 degrees.' }
+      return { type: 'rotate', degrees }
+    }
+
+    case 'flip': {
+      const axis = str(c.axis)
+      if (axis !== 'horizontal' && axis !== 'vertical') return { error: 'Flip needs an axis — "horizontal" or "vertical".' }
+      return { type: 'flip', axis }
+    }
+
+    case 'reverse':
+      return { type: 'reverse' }
+
+    case 'text_style': {
+      const color = str(c.color) ?? undefined
+      const bold = typeof c.bold === 'boolean' ? c.bold : undefined
+      const outlineColor = str(c.outlineColor) ?? undefined
+      const outlineWidth = num(c.outlineWidth) ?? undefined
+      const positionRaw = str(c.position)
+      const position = positionRaw && CAPTION_POSITIONS.includes(positionRaw as CaptionPosition) ? (positionRaw as CaptionPosition) : undefined
+      const sizeRaw = str(c.size)
+      const size = sizeRaw && CAPTION_SIZES.includes(sizeRaw as CaptionSize) ? (sizeRaw as CaptionSize) : undefined
+      const fontFamilyRaw = str(c.fontFamily)
+      const fontFamily = resolveFontFamily(c.fontFamily)
+      if (fontFamilyRaw && fontFamilyRaw.trim() && !fontFamily) {
+        return { error: `"${fontFamilyRaw}" isn't a supported font — choose one of: ${FONT_FAMILIES.join(', ')}.` }
+      }
+      if (color == null && bold == null && outlineColor == null && outlineWidth == null && position == null && size == null && fontFamily == null) {
+        return { error: 'Missing what to change about the text (color, bold, outline, position, size, or font).' }
+      }
+      if (outlineWidth != null && (outlineWidth < 0 || outlineWidth > 20)) return { error: 'Outline width has to be between 0 and 20.' }
+      // target is just a wording hint here (like remove_text's) — resolved
+      // against the REAL current layers below, never guessed by the AI.
+      const resolved = resolveTextLayer({ text: c.target }, ctx)
+      if ('error' in resolved) return resolved
+      return {
+        type: 'text_style', overlayId: resolved.id, text: resolved.text,
+        ...(color != null ? { color } : {}),
+        ...(bold != null ? { bold } : {}),
+        ...(outlineColor != null ? { outlineColor } : {}),
+        ...(outlineWidth != null ? { outlineWidth } : {}),
+        ...(position != null ? { position } : {}),
+        ...(size != null ? { size } : {}),
+        ...(fontFamily != null ? { fontFamily } : {}),
+      }
+    }
+
+    case 'captions_auto':
+      return { type: 'captions_auto' }
+
+    case 'audio_noise_reduction':
+      return { type: 'audio_noise_reduction' }
+
+    case 'remove_effect': {
+      const effectType = str(c.effectType)
+      if (!effectType || !EFFECT_TYPES.includes(effectType as EffectType)) {
+        return { error: `Which effect should I remove — one of ${EFFECT_TYPES.join(', ')}?` }
+      }
+      if (ctx.lastEffectType !== effectType) {
+        return {
+          error: ctx.lastEffectType
+            ? `I can only remove the ${effectType} if it's the most recent change — the most recent change was ${ctx.lastEffectType}, possibly combined with other edits. Use Undo if you'd like to step back through recent edits instead.`
+            : `There's no ${effectType} currently applied that I can remove.`,
+        }
+      }
+      return { type: 'remove_effect', effectType: effectType as EffectType }
+    }
+
     default:
       return { error: 'Unsupported command.' }
   }
@@ -245,9 +479,27 @@ export interface InterpretResult {
 }
 
 function systemPrompt(ctx: InterpretContext): string {
+  const layers = ctx.textLayers ?? []
+  const layersDesc = layers.length
+    ? layers.map((l) => `- "${l.text}" (${l.start.toFixed(1)}s–${l.end.toFixed(1)}s)`).join('\n')
+    : '(none yet)'
+  const effectDesc = ctx.lastEffectType
+    ? `The single most recent edit was a "${ctx.lastEffectType}" effect (nothing else combined with it).`
+    : "The most recent edit either wasn't an effect, combined several things, or there isn't one yet."
+
   return `You convert a plain-English video editing instruction into structured JSON commands for an editing tool. You do not edit video yourself — you only output data.
 
 The video is ${ctx.durationSec.toFixed(1)} seconds long. ${ctx.hasMusic ? 'It already has a background music track.' : 'It has no background music track yet.'}
+
+CURRENT PROJECT STATE — use this to avoid asking for information you can already see:
+Existing text/caption layers:
+${layersDesc}
+${effectDesc}
+
+CRITICAL — do not ask for information already available above or already given in the instruction:
+- To remove or restyle an existing text/caption, you NEVER need to ask for its font, size, color, position, or timing — those are properties of the EXISTING layer, not something you need to know to identify it. Only the wording (if the instruction names it) matters for picking WHICH layer — pass it as "text" on remove_text/text_style, or omit "text" entirely for "it"/"that text"/"the text". The actual layer lookup (and any "which one did you mean" disambiguation, only if truly ambiguous) happens outside of you — you do not need the layer list to be unambiguous yourself, just pass through what the instruction gave you.
+- For text_style, set ONLY the fields the instruction actually asked to change (e.g. "make it red" → only "color"; "make it bigger" → only "size"; "make it bold" → only "bold"; "move it to the top" → only "position"). Never invent values for properties the instruction didn't mention — those are preserved automatically by not including them.
+- To remove a previously-applied effect ("remove the blur", "undo the pixelation"), use remove_effect with the matching effectType — never ask for its strength, start, or end time; those aren't needed to remove it.
 
 Respond with ONLY a JSON object, no prose, no markdown code fences, matching exactly one of these two shapes:
 
@@ -263,13 +515,24 @@ crop        { "type": "crop", "aspect": "9:16" | "1:1" | "4:5" | "16:9" | "4:3" 
 zoom        { "type": "zoom", "start": number, "end": number, "fromScale": number, "toScale": number, "target": "center" | "left" | "right" | "top" | "bottom" }  — fromScale defaults to 1 if omitted; scales are 0.5-4
 pan         { "type": "pan", "start": number, "end": number, "direction": "left-to-right" | "right-to-left" | "top-to-bottom" | "bottom-to-top", "scale": number }  — scale (how zoomed in while panning) defaults to 1.3, range 1-4
 speed       { "type": "speed", "start": number, "end": number, "factor": number }  — factor > 1 is faster, < 1 is slower, range 0.25-4
-text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg" }  — start:0, end:0 means "shown for the whole video", not "missing"
+text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "fontFamily"?: string }  — start:0, end:0 means "shown for the whole video", not "missing". fontFamily is optional, one of: ${FONT_FAMILIES.join(', ')} — omit rather than guessing if no font was named.
 caption     { "type": "caption", ...same fields as text }
-remove_text { "type": "remove_text", "start": number, "end": number, "text": string }  — REMOVES an existing text/caption overlay in [start,end]; use this whenever the instruction says to remove/delete an on-screen text, never the "text"/"caption" type (those only ADD text). "text" is optional — include the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given, to help pick the right overlay when more than one sits in that time range, but omit it rather than guessing if none is named.
+remove_text { "type": "remove_text", "text"?: string, "start"?: number, "end"?: number }  — REMOVES an existing text/caption overlay; use this whenever the instruction says to remove/delete/take out/get rid of an on-screen text, never the "text"/"caption" type (those only ADD text). ALL fields optional: "text" is the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given — include it if named, omit it for "remove the text"/"remove it" with no wording. "start"/"end" are optional too, only useful if the instruction names a time range to disambiguate multiple similar layers. Do NOT ask the user for start/end/text just to fill these in — omit what wasn't given.
 audio_volume{ "type": "audio_volume", "volume": number }  — 0 to 3, 1 = unchanged
 mute        { "type": "mute", "muted": boolean }
 music       { "type": "music", "action": "volume" | "remove", "volume": number }  — volume (0-1) only used with action "volume", and only valid if the video already has a music track
 loop        { "type": "loop", "times": integer }  — 2 to 10, total number of plays
+blur        { "type": "blur", "start": number, "end": number, "strength": number }  — WHOLE-FRAME blur only, strength 1-20. There is no person/object/background detection in this tool — if the instruction asks to blur only the background, only a person, or only an object (not the whole frame), you MUST use clarification instead, explaining plainly that only whole-frame blur is available and asking if they'd like that instead. Never silently apply a whole-frame blur to a "blur just the background" request.
+pixelate    { "type": "pixelate", "start": number, "end": number, "strength": number }  — same whole-frame-only rule as blur.
+color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "vignette"?: number }  — at least one field besides start/end/type required. brightness -1..1, contrast/saturation 0..3 (1=unchanged), warmth -1 (cooler)..1 (warmer), vignette 0..1. Use for "brighter/darker", "more/less contrast", "more/less saturated", "black and white"/"grayscale", "warmer/cooler tone", "vignette"/"darken the edges".
+fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
+rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
+flip        { "type": "flip", "axis": "horizontal" | "vertical" }
+reverse     { "type": "reverse" }  — plays the whole video backwards.
+text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "position"?: "top"|"bottom"|"left"|"right"|"center", "size"?: "sm"|"md"|"lg", "fontFamily"?: string }  — MODIFIES an existing text/caption overlay (never adds a new one — use "text"/"caption" to add). "target" is the wording of the text to restyle if named (e.g. "Galaxy Home Automation"); omit target entirely for "it"/"that text" with nothing else to go on — layer lookup happens outside of you, you don't need to resolve it yourself. Set ONLY the style field(s) the instruction actually asked to change — never include a field the instruction didn't mention, that would overwrite something the user wants kept as-is. color/outlineColor are CSS colors (e.g. "white", "#ffcc00", "red"). fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — a request for a font outside this list should be a clarification saying so, not a guess at the closest match.
+captions_auto { "type": "captions_auto" }  — auto-generates timed captions from the video's real speech (actual transcription). Use for "add captions"/"add subtitles"/"caption this" with no text of their own given.
+audio_noise_reduction { "type": "audio_noise_reduction" }  — reduces steady background hiss/hum in the original audio.
+remove_effect { "type": "remove_effect", "effectType": "crop"|"zoom"|"pan"|"speed"|"loop"|"blur"|"pixelate"|"color"|"fade"|"rotate"|"flip"|"reverse"|"audio_noise_reduction" }  — removes a previously-applied hard-baked effect, e.g. "remove the blur"/"undo the pixelation"/"take off that color filter". Never ask for strength/start/end to do this — just identify WHICH effect type is meant from the instruction and the CURRENT PROJECT STATE above.
 
 Examples:
 "Zoom into the person from 5 to 8 seconds." → {"commands":[{"type":"zoom","start":5,"end":8,"fromScale":1,"toScale":1.5,"target":"center"}]}
@@ -279,8 +542,23 @@ Examples:
 "Remove the first 3 seconds." → {"commands":[{"type":"trim","start":3,"end":${ctx.durationSec.toFixed(1)}}]}
 "Zoom into the product." (no timing given) → {"clarification":"Which part of the video should I zoom into — what start and end time?"}
 "Add 'Galaxy Home Automation' at the beginning." ("at the beginning" means a brief intro, not the whole video — default to the first 3 seconds unless told otherwise) → {"commands":[{"type":"text","text":"Galaxy Home Automation","start":0,"end":3,"position":"top","size":"lg"}]}
+"Remove the Galaxy Home Automation text." (no timing needed — the wording alone identifies the layer) → {"commands":[{"type":"remove_text","text":"Galaxy Home Automation"}]}
+"Remove the text." (only one text layer exists per CURRENT PROJECT STATE above) → {"commands":[{"type":"remove_text"}]}
 "Remove the Galaxy Home Automation text between 0 and 0.5 seconds." → {"commands":[{"type":"remove_text","start":0,"end":0.5,"text":"Galaxy Home Automation"}]}
-"Loop this 3 times." → {"commands":[{"type":"loop","times":3}]}`
+"Make it red." (restyling an existing text, only color named) → {"commands":[{"type":"text_style","color":"red"}]}
+"I want the text in Times New Roman and the color should be red." → {"commands":[{"type":"text_style","fontFamily":"Times New Roman","color":"red"}]}
+"Make the Galaxy Home Automation text bigger." (only size named — font/color/position/timing all stay as they are) → {"commands":[{"type":"text_style","target":"Galaxy Home Automation","size":"lg"}]}
+"Move it to the top." → {"commands":[{"type":"text_style","position":"top"}]}
+"Remove the blur." (only valid if blur really is the single most recent change — see CURRENT PROJECT STATE) → {"commands":[{"type":"remove_effect","effectType":"blur"}]}
+"Loop this 3 times." → {"commands":[{"type":"loop","times":3}]}
+"Blur the entire video from 10 to 16 seconds." → {"commands":[{"type":"blur","start":10,"end":16,"strength":8}]}
+"Blur the background but keep the person sharp." (no person/background detection exists) → {"clarification":"I can only blur the whole frame, not just the background — there's no person/background detection in this editor. Want me to blur the whole frame instead, and for which time range?"}
+"Make the text white and bold." (about the most recently added text, no wording named) → {"commands":[{"type":"text_style","color":"white","bold":true}]}
+"Make that text red." → {"commands":[{"type":"text_style","color":"red"}]}
+"Add captions with a white font and black outline." (auto-transcribed, then styled) → {"commands":[{"type":"captions_auto"},{"type":"text_style","color":"white","outlineColor":"black","outlineWidth":3}]}
+"Make this Instagram Reel format." → {"commands":[{"type":"crop","aspect":"9:16"}]}
+"Slow down the middle section." (a time range IS determinable — the literal middle third of the video) → {"commands":[{"type":"speed","start":${(ctx.durationSec / 3).toFixed(1)},"end":${(ctx.durationSec * 2 / 3).toFixed(1)},"factor":0.5}]}
+"Reduce background noise." → {"commands":[{"type":"audio_noise_reduction"}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -352,13 +630,24 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-    case 'text': return `Text "${cmd.text}" (${cmd.position})`
-    case 'caption': return `Caption "${cmd.text}" (${cmd.position})`
-    case 'remove_text': return `Remove text${cmd.text ? ` "${cmd.text}"` : ''}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'text': return `Text "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}`
+    case 'caption': return `Caption "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}`
+    case 'remove_text': return `Remove text "${cmd.text}"`
     case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
     case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
     case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
     case 'loop': return `Loop ${cmd.times}x`
+    case 'blur': return `Blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
+    case 'pixelate': return `Pixelate ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
+    case 'color': return `Color adjust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'fade': return `Fade ${cmd.direction} (${cmd.duration}s)`
+    case 'rotate': return `Rotate ${cmd.degrees}°`
+    case 'flip': return `Flip ${cmd.axis}`
+    case 'reverse': return 'Reverse video'
+    case 'text_style': return `Restyle text "${cmd.text}"${cmd.fontFamily ? ` (${cmd.fontFamily})` : ''}`
+    case 'captions_auto': return 'Auto-generate captions from speech'
+    case 'audio_noise_reduction': return 'Reduce background noise'
+    case 'remove_effect': return `Remove ${cmd.effectType}`
   }
 }
 
@@ -378,11 +667,11 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
     case 'speed':
       return { title: 'Speed', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `${cmd.factor}x ${cmd.factor > 1 ? 'faster' : 'slower'}`] }
     case 'text':
-      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
+      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : [])] }
     case 'caption':
-      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
+      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : [])] }
     case 'remove_text':
-      return { title: 'Remove Text', lines: [cmd.text ? `"${cmd.text}"` : 'Matching overlay', `${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`] }
+      return { title: 'Remove Text', lines: [`"${cmd.text}"`] }
     case 'audio_volume':
       return { title: 'Audio Volume', lines: [`Original audio set to ${Math.round(cmd.volume * 100)}%`] }
     case 'mute':
@@ -393,5 +682,44 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
         : { title: 'Music', lines: [`Volume set to ${Math.round((cmd.volume ?? 0) * 100)}%`] }
     case 'loop':
       return { title: 'Loop', lines: [`Video now plays ${cmd.times} times`] }
+    case 'blur':
+      return { title: 'Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame (not just background/person)'] }
+    case 'pixelate':
+      return { title: 'Pixelate', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame'] }
+    case 'color': {
+      const lines: string[] = []
+      if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)
+      if (cmd.contrast != null) lines.push(`Contrast: ${cmd.contrast}x`)
+      if (cmd.saturation != null) lines.push(`Saturation: ${cmd.saturation}x`)
+      if (cmd.grayscale) lines.push('Grayscale')
+      if (cmd.warmth != null) lines.push(`Warmth: ${cmd.warmth > 0 ? '+' : ''}${cmd.warmth}`)
+      if (cmd.vignette != null) lines.push(`Vignette: ${cmd.vignette}`)
+      lines.push(`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`)
+      return { title: 'Color', lines }
+    }
+    case 'fade':
+      return { title: 'Fade', lines: [`Fade ${cmd.direction} over ${cmd.duration}s`] }
+    case 'rotate':
+      return { title: 'Rotate', lines: [`${cmd.degrees}° clockwise`] }
+    case 'flip':
+      return { title: 'Flip', lines: [`Flipped ${cmd.axis}ly`] }
+    case 'reverse':
+      return { title: 'Reverse', lines: ['Video now plays backwards'] }
+    case 'text_style': {
+      const lines: string[] = [`"${cmd.text}"`]
+      if (cmd.color) lines.push(`Color: ${cmd.color}`)
+      if (cmd.bold != null) lines.push(cmd.bold ? 'Bold' : 'Not bold')
+      if (cmd.outlineColor || cmd.outlineWidth) lines.push(`Outline: ${cmd.outlineColor ?? 'black'}${cmd.outlineWidth ? `, ${cmd.outlineWidth}px` : ''}`)
+      if (cmd.position) lines.push(`Position: ${cmd.position}`)
+      if (cmd.size) lines.push(`Size: ${cmd.size}`)
+      if (cmd.fontFamily) lines.push(`Font: ${cmd.fontFamily}`)
+      return { title: 'Text Style', lines }
+    }
+    case 'captions_auto':
+      return { title: 'Captions', lines: ["Generated from the video's speech"] }
+    case 'audio_noise_reduction':
+      return { title: 'Audio', lines: ['Background noise reduced'] }
+    case 'remove_effect':
+      return { title: 'Remove Effect', lines: [`${cmd.effectType} removed`] }
   }
 }

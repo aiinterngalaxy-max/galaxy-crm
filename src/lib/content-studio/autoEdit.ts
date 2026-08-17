@@ -462,6 +462,15 @@ export interface TimedCaption {
   size?: CaptionSize
   /** 'text' = the free-standing Text tool, 'caption' (default) = the Captions tool — same storage/render path, just two labels in the editor UI. */
   kind?: 'text' | 'caption'
+  /** Passed straight through to renderCaptionImage — see captionOverlay.ts
+   *  for defaults when omitted (white text, no outline, unbolded). */
+  color?: string
+  bold?: boolean
+  outlineColor?: string
+  outlineWidth?: number
+  /** One of FONT_FAMILIES (see aiEditCommands.ts) — omitted means the
+   *  original fixed sans-serif look. */
+  fontFamily?: string
 }
 
 /**
@@ -490,7 +499,11 @@ async function planCaptionOverlays(
   let cur = startLabel
   for (let i = 0; i < active.length; i++) {
     const cap = active[i]
-    const png = await renderCaptionImage({ text: cap.text, position: cap.position, size: cap.size }, width, height)
+    const png = await renderCaptionImage({
+      text: cap.text, position: cap.position, size: cap.size,
+      color: cap.color, bold: cap.bold, outlineColor: cap.outlineColor, outlineWidth: cap.outlineWidth,
+      fontFamily: cap.fontFamily,
+    }, width, height)
     const name = `capimg-${pngInputsFrom + i}.png`
     await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))
     // -loop 1: a still image is one frame by default, which would make it
@@ -1025,6 +1038,198 @@ export async function loopVideo(
     if (err instanceof AutoEditError) throw err
     resetFFmpeg()
     throw new AutoEditError(`Could not loop the video. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+// ---------- AI-instructable operations, batch 2: blur / pixelate / color /
+// fade / rotate / flip / reverse / noise reduction ----------
+//
+// All whole-FRAME effects — there is no person/object/background
+// segmentation or tracking anywhere in this codebase (no such library is a
+// dependency), so "blur the background but keep the person sharp" cannot be
+// done here; only whole-frame blur/pixelate is offered, and the AI layer
+// (aiEditCommands.ts) is instructed to say so plainly rather than silently
+// applying a whole-frame blur to a person-only request.
+//
+// Time-windowed ones use the SAME filter's own `enable='between(t,s,e)'`
+// clause (escaped the same way the rest of this file already does for
+// zoompan/crop) rather than the split-trim-concat approach speed/zoom use —
+// simpler and correct here because, unlike speed, these filters don't
+// change the timeline's duration, so there's no need to re-stitch segments.
+
+async function runOneVideoFilter(
+  file: Blob,
+  vf: string,
+  errorContext: string,
+  onProgress?: (p: AutoEditProgress) => void,
+  extraArgs: string[] = [],
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'vf-input.mp4'
+  const outputName = 'vf-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...extraArgs, outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`${errorContext} (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+const windowClause = (start: number, end: number) => `:enable='between(t\\,${start}\\,${end})'`
+
+export interface BlurOptions { start: number; end: number; strength: number }
+
+/** Whole-frame gaussian-ish blur (boxblur — cheaper than gblur, visually
+ *  close enough) over [start,end]; unaffected outside that window. Strength
+ *  1-20 maps to the boxblur radius. */
+export async function applyBlur(file: Blob, { start, end, strength }: BlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const radius = Math.max(1, Math.min(20, Math.round(strength)))
+  const vf = `boxblur=${radius}:1${windowClause(start, end)}`
+  return runOneVideoFilter(file, vf, 'Could not blur the video.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface PixelateOptions { start: number; end: number; strength: number }
+
+/** Mosaic/pixelate over [start,end] — scales down then back up with
+ *  nearest-neighbor, which is what produces the blocky look. Strength 1-20:
+ *  higher = blockier (bigger downscale factor). */
+export async function applyPixelate(file: Blob, { start, end, strength }: PixelateOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const factor = Math.max(2, Math.min(40, Math.round(strength * 2)))
+  const w = windowClause(start, end)
+  const vf = `scale=iw/${factor}:ih/${factor}${w},scale=iw*${factor}:ih*${factor}:flags=neighbor${w}`
+  return runOneVideoFilter(file, vf, 'Could not pixelate the video.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface ColorAdjustOptions {
+  start: number
+  end: number
+  /** All optional — only the ones the instruction actually named are set,
+   *  the rest pass through unaffected. Ranges: brightness -1..1 (0 = no
+   *  change), contrast/saturation 0..3 (1 = no change), grayscale is a flag,
+   *  warmth -1 (cooler/blue) .. 1 (warmer/orange), vignette 0..1 (intensity). */
+  brightness?: number
+  contrast?: number
+  saturation?: number
+  grayscale?: boolean
+  warmth?: number
+  vignette?: number
+}
+
+/** Combines brightness/contrast/saturation/grayscale/warmth/vignette into
+ *  one filter chain, windowed together so they all apply/release at the
+ *  same times. Grayscale is done by zeroing eq's own saturation rather than
+ *  a separate hue filter — one fewer filter stage. */
+export async function applyColorAdjust(file: Blob, opts: ColorAdjustOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const { start, end, brightness = 0, contrast = 1, saturation = 1, grayscale = false, warmth = 0, vignette = 0 } = opts
+  const w = windowClause(start, end)
+  const parts: string[] = []
+  const effSaturation = grayscale ? 0 : saturation
+  if (brightness !== 0 || contrast !== 1 || effSaturation !== 1) {
+    parts.push(`eq=brightness=${brightness}:contrast=${contrast}:saturation=${effSaturation}${w}`)
+  }
+  if (warmth !== 0) {
+    // colorbalance nudges shadows/mids/highlights red-vs-blue together for a
+    // simple, uniform warm/cool push rather than a full white-balance model.
+    const r = (warmth * 0.4).toFixed(3)
+    const b = (-warmth * 0.4).toFixed(3)
+    parts.push(`colorbalance=rs=${r}:rm=${r}:rh=${r}:bs=${b}:bm=${b}:bh=${b}${w}`)
+  }
+  if (vignette > 0) {
+    parts.push(`vignette=angle=PI/${Math.max(2, Math.round(6 / Math.max(0.01, vignette)))}${w}`)
+  }
+  if (!parts.length) return file // nothing actually requested to change
+  return runOneVideoFilter(file, parts.join(','), 'Could not adjust the color of the video.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface VideoFadeOptions { direction: 'in' | 'out'; duration: number; durationSec: number }
+
+/** A video fade-to-black at the very start ("in") or very end ("out") of the
+ *  clip — ffmpeg's own `fade` filter is inherently anchored to one edge, so
+ *  there's no separate time-window to validate here beyond the fade's own
+ *  length not exceeding the clip. */
+export async function applyVideoFade(file: Blob, { direction, duration, durationSec }: VideoFadeOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const d = Math.max(0.1, Math.min(duration, durationSec))
+  const st = direction === 'in' ? 0 : Math.max(0, durationSec - d)
+  const vf = `fade=t=${direction}:st=${st}:d=${d}`
+  return runOneVideoFilter(file, vf, 'Could not fade the video.', onProgress, ['-c:a', 'copy'])
+}
+
+/** 90°/180°/270° clockwise rotation. 90/270 swap width and height. */
+export async function applyRotate(file: Blob, degrees: 90 | 180 | 270, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = degrees === 90 ? 'transpose=1' : degrees === 270 ? 'transpose=2' : 'transpose=1,transpose=1'
+  return runOneVideoFilter(file, vf, 'Could not rotate the video.', onProgress, ['-c:a', 'copy'])
+}
+
+export async function applyFlip(file: Blob, axis: 'horizontal' | 'vertical', onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = axis === 'horizontal' ? 'hflip' : 'vflip'
+  return runOneVideoFilter(file, vf, 'Could not flip the video.', onProgress, ['-c:a', 'copy'])
+}
+
+/** Reverses the WHOLE clip, video and audio together. Decodes every frame
+ *  into memory to do it (ffmpeg's `reverse`/`areverse` have no streaming
+ *  alternative), so this is only practical on short clips — the caller
+ *  should warn on long ones rather than let it hang. */
+export async function applyReverse(file: Blob, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'reverse-input.mp4'
+  const outputName = 'reverse-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vf', 'reverse', '-af', 'areverse', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not reverse the video. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+/** Reduces steady background hiss/hum in the original audio track via
+ *  ffmpeg's own noise-reduction filter (spectral noise gate — no ML model,
+ *  works best on consistent low-level noise, not on removing e.g. another
+ *  person talking in the background). Video is stream-copied, untouched. */
+export async function applyNoiseReduction(file: Blob, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'nr-input.mp4'
+  const outputName = 'nr-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-af', 'afftdn=nf=-25', '-c:v', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not reduce noise in the audio. (${err instanceof Error ? err.message : String(err)})`)
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})

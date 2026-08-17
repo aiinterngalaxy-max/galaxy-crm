@@ -29,3 +29,54 @@ export function fmtTime(sec: number): string {
   const s = Math.floor(sec % 60)
   return `${m}:${String(s).padStart(2, '0')}`
 }
+
+export interface SubtitleCue {
+  text: string
+  start: number
+  end: number
+}
+
+function srtTimestamp(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0
+  const ms = Math.round(sec * 1000)
+  const h = Math.floor(ms / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  const msPart = ms % 1000
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(msPart).padStart(3, '0')}`
+}
+
+/** Cues with no real duration (start==end, as caption/text overlays that
+ *  cover "the whole video" store it) get a minimum 1s window — SRT/VTT
+ *  players don't render a zero-length cue. */
+function cueWindow(cue: SubtitleCue): { start: number; end: number } {
+  return cue.end > cue.start ? { start: cue.start, end: cue.end } : { start: cue.start, end: cue.start + 1 }
+}
+
+/** Serializes caption/text overlays to a standard .srt file — one block per
+ *  cue, sequential index, HH:MM:SS,mmm timestamps. */
+export function toSrt(cues: SubtitleCue[]): string {
+  return cues
+    .filter((c) => c.text.trim())
+    .map((c, i) => {
+      const { start, end } = cueWindow(c)
+      return `${i + 1}\n${srtTimestamp(start)} --> ${srtTimestamp(end)}\n${c.text.trim()}\n`
+    })
+    .join('\n')
+}
+
+function vttTimestamp(sec: number): string {
+  return srtTimestamp(sec).replace(',', '.')
+}
+
+/** Serializes caption/text overlays to a standard WebVTT file. */
+export function toVtt(cues: SubtitleCue[]): string {
+  const body = cues
+    .filter((c) => c.text.trim())
+    .map((c) => {
+      const { start, end } = cueWindow(c)
+      return `${vttTimestamp(start)} --> ${vttTimestamp(end)}\n${c.text.trim()}\n`
+    })
+    .join('\n')
+  return `WEBVTT\n\n${body}`
+}

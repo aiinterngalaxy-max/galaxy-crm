@@ -141,23 +141,47 @@ describe('validateCommand', () => {
       const result = validateCommand({ type: 'text', text: 'Hi', position: 'diagonal', size: 'huge' }, ctx)
       expect(result).toMatchObject({ position: 'bottom', size: 'md' })
     })
+    it('accepts a supported fontFamily, case-insensitively', () => {
+      const result = validateCommand({ type: 'text', text: 'Hi', fontFamily: 'times new roman' }, ctx)
+      expect(result).toMatchObject({ fontFamily: 'Times New Roman' })
+    })
+    it('omits an unrecognized fontFamily rather than erroring, same as position/size', () => {
+      const result = validateCommand({ type: 'text', text: 'Hi', fontFamily: 'Papyrus' }, ctx)
+      expect(result).not.toHaveProperty('fontFamily')
+    })
   })
 
-  describe('remove_text', () => {
-    it('accepts a start/end window with an optional text hint', () => {
-      const result = validateCommand({ type: 'remove_text', start: 0, end: 0.5, text: 'Galaxy Home Automation' }, ctx)
-      expect(result).toEqual({ type: 'remove_text', start: 0, end: 0.5, text: 'Galaxy Home Automation' })
+  describe('remove_text (context-aware: resolves an existing layer, never asks for font/size/color/position/timing)', () => {
+    const oneLayer: InterpretContext = { ...ctx, textLayers: [{ id: 'ov-1', text: 'Galaxy Home Automation', start: 0, end: 3 }] }
+    const threeLayers: InterpretContext = {
+      ...ctx,
+      textLayers: [
+        { id: 'ov-1', text: 'Galaxy Home Automation', start: 0, end: 3 },
+        { id: 'ov-2', text: 'Smart Living', start: 3, end: 6 },
+        { id: 'ov-3', text: 'Welcome', start: 6, end: 9 },
+      ],
+    }
+
+    it('"Remove the Galaxy Home Automation text." — resolves by wording alone, no timing needed', () => {
+      const result = validateCommand({ type: 'remove_text', text: 'Galaxy Home Automation' }, threeLayers)
+      expect(result).toEqual({ type: 'remove_text', overlayId: 'ov-1', text: 'Galaxy Home Automation' })
     })
-    it('accepts a start/end window with no text hint at all', () => {
-      const result = validateCommand({ type: 'remove_text', start: 0, end: 0.5 }, ctx)
-      expect(result).toEqual({ type: 'remove_text', start: 0, end: 0.5 })
+    it('"Remove the text." with only one layer — resolves directly, no question asked', () => {
+      const result = validateCommand({ type: 'remove_text' }, oneLayer)
+      expect(result).toEqual({ type: 'remove_text', overlayId: 'ov-1', text: 'Galaxy Home Automation' })
     })
-    it('rejects a missing start or end rather than guessing one', () => {
-      expect(validateCommand({ type: 'remove_text', end: 0.5 }, ctx)).toHaveProperty('error')
-      expect(validateCommand({ type: 'remove_text', start: 0 }, ctx)).toHaveProperty('error')
+    it('"Remove the text." with multiple layers and no wording — genuinely ambiguous, asks which one', () => {
+      const result = validateCommand({ type: 'remove_text' }, threeLayers)
+      expect(result).toEqual({ error: expect.stringContaining('Galaxy Home Automation') })
+      expect((result as { error: string }).error).toContain('Smart Living')
+      expect((result as { error: string }).error).toContain('Welcome')
     })
-    it('rejects an end before the start', () => {
-      expect(validateCommand({ type: 'remove_text', start: 5, end: 2 }, ctx)).toHaveProperty('error')
+    it('resolves by time-window overlap when wording is ambiguous or absent but a range is given', () => {
+      const result = validateCommand({ type: 'remove_text', start: 3, end: 6 }, threeLayers)
+      expect(result).toEqual({ type: 'remove_text', overlayId: 'ov-2', text: 'Smart Living' })
+    })
+    it('errors when there is no text/caption on the video at all', () => {
+      expect(validateCommand({ type: 'remove_text' }, ctx)).toEqual({ error: expect.stringContaining('no text or caption') })
     })
   })
 
@@ -201,6 +225,149 @@ describe('validateCommand', () => {
     it('rejects out of the 2-10 range', () => {
       expect(validateCommand({ type: 'loop', times: 1 }, ctx)).toHaveProperty('error')
       expect(validateCommand({ type: 'loop', times: 11 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('blur / pixelate (TEST: "Blur the background from 10 to 16 seconds" style instructions)', () => {
+    it('accepts a valid windowed blur', () => {
+      expect(validateCommand({ type: 'blur', start: 10, end: 16, strength: 8 }, ctx)).toEqual({ type: 'blur', start: 10, end: 16, strength: 8 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'blur', start: 10, end: 16 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'blur', start: 0, end: 1, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'blur', start: 0, end: 1, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('pixelate follows the same shape as blur', () => {
+      expect(validateCommand({ type: 'pixelate', start: 2, end: 4, strength: 5 }, ctx)).toEqual({ type: 'pixelate', start: 2, end: 4, strength: 5 })
+    })
+    it('rejects a missing time window for both', () => {
+      expect(validateCommand({ type: 'blur', strength: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'pixelate', strength: 5 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('color', () => {
+    it('accepts a single field set', () => {
+      expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })
+    })
+    it('accepts multiple fields together', () => {
+      const result = validateCommand({ type: 'color', start: 0, end: 5, contrast: 1.5, grayscale: true }, ctx)
+      expect(result).toMatchObject({ contrast: 1.5, grayscale: true })
+    })
+    it('rejects when nothing to adjust is given — this is the "never invent a value" case', () => {
+      expect(validateCommand({ type: 'color', start: 0, end: 5 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects out-of-range brightness/contrast/saturation/warmth/vignette', () => {
+      expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, contrast: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, saturation: -1 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, warmth: 2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, vignette: 2 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('fade / rotate / flip / reverse', () => {
+    it('accepts a valid fade', () => {
+      expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
+    })
+    it('defaults fade duration to 1s', () => {
+      expect(validateCommand({ type: 'fade', direction: 'out' }, ctx)).toMatchObject({ duration: 1 })
+    })
+    it('rejects an invalid fade direction', () => {
+      expect(validateCommand({ type: 'fade', direction: 'sideways' }, ctx)).toHaveProperty('error')
+    })
+    it('accepts only the three allowed rotate degrees', () => {
+      expect(validateCommand({ type: 'rotate', degrees: 90 }, ctx)).toEqual({ type: 'rotate', degrees: 90 })
+      expect(validateCommand({ type: 'rotate', degrees: 45 }, ctx)).toHaveProperty('error')
+    })
+    it('accepts a valid flip axis, rejects an invalid one', () => {
+      expect(validateCommand({ type: 'flip', axis: 'horizontal' }, ctx)).toEqual({ type: 'flip', axis: 'horizontal' })
+      expect(validateCommand({ type: 'flip', axis: 'diagonal' }, ctx)).toHaveProperty('error')
+    })
+    it('reverse takes no fields', () => {
+      expect(validateCommand({ type: 'reverse' }, ctx)).toEqual({ type: 'reverse' })
+    })
+  })
+
+  describe('text_style (TEST: "Make the text white and bold." / "Make that text red." — context-aware, patches only what changed)', () => {
+    const oneLayer: InterpretContext = {
+      ...ctx,
+      textLayers: [{ id: 'ov-1', text: 'Galaxy Home Automation', start: 0, end: 5 }],
+    }
+    const twoLayers: InterpretContext = {
+      ...ctx,
+      textLayers: [
+        { id: 'ov-1', text: 'Galaxy Home Automation', start: 0, end: 5 },
+        { id: 'ov-2', text: 'Smart Living', start: 5, end: 10 },
+      ],
+    }
+
+    it('resolves an explicit target to its overlayId, and only carries the field(s) actually named', () => {
+      const result = validateCommand({ type: 'text_style', target: 'Galaxy Home Automation', color: 'white', bold: true }, twoLayers)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', color: 'white', bold: true })
+    })
+    it('"Make it red." with no target and only one layer — resolves directly, no question asked', () => {
+      const result = validateCommand({ type: 'text_style', color: 'red' }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', color: 'red' })
+    })
+    it('"Make it red." with multiple layers and no target — genuinely ambiguous, asks which one instead of guessing', () => {
+      const result = validateCommand({ type: 'text_style', color: 'red' }, twoLayers)
+      expect(result).toEqual({ error: expect.stringContaining('Galaxy Home Automation') })
+    })
+    it('"Make it bigger." only sets size — every other field of the existing layer is left untouched by omission', () => {
+      const result = validateCommand({ type: 'text_style', size: 'lg' }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', size: 'lg' })
+      expect(result).not.toHaveProperty('color')
+      expect(result).not.toHaveProperty('position')
+    })
+    it('rejects when no style field is given at all, even with a resolvable target', () => {
+      expect(validateCommand({ type: 'text_style', target: 'Galaxy Home Automation' }, oneLayer)).toHaveProperty('error')
+    })
+    it('errors when there is no text layer to restyle', () => {
+      expect(validateCommand({ type: 'text_style', color: 'red' }, ctx)).toEqual({ error: expect.stringContaining('no text or caption') })
+    })
+    it('accepts outline color + width together', () => {
+      const result = validateCommand({ type: 'text_style', outlineColor: 'black', outlineWidth: 3 }, oneLayer)
+      expect(result).toMatchObject({ outlineColor: 'black', outlineWidth: 3 })
+    })
+    it('rejects an outline width outside 0-20', () => {
+      expect(validateCommand({ type: 'text_style', outlineWidth: 50 }, oneLayer)).toHaveProperty('error')
+    })
+    it('"Make it Times New Roman and red." — sets font and color together, case-insensitively matched', () => {
+      const result = validateCommand({ type: 'text_style', fontFamily: 'times new roman', color: 'red' }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', color: 'red', fontFamily: 'Times New Roman' })
+    })
+    it('rejects a font that is not in the supported list, rather than silently dropping it', () => {
+      const result = validateCommand({ type: 'text_style', fontFamily: 'Papyrus' }, oneLayer)
+      expect(result).toEqual({ error: expect.stringContaining('Papyrus') })
+    })
+  })
+
+  describe('remove_effect (TEST: "Remove the blur." — only when it truly is the most recent change)', () => {
+    it('removes an effect that is exactly the most recent change', () => {
+      const withBlur: InterpretContext = { ...ctx, lastEffectType: 'blur' }
+      expect(validateCommand({ type: 'remove_effect', effectType: 'blur' }, withBlur)).toEqual({ type: 'remove_effect', effectType: 'blur' })
+    })
+    it('refuses when the most recent change was a different effect, without silently doing nothing', () => {
+      const withRotate: InterpretContext = { ...ctx, lastEffectType: 'rotate' }
+      const result = validateCommand({ type: 'remove_effect', effectType: 'blur' }, withRotate)
+      expect(result).toEqual({ error: expect.stringContaining('rotate') })
+    })
+    it('refuses when there is no effect history at all', () => {
+      const result = validateCommand({ type: 'remove_effect', effectType: 'blur' }, ctx)
+      expect(result).toHaveProperty('error')
+    })
+    it('rejects an unrecognized effectType', () => {
+      expect(validateCommand({ type: 'remove_effect', effectType: 'sparkle' }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('captions_auto / audio_noise_reduction', () => {
+    it('both take no fields', () => {
+      expect(validateCommand({ type: 'captions_auto' }, ctx)).toEqual({ type: 'captions_auto' })
+      expect(validateCommand({ type: 'audio_noise_reduction' }, ctx)).toEqual({ type: 'audio_noise_reduction' })
     })
   })
 })

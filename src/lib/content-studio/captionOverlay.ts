@@ -20,9 +20,26 @@ export interface CaptionImageInput {
   text: string
   position?: CaptionPosition
   size?: CaptionSize
+  /** All optional, all default to the original fixed look (white text, no
+   *  outline, semi-transparent black box) so existing callers/tests that
+   *  don't pass them render exactly as before. */
+  color?: string
+  bold?: boolean
+  outlineColor?: string
+  outlineWidth?: number
+  /** One of FONT_FAMILIES (see aiEditCommands.ts) — undefined/unrecognized
+   *  falls back to the original sans-serif look. */
+  fontFamily?: string
 }
 
 const SIZE_SCALE: Record<CaptionSize, number> = { sm: 0.72, md: 1, lg: 1.35 }
+
+/** Canvas font shorthand needs the family quoted when it contains a space
+ *  (e.g. "Times New Roman"), and a generic fallback in case the browser
+ *  doesn't have the exact family installed. */
+function fontStack(fontFamily: string | undefined): string {
+  return fontFamily ? `"${fontFamily}", sans-serif` : 'sans-serif'
+}
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
@@ -56,7 +73,9 @@ export async function renderCaptionImage(
   // the footage is 720p or 4K — same ratio drawtext's fixed fontsize=42 gave
   // on a roughly 1080-tall portrait clip. size then scales that baseline.
   const fontSize = Math.max(14, Math.round(frameHeight * 0.039 * SIZE_SCALE[caption.size ?? 'md']))
-  ctx.font = `${fontSize}px sans-serif`
+  const weight = caption.bold ? 'bold' : 'normal'
+  const fonts = fontStack(caption.fontFamily)
+  ctx.font = `${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
 
   const maxTextWidth = frameWidth * 0.86
@@ -96,13 +115,19 @@ export async function renderCaptionImage(
   roundRect(ctx, boxX, boxY, boxWidth, boxHeight, fontSize * 0.25)
   ctx.fill()
 
-  ctx.fillStyle = '#ffffff'
-  ctx.font = `${fontSize}px sans-serif`
+  ctx.font = `${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
+  if (caption.outlineWidth && caption.outlineWidth > 0) {
+    ctx.lineWidth = caption.outlineWidth
+    ctx.strokeStyle = caption.outlineColor ?? '#000000'
+    ctx.lineJoin = 'round'
+  }
+  ctx.fillStyle = caption.color ?? '#ffffff'
   lines.forEach((l, i) => {
     const lineWidth = ctx.measureText(l).width
     const lx = boxX + (boxWidth - lineWidth) / 2
     const ly = boxY + padY + lineHeight * i + lineHeight / 2
+    if (caption.outlineWidth && caption.outlineWidth > 0) ctx.strokeText(l, lx, ly)
     ctx.fillText(l, lx, ly)
   })
 

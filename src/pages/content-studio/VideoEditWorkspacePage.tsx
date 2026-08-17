@@ -12,16 +12,19 @@ import {
 import {
   renderFinal, renderSegments, AutoEditError,
   applyCropAspect, applyZoomPan, applyWindowedSpeed, loopVideo,
+  applyBlur, applyPixelate, applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction,
+  analyzeFootage,
   type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize,
 } from '@/lib/content-studio/autoEdit'
 import {
   interpretInstruction, targetToCenter, directionToPanPoints,
   describeAiCommand, describeAiCommandCard,
-  type EditCommand,
+  type EditCommand, type EffectType,
 } from '@/lib/content-studio/aiEditCommands'
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
-import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
+import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt } from '@/lib/content-studio/videoEditShared'
+import { transcribeAudio } from '@/lib/content-studio/videoPlan'
 import { Page } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
@@ -48,6 +51,11 @@ interface HistorySnapshot {
   sourceKey: string
   /** Shown in the Edit History panel, e.g. "Trim clip", "Zoom 5.0s→8.0s". */
   label: string
+  /** The hard-bake command type(s) folded into this snapshot, if any — lets
+   *  "remove the blur" check whether blur is EXACTLY the most recent change
+   *  (not combined with anything else) before treating Undo as a safe way
+   *  to remove it. Absent for clip-level (trim/split) commits. */
+  effectTypes?: string[]
 }
 
 /** A Text or Captions item — same shape as TimedCaption, plus a stable id for editing/deleting in the UI. */
@@ -59,10 +67,22 @@ interface Overlay {
   end: number
   position: CaptionPosition
   size: CaptionSize
+  /** All optional — omitted means "use the original fixed look" (white,
+   *  unbolded, no outline), same as before these existed. */
+  color?: string
+  bold?: boolean
+  outlineColor?: string
+  outlineWidth?: number
+  /** One of FONT_FAMILIES (aiEditCommands.ts) — omitted means the default sans-serif look. */
+  fontFamily?: string
 }
 
 function overlayToTimedCaption(o: Overlay): TimedCaption {
-  return { text: o.text, start: o.start, end: o.end, position: o.position, size: o.size, kind: o.kind }
+  return {
+    text: o.text, start: o.start, end: o.end, position: o.position, size: o.size, kind: o.kind,
+    color: o.color, bold: o.bold, outlineColor: o.outlineColor, outlineWidth: o.outlineWidth,
+    fontFamily: o.fontFamily,
+  }
 }
 
 function isOverlayActive(o: Overlay, t: number): boolean {
@@ -474,7 +494,7 @@ export function VideoEditWorkspacePage() {
    *  clip and swapping the player/export source to match. Purely local:
    *  no Drive upload, no DB write — same "stays local until Save" rule the
    *  Music panel already follows for a picked-but-unsaved file. */
-  async function commitNewSource(blob: Blob, newDuration: number, label: string) {
+  async function commitNewSource(blob: Blob, newDuration: number, label: string, effectTypes?: string[]) {
     const sourceKey = `local-${Date.now()}`
     sourceBlobCache.current.set(sourceKey, blob)
     await switchSource(sourceKey)
@@ -485,7 +505,7 @@ export function VideoEditWorkspacePage() {
     setMode('single')
     setClips([newClip])
     setSelectedId(newClip.id)
-    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: [newClip], sourceKey, label }])
+    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: [newClip], sourceKey, label, effectTypes }])
     setHistoryIndex((i) => i + 1)
     setDirty(true)
   }
@@ -658,7 +678,7 @@ export function VideoEditWorkspacePage() {
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) ?? null
 
-  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm) {
+  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & { fontFamily?: string }) {
     if (!form.text.trim()) return
     const id = `ov-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setOverlays((prev) => [...prev, { id, kind, ...form }])
@@ -670,6 +690,19 @@ export function VideoEditWorkspacePage() {
   function updateOverlay(id: string, patch: Partial<Overlay>) {
     setOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)))
     setDirty(true)
+  }
+
+  function downloadCaptionsFile(format: 'srt' | 'vtt') {
+    const captionCues = overlays.filter((o) => o.kind === 'caption' && o.text.trim())
+    if (!captionCues.length) return
+    const fileText = format === 'srt' ? toSrt(captionCues) : toVtt(captionCues)
+    const blob = new Blob([fileText], { type: format === 'srt' ? 'text/srt' : 'text/vtt' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(content?.title || 'captions').replace(/[^\w-]+/g, '_')}.${format}`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function deleteOverlay(id: string) {
@@ -1025,15 +1058,38 @@ export function VideoEditWorkspacePage() {
   const [aiLastApplied, setAiLastApplied] = useState<EditCommand[] | null>(null)
 
   async function interpretAiEdit() {
-    if (!aiEditPrompt.trim()) {
+    const instruction = aiEditPrompt.trim()
+    if (!instruction) {
       setAiEditError('Please enter an editing instruction.')
       return
     }
     setAiEditError('')
     setAiPendingCommands(null)
+
+    // "Undo that."/"Redo." are handled directly through the real undo/redo
+    // functions, not sent to the AI at all — cheaper, instant, and ties
+    // straight into the existing history stack rather than a parsed
+    // approximation of it.
+    const lower = instruction.toLowerCase().replace(/[.!]+$/, '').trim()
+    if (/^(undo|undo that|undo the last (edit|change)|undo last (edit|change))$/.test(lower)) {
+      if (historyIndex <= 0) { setAiEditError('Nothing to undo yet.'); return }
+      await undo()
+      setAiEditPrompt('')
+      return
+    }
+    if (/^(redo|redo that|redo the last (edit|change)|redo last (edit|change))$/.test(lower)) {
+      if (historyIndex >= history.length - 1) { setAiEditError('Nothing to redo.'); return }
+      await redo()
+      setAiEditPrompt('')
+      return
+    }
+
     setAiInterpreting(true)
     try {
-      const result = await interpretInstruction(aiEditPrompt, { durationSec: duration || 0, hasMusic })
+      const textLayers = overlays.map((o) => ({ id: o.id, text: o.text, start: o.start, end: o.end }))
+      const topSnap = historyIndex >= 0 ? history[historyIndex] : undefined
+      const lastEffectType = topSnap?.effectTypes?.length === 1 ? (topSnap.effectTypes[0] as EffectType) : undefined
+      const result = await interpretInstruction(instruction, { durationSec: duration || 0, hasMusic, textLayers, lastEffectType })
       if (result.clarification) {
         setAiEditError(result.clarification)
       } else if (result.commands?.length) {
@@ -1074,8 +1130,10 @@ export function VideoEditWorkspacePage() {
     setAiEditError('')
     setAiProgress(null)
     try {
-      const isHardBake = (c: EditCommand) => c.type === 'crop' || c.type === 'zoom' || c.type === 'pan' || c.type === 'speed' || c.type === 'loop'
-      const hardBake = commands.filter((c): c is Extract<EditCommand, { type: 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' }> => isHardBake(c))
+      type HardBakeType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction'
+      const HARD_BAKE_TYPES: HardBakeType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction']
+      const isHardBake = (c: EditCommand): c is Extract<EditCommand, { type: HardBakeType }> => (HARD_BAKE_TYPES as string[]).includes(c.type)
+      const hardBake = commands.filter(isHardBake)
       const soft = commands.filter((c) => !isHardBake(c))
 
       if (hardBake.length) {
@@ -1098,14 +1156,18 @@ export function VideoEditWorkspacePage() {
           blob = await renderFinal(blob, { trimStart: c.cutStart, trimEnd: c.cutEnd > 0 ? Math.max(0.1, c.end - c.cutEnd) : 0 }, setAiProgress)
         }
 
-        // crop first (whole-video, order-independent), then zoom/pan/speed
-        // in the order given, loop last (it should wrap the fully-edited
+        // crop/rotate/flip (geometry) first, then zoom/pan/speed, then
+        // color/blur/pixelate/fade/noise-reduction (frame/audio-level
+        // touch-ups), then reverse, loop last (should wrap the fully-edited
         // result, not a pre-edit segment).
         const ordered = [
-          ...hardBake.filter((c) => c.type === 'crop'),
+          ...hardBake.filter((c) => c.type === 'crop' || c.type === 'rotate' || c.type === 'flip'),
           ...hardBake.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
+          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'pixelate' || c.type === 'fade' || c.type === 'audio_noise_reduction'),
+          ...hardBake.filter((c) => c.type === 'reverse'),
           ...hardBake.filter((c) => c.type === 'loop'),
         ]
+        let bakedDurationSec = totalDuration
         for (const cmd of ordered) {
           if (cmd.type === 'crop') {
             blob = await applyCropAspect(blob, cmd.aspect, setAiProgress)
@@ -1117,8 +1179,28 @@ export function VideoEditWorkspacePage() {
             blob = await applyZoomPan(blob, { start: cmd.start, end: cmd.end, fromScale: cmd.scale, toScale: cmd.scale, fromX, fromY, toX, toY }, setAiProgress)
           } else if (cmd.type === 'speed') {
             blob = await applyWindowedSpeed(blob, cmd.start, cmd.end, cmd.factor, setAiProgress)
+            bakedDurationSec = await probeBlobDuration(blob)
           } else if (cmd.type === 'loop') {
             blob = await loopVideo(blob, cmd.times, setAiProgress)
+          } else if (cmd.type === 'blur') {
+            blob = await applyBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'pixelate') {
+            blob = await applyPixelate(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'color') {
+            blob = await applyColorAdjust(blob, {
+              start: cmd.start, end: cmd.end, brightness: cmd.brightness, contrast: cmd.contrast,
+              saturation: cmd.saturation, grayscale: cmd.grayscale, warmth: cmd.warmth, vignette: cmd.vignette,
+            }, setAiProgress)
+          } else if (cmd.type === 'fade') {
+            blob = await applyVideoFade(blob, { direction: cmd.direction, duration: cmd.duration, durationSec: bakedDurationSec }, setAiProgress)
+          } else if (cmd.type === 'rotate') {
+            blob = await applyRotate(blob, cmd.degrees, setAiProgress)
+          } else if (cmd.type === 'flip') {
+            blob = await applyFlip(blob, cmd.axis, setAiProgress)
+          } else if (cmd.type === 'reverse') {
+            blob = await applyReverse(blob, setAiProgress)
+          } else if (cmd.type === 'audio_noise_reduction') {
+            blob = await applyNoiseReduction(blob, setAiProgress)
           }
         }
 
@@ -1130,7 +1212,7 @@ export function VideoEditWorkspacePage() {
         // untouched by any of this) and every earlier save's Drive file
         // intact rather than replaced on every single AI instruction.
         const newDuration = await probeBlobDuration(blob)
-        await commitNewSource(blob, newDuration, ordered.map(describeAiCommand).join(' + '))
+        await commitNewSource(blob, newDuration, ordered.map(describeAiCommand).join(' + '), ordered.map((c) => c.type))
       }
 
       for (const cmd of soft) {
@@ -1150,20 +1232,11 @@ export function VideoEditWorkspacePage() {
           ))
           commit(nextClips, 'Trim')
         } else if (cmd.type === 'text' || cmd.type === 'caption') {
-          addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size })
+          addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size, fontFamily: cmd.fontFamily })
         } else if (cmd.type === 'remove_text') {
-          // Overlap, not exact match — the operator's phrasing of the time
-          // range won't necessarily equal the overlay's own stored
-          // start/end to the decimal. Prefer whichever overlapping overlay
-          // also matches the mentioned text, if any was given.
-          const overlapping = overlays.filter((o) => o.start < cmd.end && o.end > cmd.start)
-          const target = (cmd.text
-            ? overlapping.find((o) => o.text.toLowerCase().includes(cmd.text!.toLowerCase()))
-            : undefined) ?? overlapping[0]
-          if (!target) {
-            throw new Error(`No text overlay found between ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} to remove.`)
-          }
-          deleteOverlay(target.id)
+          // Already resolved to a concrete overlayId by validateCommand
+          // (using the real current layers) — nothing left to match here.
+          deleteOverlay(cmd.overlayId)
         } else if (cmd.type === 'audio_volume') {
           setOriginalVolume(cmd.volume)
           setDirty(true)
@@ -1173,6 +1246,36 @@ export function VideoEditWorkspacePage() {
         } else if (cmd.type === 'music') {
           if (cmd.action === 'remove') removeMusic()
           else if (cmd.volume != null) { setMusicVolume(cmd.volume); setDirty(true) }
+        } else if (cmd.type === 'remove_effect') {
+          // validateCommand already confirmed this effect is EXACTLY the
+          // top of the undo stack (ctx.lastEffectType) — removing it is
+          // just stepping back one commit via the real Undo mechanism, not
+          // a separate/parallel removal path.
+          await undo()
+        } else if (cmd.type === 'text_style') {
+          // Already resolved to a concrete overlayId by validateCommand.
+          // Only the fields the instruction named are in cmd at all — every
+          // other property of the layer is untouched by this patch.
+          updateOverlay(cmd.overlayId, {
+            ...(cmd.color != null ? { color: cmd.color } : {}),
+            ...(cmd.bold != null ? { bold: cmd.bold } : {}),
+            ...(cmd.outlineColor != null ? { outlineColor: cmd.outlineColor } : {}),
+            ...(cmd.outlineWidth != null ? { outlineWidth: cmd.outlineWidth } : {}),
+            ...(cmd.position != null ? { position: cmd.position } : {}),
+            ...(cmd.size != null ? { size: cmd.size } : {}),
+            ...(cmd.fontFamily != null ? { fontFamily: cmd.fontFamily } : {}),
+          })
+        } else if (cmd.type === 'captions_auto') {
+          if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
+          const { audioBlob } = await analyzeFootage(sourceBlobRef.current, {}, setAiProgress)
+          const transcript = await transcribeAudio(audioBlob)
+          if (!transcript.segments.length) throw new Error('No speech was detected in this video to generate captions from.')
+          const newCaptions: Overlay[] = transcript.segments.map((s, i) => ({
+            id: `ov-caption-auto-${Date.now()}-${i}`, kind: 'caption', text: s.text.trim(),
+            start: s.start, end: s.end, position: 'bottom', size: 'md',
+          }))
+          setOverlays((prev) => [...prev, ...newCaptions])
+          setDirty(true)
         }
       }
 
@@ -1276,7 +1379,12 @@ export function VideoEditWorkspacePage() {
                   {overlays.filter((o) => o.text.trim() && isOverlayActive(o, curTime)).map((o) => (
                     <div
                       key={o.id}
-                      className={`absolute ${POSITION_CLASS[o.position]} ${SIZE_CLASS[o.size]} rounded-md bg-black/60 text-white font-semibold text-center max-w-[90%] pointer-events-none`}
+                      className={`absolute ${POSITION_CLASS[o.position]} ${SIZE_CLASS[o.size]} rounded-md bg-black/60 text-center max-w-[90%] pointer-events-none ${o.bold ? 'font-bold' : 'font-semibold'}`}
+                      style={{
+                        color: o.color ?? '#ffffff',
+                        WebkitTextStroke: o.outlineWidth ? `${o.outlineWidth}px ${o.outlineColor ?? '#000000'}` : undefined,
+                        fontFamily: o.fontFamily ? `"${o.fontFamily}", sans-serif` : undefined,
+                      }}
                     >
                       {o.text}
                     </div>
@@ -1594,6 +1702,10 @@ export function VideoEditWorkspacePage() {
                       "{o.text}" · {fmtTime(o.start)}–{fmtTime(o.end)}
                     </button>
                   ))}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => downloadCaptionsFile('srt')} className="text-[10px] font-semibold text-gray-500 hover:text-gold-400">Export .srt</button>
+                    <button onClick={() => downloadCaptionsFile('vtt')} className="text-[10px] font-semibold text-gray-500 hover:text-gold-400">Export .vtt</button>
+                  </div>
                 </div>
               )}
             </div>
