@@ -24,7 +24,7 @@ import {
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt } from '@/lib/content-studio/videoEditShared'
-import { transcribeAudio } from '@/lib/content-studio/videoPlan'
+import { transcribeAudio, analyzeReferenceStyle, styleProfileToCommands } from '@/lib/content-studio/videoPlan'
 import { Page } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
@@ -1183,6 +1183,41 @@ export function VideoEditWorkspacePage() {
     setAiPendingCommands(null)
   }
 
+  // ---------- match a reference reel's style ----------
+  // Reads the reference link's cover image (NOT the actual reel video —
+  // there's no way to download that from a link), estimates a general
+  // color/aspect/caption-style impression, and turns it into the same
+  // reviewable command list a typed instruction produces — nothing applies
+  // until the operator hits Apply, same as every other AI Edit path.
+  const [styleUrl, setStyleUrl] = useState('')
+  const [styleMatching, setStyleMatching] = useState(false)
+  const [styleError, setStyleError] = useState('')
+  const [styleVibe, setStyleVibe] = useState('')
+
+  async function matchReferenceStyle() {
+    const url = styleUrl.trim()
+    if (!url) { setStyleError('Paste a reference reel link first.'); return }
+    setStyleError('')
+    setStyleVibe('')
+    setAiPendingCommands(null)
+    setStyleMatching(true)
+    try {
+      const profile = await analyzeReferenceStyle(url)
+      const textLayers = overlays.map((o) => ({ id: o.id, text: o.text, start: o.start, end: o.end }))
+      const commands = styleProfileToCommands(profile, { durationSec: duration || 0, hasMusic, textLayers })
+      if (!commands.length) {
+        setStyleError("Couldn't turn that reference's style into any changes — try a different link.")
+        return
+      }
+      setStyleVibe(profile.vibe)
+      setAiPendingCommands(commands)
+    } catch (err) {
+      setStyleError(errText(err))
+    } finally {
+      setStyleMatching(false)
+    }
+  }
+
   /**
    * Executes every pending command in order. crop/zoom/pan/speed/loop are
    * "hard-bake" operations — they re-render the actual source video (same
@@ -1731,6 +1766,35 @@ export function VideoEditWorkspacePage() {
                 </div>
               ) : (
                 <p className="text-[11px] text-gray-600">Select a clip on the timeline to trim it.</p>
+              )}
+            </div>
+
+            {/* ---------- match a reference reel ---------- */}
+            <div className="rounded-lg border border-gray-800 p-3 space-y-2">
+              <h3 className="text-xs font-bold text-gray-300 flex items-center gap-1.5">🔗 Match a Reference Reel</h3>
+              <p className="text-[10px] text-gray-600">
+                Reads the reference link's cover image (colors/aspect/caption look) — not the full video, that can't be downloaded from a link. Gets you close, not identical.
+              </p>
+              <input
+                type="text"
+                className="form-input text-xs"
+                value={styleUrl}
+                onChange={(e) => setStyleUrl(e.target.value)}
+                placeholder="Paste a reel/short link…"
+                disabled={styleMatching || aiInterpreting || aiApplying}
+              />
+              <button
+                className="btn-secondary text-xs w-full disabled:opacity-50"
+                onClick={matchReferenceStyle}
+                disabled={styleMatching || aiInterpreting || aiApplying || !sourceBlobRef.current}
+              >
+                {styleMatching ? 'Analyzing style…' : 'Analyze & Match Style'}
+              </button>
+              {styleError && <p className="text-[11px] text-rose-400">{styleError}</p>}
+              {styleVibe && (
+                <p className="text-[11px] text-gray-500 italic">
+                  "{styleVibe}" — review the suggested changes in AI Edit below before applying.
+                </p>
               )}
             </div>
 

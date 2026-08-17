@@ -209,6 +209,87 @@ async function analyzeLink(url: string) {
   }
 }
 
+// ─── analyzeStyle ───────────────────────────────────────────────────────────
+//
+// "Match this reference reel's style" — deliberately scoped to what a link
+// alone can actually give us: the page's own cover image/thumbnail (via the
+// same OG-tag fetch analyzeLink already does), read once by the vision
+// model for a general style impression. This is NOT frame-by-frame video
+// analysis — there is no way to download the actual reel video from a
+// public link here (Instagram/TikTok/YouTube don't expose one, and
+// scraping them is fragile and against most of their terms), so cut
+// timing/pacing from the reference is never part of this. The output maps
+// directly onto AI Edit's own color/crop/text_style vocabulary so it can be
+// turned into real commands, not just a text description.
+
+export type StyleAspect = '9:16' | '16:9' | '1:1' | '4:5'
+export type StyleCaptionPosition = 'top' | 'bottom' | 'left' | 'right' | 'center'
+
+export interface StyleProfile {
+  aspect: StyleAspect
+  brightness: number   // -1..1
+  contrast: number     // 0..3
+  saturation: number   // 0..3
+  warmth: number        // -1 (cooler) .. 1 (warmer)
+  captionColor: string
+  captionBold: boolean
+  captionPosition: StyleCaptionPosition
+  vibe: string          // one-line human description, shown to the operator, never fed back as a command
+}
+
+const STYLE_ANALYST = `You look at a single cover image/thumbnail from a short-form video (Reel/Short/TikTok) and estimate its VISUAL EDITING STYLE — not its content or product. You have no other frames and no audio; give your best impression from this one image, never invent specifics you can't see.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "aspect": "9:16" | "16:9" | "1:1" | "4:5",
+  "brightness": -1..1 (0 = neutral; positive if the image reads bright/overexposed, negative if dark/moody),
+  "contrast": 0..3 (1 = neutral; higher if the image has punchy/high-contrast look),
+  "saturation": 0..3 (1 = neutral; higher if colors look vivid/punchy, lower if muted/desaturated),
+  "warmth": -1..1 (0 = neutral; positive if the color grade leans warm/orange, negative if it leans cool/blue),
+  "captionColor": a CSS color name or hex for the on-screen text color if any text is visible, else "white",
+  "captionBold": true if visible text looks bold/heavy, else false,
+  "captionPosition": "top" | "bottom" | "left" | "right" | "center" — where text sits if visible, else "bottom",
+  "vibe": "one short plain-English sentence describing the overall look (e.g. 'bright, high-contrast, bold white captions at the bottom')"
+}
+
+Base every field on what's actually visible in the image — if you can't tell, use the neutral default (brightness 0, contrast 1, saturation 1, warmth 0) rather than guessing dramatically.`
+
+async function analyzeStyle(url: string): Promise<StyleProfile> {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
+  const meta = await fetchPageMeta(url)
+  if (!meta.image) {
+    throw new Error("Couldn't find a cover image on that link to analyze — it may block automated visits, or have no preview image.")
+  }
+  const dataUrl = await fetchAsDataUrl(meta.image)
+  if (!dataUrl) throw new Error("Couldn't load that link's cover image.")
+
+  const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
+    { type: 'text', text: `Page title (context only, not the subject): ${meta.title || '(none)'}` },
+    { type: 'image_url', image_url: { url: dataUrl } },
+  ], 400)
+
+  const parsed = extractJson<Record<string, unknown>>(raw, '{')
+  if (!parsed) throw new Error('The model did not return a usable style analysis. Try again.')
+
+  const aspects: StyleAspect[] = ['9:16', '16:9', '1:1', '4:5']
+  const positions: StyleCaptionPosition[] = ['top', 'bottom', 'left', 'right', 'center']
+  const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
+  }
+  return {
+    aspect: aspects.includes(parsed.aspect as StyleAspect) ? (parsed.aspect as StyleAspect) : '9:16',
+    brightness: clamp(parsed.brightness, -1, 1, 0),
+    contrast: clamp(parsed.contrast, 0, 3, 1),
+    saturation: clamp(parsed.saturation, 0, 3, 1),
+    warmth: clamp(parsed.warmth, -1, 1, 0),
+    captionColor: String(parsed.captionColor || 'white'),
+    captionBold: parsed.captionBold === true,
+    captionPosition: positions.includes(parsed.captionPosition as StyleCaptionPosition) ? (parsed.captionPosition as StyleCaptionPosition) : 'bottom',
+    vibe: String(parsed.vibe || ''),
+  }
+}
+
 // ─── transcribe ─────────────────────────────────────────────────────────────
 
 interface WhisperSegment { start: number; end: number; text: string }
@@ -328,6 +409,10 @@ export default async function handler(req: Req, res: Res) {
   try {
     if (action === 'analyzeLink') {
       res.status(200).json(await analyzeLink(String(body.url || '').trim()))
+      return
+    }
+    if (action === 'analyzeStyle') {
+      res.status(200).json(await analyzeStyle(String(body.url || '').trim()))
       return
     }
     if (action === 'transcribe') {
