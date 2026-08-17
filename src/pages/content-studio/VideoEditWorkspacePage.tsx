@@ -828,6 +828,18 @@ export function VideoEditWorkspacePage() {
 
   // ---------- AI edit (UI only for now — not wired to anything) ----------
   const [aiEditPrompt, setAiEditPrompt] = useState('')
+  const [aiEditSubmitted, setAiEditSubmitted] = useState('')
+  const [aiEditError, setAiEditError] = useState('')
+
+  function applyAiEdit() {
+    if (!aiEditPrompt.trim()) {
+      setAiEditError('Please enter an editing instruction.')
+      setAiEditSubmitted('')
+      return
+    }
+    setAiEditError('')
+    setAiEditSubmitted(aiEditPrompt.trim())
+  }
 
   if (loading) {
     return (
@@ -1139,9 +1151,13 @@ export function VideoEditWorkspacePage() {
                 onChange={(e) => setAiEditPrompt(e.target.value)}
                 placeholder="Tell me what you want to change..."
               />
-              <button className="btn-primary text-xs w-full" onClick={() => {}}>
+              <button className="btn-primary text-xs w-full" onClick={applyAiEdit}>
                 Apply AI Edit
               </button>
+              {aiEditError && <p className="text-[11px] text-rose-400">{aiEditError}</p>}
+              {aiEditSubmitted && (
+                <p className="text-[11px] text-gray-500">Instruction received: <span className="text-gray-300">"{aiEditSubmitted}"</span></p>
+              )}
             </div>
 
             {/* ---------- text tool ---------- */}
