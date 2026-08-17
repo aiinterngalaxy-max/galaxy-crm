@@ -27,6 +27,7 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
   const [clientPhone, setClientPhone] = useState(initial?.clientPhone ?? '')
   const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? '')
   const [travelDate, setTravelDate] = useState(initial?.pickupDate ?? '')
+  const [returnDate, setReturnDate] = useState(initial?.dropDate && initial.dropDate !== initial.pickupDate ? initial.dropDate : '')
   const [from, setFrom] = useState(initial?.pickupLocation ?? '')
   const [to, setTo] = useState(initial?.dropLocation ?? '')
   const [isRoundTrip, setIsRoundTrip] = useState(initial?.isRoundTrip ?? false)
@@ -70,7 +71,7 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
       clientEmail: clientEmail.trim(),
       pickupDate: travelDate,
       pickupLocation: from.trim(),
-      dropDate: travelDate,
+      dropDate: returnDate || travelDate,
       dropLocation: to.trim(),
       passengers: passengers.trim(),
       estimatedKm: '',
@@ -153,8 +154,13 @@ export function QuickQuoteModal({ initial, onClose, onSaved }: Props) {
             <input type="date" className="w-full px-3 py-2 rounded-xl text-sm outline-none" style={inputStyle}
               value={travelDate} onChange={e => setTravelDate(e.target.value)} />
           </div>
-          <div className="flex items-end pb-2.5">
-            <label className="flex items-center gap-2 text-xs font-semibold" style={labelStyle}>
+          <div>
+            <label className="block text-xs font-semibold mb-1.5" style={labelStyle}>Return Date</label>
+            <input type="date" className="w-full px-3 py-2 rounded-xl text-sm outline-none" style={inputStyle}
+              value={returnDate} onChange={e => setReturnDate(e.target.value)} min={travelDate || undefined} />
+          </div>
+          <div className="col-span-2">
+            <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer" style={labelStyle}>
               <input type="checkbox" checked={isRoundTrip} onChange={e => setIsRoundTrip(e.target.checked)} />
               Round Trip
             </label>
