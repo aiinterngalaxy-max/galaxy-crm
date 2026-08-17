@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
-import { ensureVideoJob, updateVideoJob, getContent } from '@/lib/content-studio/queries'
+import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
 import { autoEditRemoveSilence, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
@@ -194,6 +194,19 @@ export function VideoStudioPage() {
     await persist({ approved: 1 })
   }
 
+  async function onDelete() {
+    if (!content) return
+    if (!confirm(`Delete "${content.title}"? This cannot be undone.`)) return
+    setBusy(true)
+    try {
+      await deleteContent(content.id, viewer?.name)
+      navigate('/content-studio/editing')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not delete this piece.')
+      setBusy(false)
+    }
+  }
+
   async function onExport() {
     if (!job?.edited_drive_id || !content) return
     setBusy(true)
@@ -258,7 +271,19 @@ export function VideoStudioPage() {
       <PageHeader
         title={content?.title ?? 'Video studio'}
         subtitle={content?.brand_name}
-        right={<StatusStrip status={status} approved={!!job?.approved} />}
+        right={
+          <div className="flex items-center gap-2">
+            <StatusStrip status={status} approved={!!job?.approved} />
+            <button
+              disabled={busy}
+              onClick={onDelete}
+              title="Delete this piece"
+              className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+            >
+              🗑 Delete
+            </button>
+          </div>
+        }
       />
 
       <div className="max-w-3xl space-y-5">
