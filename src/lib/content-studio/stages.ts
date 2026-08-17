@@ -73,9 +73,9 @@ export const FUNNEL_STAGES = ["TOFU", "MOFU", "BOFU"] as const;
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 
 export const FUNNEL_STAGE_LABEL: Record<string, string> = {
-  TOFU: "TOFU — Top of funnel (awareness)",
-  MOFU: "MOFU — Middle of funnel (consideration)",
-  BOFU: "BOFU — Bottom of funnel (decision)",
+  TOFU: "TOFU (Know)",
+  MOFU: "MOFU (Think)",
+  BOFU: "BOFU (Buy)",
 };
 
 export const FUNNEL_STAGE_STYLE: Record<string, string> = {
