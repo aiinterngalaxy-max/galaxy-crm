@@ -581,6 +581,52 @@ export function VideoEditWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ---------- drag-to-adjust music range (same interaction as clip trim handles) ----------
+  const audioTrackRef = useRef<HTMLDivElement>(null)
+  const musicDragRef = useRef<{ edge: 'start' | 'end'; startX: number; startVal: number; pxPerSec: number } | null>(null)
+
+  function onMusicHandleMouseDown(edge: 'start' | 'end', e: React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
+    const rect = audioTrackRef.current?.getBoundingClientRect()
+    if (!rect || !totalDuration) return
+    const effectiveEnd = musicEndRef.current > musicStartRef.current ? musicEndRef.current : totalDuration
+    musicDragRef.current = {
+      edge, startX: e.clientX,
+      startVal: edge === 'start' ? musicStartRef.current : effectiveEnd,
+      pxPerSec: rect.width / totalDuration,
+    }
+    window.addEventListener('mousemove', onMusicHandleMouseMove)
+    window.addEventListener('mouseup', onMusicHandleMouseUp)
+  }
+
+  function onMusicHandleMouseMove(e: MouseEvent) {
+    const d = musicDragRef.current
+    if (!d) return
+    const deltaSec = (e.clientX - d.startX) / d.pxPerSec
+    if (d.edge === 'start') {
+      const effectiveEnd = musicEndRef.current > musicStartRef.current ? musicEndRef.current : totalDuration
+      const maxStart = Math.max(0, effectiveEnd - 0.2)
+      setMusicStart(Math.min(maxStart, Math.max(0, d.startVal + deltaSec)))
+    } else {
+      const minEnd = musicStartRef.current + 0.2
+      setMusicEnd(Math.min(totalDuration, Math.max(minEnd, d.startVal + deltaSec)))
+    }
+  }
+
+  function onMusicHandleMouseUp() {
+    window.removeEventListener('mousemove', onMusicHandleMouseMove)
+    window.removeEventListener('mouseup', onMusicHandleMouseUp)
+    musicDragRef.current = null
+    setDirty(true)
+  }
+
+  useEffect(() => () => {
+    window.removeEventListener('mousemove', onMusicHandleMouseMove)
+    window.removeEventListener('mouseup', onMusicHandleMouseUp)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function onTimelineClick(e: React.MouseEvent<HTMLDivElement>) {
     const rect = timelineTrackRef.current?.getBoundingClientRect()
     if (!rect || !totalDuration || !videoRef.current) return
@@ -638,6 +684,10 @@ export function VideoEditWorkspacePage() {
   const [musicVolume, setMusicVolume] = useState(0.18)
   const [musicStart, setMusicStart] = useState(0)
   const [musicEnd, setMusicEnd] = useState(0)
+  const musicStartRef = useRef(0)
+  const musicEndRef = useRef(0)
+  useEffect(() => { musicStartRef.current = musicStart }, [musicStart])
+  useEffect(() => { musicEndRef.current = musicEnd }, [musicEnd])
   const [fadeIn, setFadeIn] = useState(0)
   const [fadeOut, setFadeOut] = useState(0)
   const [originalVolume, setOriginalVolume] = useState(1)
@@ -1359,7 +1409,7 @@ export function VideoEditWorkspacePage() {
                 {hasMusic && (
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Audio</p>
-                    <div className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
+                    <div ref={audioTrackRef} className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
                       <div
                         style={{
                           left: `${(musicStart / totalDuration) * 100}%`,
@@ -1368,6 +1418,16 @@ export function VideoEditWorkspacePage() {
                         className="absolute top-0.5 bottom-0.5 rounded bg-emerald-900/70 border border-emerald-700/60 text-emerald-200 text-[10px] px-1 truncate flex items-center"
                       >
                         {musicName || 'Background Music'}
+                        <span
+                          onMouseDown={(e) => onMusicHandleMouseDown('start', e)}
+                          title="Drag to adjust the start"
+                          className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-emerald-500/70 hover:bg-emerald-400"
+                        />
+                        <span
+                          onMouseDown={(e) => onMusicHandleMouseDown('end', e)}
+                          title="Drag to adjust the end"
+                          className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-emerald-500/70 hover:bg-emerald-400"
+                        />
                       </div>
                     </div>
                   </div>

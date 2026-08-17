@@ -14,8 +14,8 @@
 const GRAPH = 'https://graph.facebook.com/v21.0'
 
 /** Vision-capable by default; override if the model name moves on. */
-export const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
-const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
+export const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.6-27b'
+const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'openai/gpt-oss-120b'
 /** Groq's own compound system — it decides on its own when to run a real web
  * search (via Tavily) before answering. The "-mini" variant does at most one
  * search per call, which is all a single trend lookup needs, and is faster
@@ -24,12 +24,12 @@ const RESEARCH_MODEL = process.env.GROQ_RESEARCH_MODEL || 'groq/compound-mini'
 
 /**
  * Groq's daily token cap is tracked separately PER MODEL, not pooled across
- * the account — a 429 on llama-3.3-70b-versatile means that one model's own
+ * the account — a 429 on the default text model means that one model's own
  * allowance is spent, not that the Groq key itself is out of headroom. These
  * are all still capable instruction-followers, so trying the next one on a
  * 429 costs a little quality at worst, not a broken script.
  */
-export const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
+export const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-20b'].filter(
   (m, i, arr) => arr.indexOf(m) === i, // TEXT_MODEL may already be one of these via env override
 )
 const RESEARCH_MODEL_CHAIN = [RESEARCH_MODEL, RESEARCH_MODEL === 'groq/compound-mini' ? 'groq/compound' : 'groq/compound-mini']

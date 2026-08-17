@@ -60,7 +60,7 @@ export default async function handler(req: Req, res: Res) {
       method: 'POST',
       headers: { Authorization: `Bearer ${groqKey()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages,
         max_tokens: Math.min(Math.max(Number(body.maxTokens) || 2048, 1), 8000),
         temperature: typeof body.temperature === 'number' ? body.temperature : 0.7,

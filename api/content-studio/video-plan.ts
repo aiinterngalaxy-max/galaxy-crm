@@ -26,9 +26,9 @@
 // not even a caught error) rather than just duplicating a couple hundred
 // lines of Groq plumbing.
 
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
-const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
-const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
+const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'qwen/qwen3.6-27b'
+const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'openai/gpt-oss-120b'
+const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-20b'].filter(
   (m, i, arr) => arr.indexOf(m) === i,
 )
 
