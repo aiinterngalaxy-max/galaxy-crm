@@ -8,6 +8,16 @@ import { FirstRun } from '@/components/content-studio/FirstRun'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import type { Brand, ContentRow, ShootRow } from '@/types/content-studio'
 
+// Mirrors the status -> stage mapping createShoot/updateShoot already apply
+// on every status click (queries.ts) — kept here too so a shoot whose status
+// was set some other way (seeded/synced data) still gets caught up below.
+const SHOOT_STATUS_STAGE: Record<string, string> = {
+  Planned: 'Shoot Planning',
+  Scheduled: 'Shoot Scheduled',
+  Shooting: 'Shooting',
+  Completed: 'Editing',
+}
+
 export function ShootsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -34,20 +44,28 @@ export function ShootsPage() {
     load()
   }, [load])
 
-  // Catch up: shoots already marked Completed before this auto-advance
-  // existed left their content stuck before Editing. Push those forward now.
+  // Catch up: any shoot whose status implies a further-along Pipeline stage
+  // than its linked content is currently sitting at — e.g. a shoot that's
+  // already "Scheduled" while its content card is still stuck at "Idea" or
+  // "Shoot Planning". This happens for shoots whose status was set directly
+  // (seeded/synced data, or set before this auto-advance existed) rather than
+  // through a status click here, which is the only place that normally
+  // triggers the sync. Forward-only, same as the click-driven sync itself —
+  // never drags a card backward.
   useEffect(() => {
     if (loading || backfilling.current) return
     const contentById = new Map(allContent.map((c) => [c.id, c]))
-    const stuck = shoots.filter((s) => {
-      if (s.status !== 'Completed' || !s.content_id) return false
+    const stuck = shoots.flatMap((s) => {
+      const target = SHOOT_STATUS_STAGE[s.status]
+      if (!target || !s.content_id) return []
       const content = contentById.get(s.content_id)
-      return !!content && STAGE_INDEX[content.stage] < STAGE_INDEX['Editing']
+      if (!content || STAGE_INDEX[content.stage] >= STAGE_INDEX[target]) return []
+      return [{ contentId: s.content_id, target }]
     })
     if (stuck.length === 0) return
 
     backfilling.current = true
-    Promise.all(stuck.map((s) => updateContent(s.content_id!, { stage: 'Editing' })))
+    Promise.all(stuck.map((s) => updateContent(s.contentId, { stage: s.target })))
       .then(load)
       .catch(console.error)
       .finally(() => { backfilling.current = false })
