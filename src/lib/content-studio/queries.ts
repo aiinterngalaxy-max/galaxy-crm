@@ -26,7 +26,7 @@ import type {
 
 const PLATFORM_SET = new Set<string>(PLATFORMS)
 
-async function logActivity(
+export async function logActivity(
   entity_type: string,
   entity_id: number,
   action: string,
@@ -773,10 +773,14 @@ export async function backfillShootLinks(): Promise<number> {
 
 // ---------- video jobs (AI auto-edit) ----------
 const VIDEO_JOB_COLS =
-  `id, content_id, reference_url, raw_drive_id, raw_view_url, raw_name, status,
+  `id, content_id, reference_url, reference_notes, raw_drive_id, raw_view_url, raw_name, status,
    silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
-   trim_start, trim_end, caption_text, export_drive_id, export_view_url,
-   error, regen_count, approved, approved_at, created_at, updated_at`
+   trim_start, trim_end, caption_text, caption_position, captions, export_drive_id, export_view_url,
+   error, regen_count, approved, approved_at, link_analysis, transcript, edit_plan,
+   clip_segments, review_status, review_feedback, reviewed_by, reviewed_at, submitted_by, submitted_at,
+   music_drive_id, music_view_url, music_name, music_volume, music_start, music_end,
+   mute_original_audio, original_volume, music_fade_in, music_fade_out,
+   created_at, updated_at`
 
 export function getVideoJob(contentId: number): Promise<VideoJob | null> {
   return one<VideoJob>(`SELECT ${VIDEO_JOB_COLS} FROM cmo_video_jobs WHERE content_id=?`, [contentId])
@@ -810,8 +814,36 @@ function ensureContentStudioSchema(): Promise<void> {
   return schemaReady
 }
 
+// Column adds (MIGRATE) run separately from CREATE TABLE (SCHEMA/applySchema)
+// and are also triggered on layout mount (see ContentStudioLayout), but that
+// runs in parallel with — not before — the page's own first query. A reader
+// that lands on a column added after their install first ran can race it and
+// see "no such column" once; this lets that same query self-heal by applying
+// migrations and retrying, instead of surfacing a raw SQL error.
+let migrationsReady: Promise<void> | null = null
+function ensureContentStudioMigrations(): Promise<void> {
+  if (!migrationsReady) {
+    migrationsReady = (async () => {
+      for (const sql of MIGRATE) {
+        try {
+          await run(sql)
+        } catch (err) {
+          if (!/duplicate column/i.test(err instanceof Error ? err.message : String(err))) {
+            console.error('Content Studio migration failed for one statement:', err)
+          }
+        }
+      }
+    })()
+  }
+  return migrationsReady
+}
+
 function isMissingTable(err: unknown): boolean {
   return /no such table/i.test(err instanceof Error ? err.message : String(err))
+}
+
+function isMissingColumn(err: unknown): boolean {
+  return /no such column/i.test(err instanceof Error ? err.message : String(err))
 }
 
 async function ensureVideoJobOnce(contentId: number): Promise<VideoJob> {
@@ -833,18 +865,27 @@ export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
   try {
     return await ensureVideoJobOnce(contentId)
   } catch (err) {
-    if (!isMissingTable(err)) throw err
-    await ensureContentStudioSchema()
-    return ensureVideoJobOnce(contentId)
+    if (isMissingTable(err)) {
+      await ensureContentStudioSchema()
+      return ensureVideoJobOnce(contentId)
+    }
+    if (isMissingColumn(err)) {
+      await ensureContentStudioMigrations()
+      return ensureVideoJobOnce(contentId)
+    }
+    throw err
   }
 }
 
 export async function updateVideoJob(id: number, data: Record<string, any>): Promise<VideoJob> {
   const editable = new Set([
-    'reference_url', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
+    'reference_url', 'reference_notes', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
     'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
-    'trim_start', 'trim_end', 'caption_text', 'export_drive_id', 'export_view_url',
-    'error', 'regen_count', 'approved',
+    'trim_start', 'trim_end', 'caption_text', 'caption_position', 'captions', 'export_drive_id', 'export_view_url',
+    'error', 'regen_count', 'approved', 'link_analysis', 'transcript', 'edit_plan', 'clip_segments',
+    'review_status', 'review_feedback', 'reviewed_by', 'reviewed_at', 'submitted_by', 'submitted_at',
+    'music_drive_id', 'music_view_url', 'music_name', 'music_volume', 'music_start', 'music_end',
+    'mute_original_audio', 'original_volume', 'music_fade_in', 'music_fade_out',
   ])
   const { sets, args } = applyEditable(data, editable)
   if (!sets.length) throw new Error('no editable fields')
@@ -1068,6 +1109,16 @@ export function getActivity(type?: string): Promise<ActivityEntry[]> {
     return all<ActivityEntry>(`SELECT ${ACTIVITY_COLS} FROM cmo_activity_log WHERE entity_type=? ORDER BY id DESC LIMIT 200`, [type])
   }
   return all<ActivityEntry>(`SELECT ${ACTIVITY_COLS} FROM cmo_activity_log ORDER BY id DESC LIMIT 200`)
+}
+
+/** Used for the video workspace's Review History — reuses the same activity
+ *  log every other stage-change/publish event already writes to, filtered
+ *  down to one content piece instead of a whole type. */
+export function getActivityForEntity(entityType: string, entityId: number): Promise<ActivityEntry[]> {
+  return all<ActivityEntry>(
+    `SELECT ${ACTIVITY_COLS} FROM cmo_activity_log WHERE entity_type=? AND entity_id=? ORDER BY id DESC LIMIT 50`,
+    [entityType, entityId],
+  )
 }
 
 // ---------- search ----------

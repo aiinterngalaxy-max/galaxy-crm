@@ -218,9 +218,10 @@ function EditingRow({ row, onChanged }: { row: ContentRow; onChanged: () => void
           disabled={busy}
           onClick={onDelete}
           title="Delete this piece"
+          aria-label="Delete this piece"
           className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
         >
-          🗑 Delete
+          🗑 DELETE
         </button>
       </div>
 

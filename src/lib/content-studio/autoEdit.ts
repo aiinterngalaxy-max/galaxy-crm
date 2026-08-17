@@ -13,6 +13,7 @@
  * A reference link is stored elsewhere purely as a note for a human editor.
  */
 import type { FFmpeg } from '@ffmpeg/ffmpeg'
+import { renderCaptionImage } from './captionOverlay'
 
 export class AutoEditError extends Error {}
 
@@ -110,6 +111,19 @@ export function computeKeepSegments(
 
 let ffmpegSingleton: FFmpeg | null = null
 
+/**
+ * A crashed ffmpeg.wasm core (out-of-memory on a large clip, a fatal decode
+ * error) can leave the WASM heap in a state where every LATER operation on
+ * the same singleton fails too, with an opaque "ErrnoError: FS error" that
+ * has nothing to do with what actually broke. Dropping the singleton after
+ * any unexpected failure means the next attempt gets a clean instance
+ * instead of being stuck failing until the page is reloaded.
+ */
+function resetFFmpeg() {
+  ffmpegSingleton = null
+  fontLoaded = false // the font lived in that instance's virtual FS, gone with it
+}
+
 /** Loaded once per page session — the core is ~25MB, not worth reloading per job. */
 async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
   if (ffmpegSingleton) return ffmpegSingleton
@@ -128,6 +142,25 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
   })
   ffmpegSingleton = ffmpeg
   return ffmpeg
+}
+
+let fontLoaded = false
+
+/**
+ * ffmpeg.wasm's core has no system fonts — unlike a desktop ffmpeg install,
+ * there is no fontconfig to fall back on, so drawtext either errors out or
+ * silently draws nothing until it's told exactly which font file to use.
+ * This fetches one real font into the virtual filesystem once per ffmpeg
+ * instance and every caller of drawtext passes its path via fontfile=.
+ */
+async function ensureFont(ffmpeg: FFmpeg): Promise<string> {
+  const fontFile = 'caption-font.ttf'
+  if (fontLoaded) return fontFile
+  const res = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf')
+  if (!res.ok) throw new AutoEditError('Could not load a font for captions/text overlays.')
+  await ffmpeg.writeFile(fontFile, new Uint8Array(await res.arrayBuffer()))
+  fontLoaded = true
+  return fontFile
 }
 
 async function probeDuration(ffmpeg: FFmpeg, inputName: string): Promise<number> {
@@ -149,6 +182,182 @@ async function probeDuration(ffmpeg: FFmpeg, inputName: string): Promise<number>
 export interface AutoEditProgress {
   phase: 'loading' | 'analyzing' | 'rendering'
   fraction?: number
+}
+
+export interface FootageAnalysis {
+  durationSec: number
+  silences: Segment[]
+  width: number
+  height: number
+  /** Extracted audio track, mono/16kHz/64kbps — small enough to send for transcription. */
+  audioBlob: Blob
+}
+
+/**
+ * Reads the raw footage without editing it: real duration, real dead-air
+ * stretches (same silencedetect pass the auto-edit itself uses), real frame
+ * size, and an extracted, compressed audio track for the caller to send off
+ * for transcription. Nothing here is guessed — every field comes from ffmpeg
+ * actually looking at the file.
+ */
+export async function analyzeFootage(
+  file: Blob,
+  opts: SilenceOptions = {},
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<FootageAnalysis> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+
+  const { thresholdDb, minSilenceSec } = { ...DEFAULTS, ...opts }
+  const inputName = 'analyze-input.mp4'
+  const audioName = 'analyze-audio.mp3'
+  const buf = new Uint8Array(await file.arrayBuffer())
+  await ffmpeg.writeFile(inputName, buf)
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+
+    let infoLog = ''
+    const collectInfo = ({ message }: { message: string }) => (infoLog += message + '\n')
+    ffmpeg.on('log', collectInfo)
+    try {
+      await ffmpeg.exec(['-i', inputName])
+    } catch {
+      // Same as probeDuration: ffmpeg exits non-zero for a plain "-i", expected.
+    } finally {
+      ffmpeg.off('log', collectInfo)
+    }
+
+    const durMatch = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(infoLog)
+    if (!durMatch) throw new AutoEditError('Could not read the video — it may be corrupt or an unsupported format.')
+    const durationSec = Number(durMatch[1]) * 3600 + Number(durMatch[2]) * 60 + Number(durMatch[3])
+
+    const dimMatch = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(infoLog)
+    const width = dimMatch ? Number(dimMatch[1]) : 0
+    const height = dimMatch ? Number(dimMatch[2]) : 0
+
+    let silenceLog = ''
+    const collectSilence = ({ message }: { message: string }) => (silenceLog += message + '\n')
+    ffmpeg.on('log', collectSilence)
+    try {
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-af', `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSec}`,
+        '-f', 'null', '-',
+      ])
+    } finally {
+      ffmpeg.off('log', collectSilence)
+    }
+    const silences = parseSilenceLog(silenceLog)
+
+    onProgress?.({ phase: 'rendering' })
+    let audioBlob: Blob
+    try {
+      await ffmpeg.exec(['-i', inputName, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '64k', audioName])
+      const audioData = await ffmpeg.readFile(audioName)
+      audioBlob = new Blob([new Uint8Array(audioData as Uint8Array).buffer], { type: 'audio/mpeg' })
+    } catch (err) {
+      // The video itself read fine (duration/dimensions above succeeded) — a
+      // failure here almost always means no audio track, not a broken video.
+      throw new AutoEditError(
+        'Could not read an audio track from this footage — it may have no audio, or the clip may be too large for the browser to process. ' +
+        `(${err instanceof Error ? err.message : String(err)})`,
+      )
+    }
+
+    return { durationSec, silences, width, height, audioBlob }
+  } catch (err) {
+    if (!(err instanceof AutoEditError)) resetFFmpeg()
+    throw err
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(audioName).catch(() => {})
+  }
+}
+
+async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ width: number; height: number }> {
+  let log = ''
+  const collect = ({ message }: { message: string }) => (log += message + '\n')
+  ffmpeg.on('log', collect)
+  try {
+    await ffmpeg.exec(['-i', inputName])
+  } catch {
+    // Expected — same as probeDuration.
+  } finally {
+    ffmpeg.off('log', collect)
+  }
+  const m = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(log)
+  return { width: m ? Number(m[1]) : 1080, height: m ? Number(m[2]) : 1920 }
+}
+
+export interface ClipInput {
+  blob: Blob
+  /** Seconds to cut from the start of this clip before joining. */
+  trimStart?: number
+  /** Absolute time (seconds from this clip's own start) to cut everything after. */
+  trimEnd?: number
+}
+
+/**
+ * Joins several clips, in the order given, into one video — for someone who
+ * shot a piece across multiple takes or angles rather than one continuous
+ * recording. Every clip is scaled and padded (never stretched) to the first
+ * clip's frame size and put on a common frame rate/sample rate before
+ * concatenating, because two phone clips are rarely shot at identical
+ * settings and ffmpeg's concat filter requires matching streams to join them.
+ * Each clip can also be trimmed (start/end) before it's joined in.
+ */
+export async function joinClips(
+  clips: ClipInput[],
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  if (clips.length === 0) throw new AutoEditError('No clips to join.')
+  if (clips.length === 1 && !clips[0].trimStart && !clips[0].trimEnd) return clips[0].blob
+
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputNames = clips.map((_, i) => `join-input-${i}.mp4`)
+  const outputName = 'joined.mp4'
+  for (let i = 0; i < clips.length; i++) {
+    await ffmpeg.writeFile(inputNames[i], new Uint8Array(await clips[i].blob.arrayBuffer()))
+  }
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputNames[0])
+
+    const filters = inputNames
+      .map((name, i) => {
+        const { trimStart, trimEnd } = clips[i]
+        const trimArgs = [trimStart ? `start=${trimStart}` : '', trimEnd ? `end=${trimEnd}` : ''].filter(Boolean).join(':')
+        const vTrim = trimArgs ? `trim=${trimArgs},setpts=PTS-STARTPTS,` : ''
+        const aTrim = trimArgs ? `atrim=${trimArgs},asetpts=PTS-STARTPTS,` : ''
+        return `[${i}:v]${vTrim}scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
+          `[${i}:a]${aTrim}aresample=44100,aformat=channel_layouts=stereo[a${i}]`
+      })
+      .join(';')
+    const refs = inputNames.map((_, i) => `[v${i}][a${i}]`).join('')
+    const filterComplex = `${filters};${refs}concat=n=${inputNames.length}:v=1:a=1[outv][outa]`
+
+    const args: string[] = []
+    for (const name of inputNames) args.push('-i', name)
+    args.push('-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', outputName)
+
+    await ffmpeg.exec(args)
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    resetFFmpeg()
+    throw new AutoEditError(
+      `Could not join those clips — they may use incompatible formats. (${err instanceof Error ? err.message : String(err)})`,
+    )
+  } finally {
+    for (const name of inputNames) await ffmpeg.deleteFile(name).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
 }
 
 /**
@@ -217,19 +426,162 @@ export async function autoEditRemoveSilence(
 
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (!(err instanceof AutoEditError)) resetFFmpeg()
+    throw err
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }
 
+export type CaptionPosition = 'top' | 'bottom' | 'left' | 'right' | 'center'
+export type CaptionSize = 'sm' | 'md' | 'lg'
+
+export interface TimedCaption {
+  text: string
+  /** Seconds within the (already trimmed) video. Both 0/undefined = shown for the whole video. */
+  start?: number
+  end?: number
+  position?: CaptionPosition
+  size?: CaptionSize
+  /** 'text' = the free-standing Text tool, 'caption' (default) = the Captions tool — same storage/render path, just two labels in the editor UI. */
+  kind?: 'text' | 'caption'
+}
+
 /**
- * Applies a manual trim (and, if set, a simple burned-in caption) — the
- * Export step, run on whatever the operator approved.
+ * Writes one PNG per caption (rendered in the browser via captionOverlay.ts,
+ * so emoji come out correctly — see that file for why) and returns the
+ * ffmpeg args to load them plus the filter_complex lines that overlay them
+ * onto `startLabel` in order, each windowed to its own [start,end].
+ *
+ * pngInputsFrom is the ffmpeg input index the first caption image will get —
+ * the caller has to know this up front to build `-map`/other input args
+ * around them, since ffmpeg indexes inputs by position on the command line.
+ */
+async function planCaptionOverlays(
+  ffmpeg: FFmpeg,
+  probeInputName: string,
+  captions: TimedCaption[],
+  startLabel: string,
+  pngInputsFrom: number,
+): Promise<{ loadArgs: string[]; filterLines: string[]; videoLabel: string }> {
+  const active = captions.filter((c) => c.text.trim())
+  if (!active.length) return { loadArgs: [], filterLines: [], videoLabel: startLabel }
+
+  const { width, height } = await probeDimensions(ffmpeg, probeInputName)
+  const loadArgs: string[] = []
+  const filterLines: string[] = []
+  let cur = startLabel
+  for (let i = 0; i < active.length; i++) {
+    const cap = active[i]
+    const png = await renderCaptionImage({ text: cap.text, position: cap.position, size: cap.size }, width, height)
+    const name = `capimg-${pngInputsFrom + i}.png`
+    await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))
+    // -loop 1: a still image is one frame by default, which would make it
+    // vanish from the overlay after frame 1 — looped so it holds for its
+    // whole enable= window (or the whole video, if there's no window).
+    loadArgs.push('-loop', '1', '-i', name)
+
+    const windowed = !!(cap.start || cap.end)
+    const enable = windowed ? `:enable='between(t,${cap.start ?? 0},${cap.end && cap.end > 0 ? cap.end : 999999})'` : ''
+    const next = `[capout${pngInputsFrom + i}]`
+    filterLines.push(`${cur}[${pngInputsFrom + i}:v]overlay=0:0${enable}${next}`)
+    cur = next
+  }
+  return { loadArgs, filterLines, videoLabel: cur }
+}
+
+/**
+ * Builds the audio filter_complex lines shared by renderFinal/renderSegments:
+ * volume/mute on the original track, and (if a music input index is given)
+ * delaying music to musicStart, capping it at musicEnd, fading it in/out,
+ * then mixing it under (or replacing) the original. originalAudioLabel is
+ * whatever label already holds the trimmed/concatenated original audio
+ * (e.g. '0:a' or '[outa]') going in; the returned label is what to `-map`.
+ */
+function buildAudioFilters(opts: {
+  originalAudioLabel: string
+  musicInputIndex: number | null
+  muteOriginalAudio: boolean
+  originalVolume: number
+  musicVolume: number
+  musicStart: number
+  musicEnd: number
+  fadeIn: number
+  fadeOut: number
+}): { filterLines: string[]; audioLabel: string } {
+  const { originalAudioLabel, musicInputIndex, muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut } = opts
+  const filters: string[] = []
+
+  if (musicInputIndex == null) {
+    if (originalVolume === 1) return { filterLines: [], audioLabel: originalAudioLabel }
+    filters.push(`${originalAudioLabel}volume=${originalVolume}[aout]`)
+    return { filterLines: filters, audioLabel: '[aout]' }
+  }
+
+  let m = `[${musicInputIndex}:a]`
+  if (musicStart > 0) {
+    const ms = Math.round(musicStart * 1000)
+    filters.push(`${m}adelay=${ms}|${ms}[mdelay]`)
+    m = '[mdelay]'
+  }
+  if (musicEnd > musicStart) {
+    filters.push(`${m}atrim=end=${musicEnd}[mtrim]`)
+    m = '[mtrim]'
+  }
+  if (fadeIn > 0) {
+    filters.push(`${m}afade=t=in:st=${musicStart}:d=${fadeIn}[mfin]`)
+    m = '[mfin]'
+  }
+  if (fadeOut > 0 && musicEnd > musicStart) {
+    const fadeStart = Math.max(musicStart, musicEnd - fadeOut)
+    filters.push(`${m}afade=t=out:st=${fadeStart}:d=${fadeOut}[mfout]`)
+    m = '[mfout]'
+  }
+  filters.push(`${m}volume=${musicVolume}[music]`)
+
+  if (muteOriginalAudio) {
+    filters.push(`[music]anull[aout]`)
+  } else {
+    const origLabel = originalVolume === 1 ? originalAudioLabel : (() => {
+      filters.push(`${originalAudioLabel}volume=${originalVolume}[origvol]`)
+      return '[origvol]'
+    })()
+    filters.push(`${origLabel}[music]amix=inputs=2:duration=first:dropout_transition=2[aout]`)
+  }
+  return { filterLines: filters, audioLabel: '[aout]' }
+}
+
+export interface RenderFinalOptions {
+  trimStart?: number
+  trimEnd?: number
+  captions?: TimedCaption[]
+  /** Operator-supplied track only — nothing here sources music on its own. */
+  musicBlob?: Blob
+  /** true = replace the clip's own audio with the music track entirely; false = mix under it. */
+  muteOriginalAudio?: boolean
+  musicVolume?: number
+  /** Where in the video's own (already-trimmed) timeline the music starts/stops. 0/0 = plays from the start for the whole video. */
+  musicStart?: number
+  musicEnd?: number
+  fadeIn?: number
+  fadeOut?: number
+  /** Volume on the clip's own audio track, independent of music. 1 = unchanged. */
+  originalVolume?: number
+}
+
+/**
+ * Applies a manual trim, any number of timed captions, and (if set) music —
+ * the Export step, run on whatever the operator approved.
  */
 export async function renderFinal(
   file: Blob,
-  { trimStart = 0, trimEnd = 0, captionText = '' }: { trimStart?: number; trimEnd?: number; captionText?: string },
+  {
+    trimStart = 0, trimEnd = 0, captions = [],
+    musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
+    musicStart = 0, musicEnd = 0, fadeIn = 0, fadeOut = 0, originalVolume = 1,
+  }: RenderFinalOptions,
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
   onProgress?.({ phase: 'loading' })
@@ -237,34 +589,166 @@ export async function renderFinal(
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
 
   const inputName = 'final-input.mp4'
+  const musicName = 'final-music.mp3'
   const outputName = 'final-output.mp4'
-  const buf = new Uint8Array(await file.arrayBuffer())
-  await ffmpeg.writeFile(inputName, buf)
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  if (musicBlob) await ffmpeg.writeFile(musicName, new Uint8Array(await musicBlob.arrayBuffer()))
+
+  const captionPngNames: string[] = []
 
   try {
-    const args = ['-i', inputName]
-    if (trimStart > 0) args.push('-ss', String(trimStart))
-    if (trimEnd > 0) args.push('-to', String(trimEnd))
+    onProgress?.({ phase: 'analyzing' })
+    const { loadArgs, filterLines, videoLabel } = await planCaptionOverlays(ffmpeg, inputName, captions, '[0:v]', 1)
+    for (let i = 0; i < loadArgs.length; i += 4) captionPngNames.push(loadArgs[i + 3])
+    const musicInputIndex = 1 + captionPngNames.length
 
-    if (captionText.trim()) {
-      // Escaping for ffmpeg's drawtext filter: backslash, colon and single
-      // quote are all filter-syntax-significant.
-      const escaped = captionText
-        .replace(/\\/g, '\\\\')
-        .replace(/:/g, '\\:')
-        .replace(/'/g, "\\'")
-      args.push(
-        '-vf',
-        `drawtext=text='${escaped}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-th-60`,
-      )
-    }
+    onProgress?.({ phase: 'rendering' })
+    // Input-level seek/duration (before -i), not output-level -ss/-to after
+    // it: with more -i args coming next (caption images, maybe music),
+    // trailing -ss/-to would bind to the NEXT input instead of this one.
+    // It also resets the filtered stream's timestamps to start at 0, which
+    // is what makes a caption's enable=between(t,0,5) mean "the first 5
+    // seconds of what's actually kept" rather than 5 seconds into footage
+    // that's been trimmed away.
+    const args: string[] = []
+    if (trimStart > 0) args.push('-ss', String(trimStart))
+    args.push('-i', inputName)
+    if (trimEnd > 0) args.push('-t', String(Math.max(0.1, trimEnd - trimStart)))
+    args.push(...loadArgs)
+    // Looped so a short track still covers the whole clip; -shortest below
+    // caps the output at the video's own length regardless.
+    if (musicBlob) args.push('-stream_loop', '-1', '-i', musicName)
+
+    const filters = [...filterLines]
+    let videoMap = filterLines.length ? videoLabel : '0:v'
+
+    const { filterLines: audioFilters, audioLabel } = buildAudioFilters({
+      originalAudioLabel: '0:a',
+      musicInputIndex: musicBlob ? musicInputIndex : null,
+      muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut,
+    })
+    filters.push(...audioFilters)
+    const audioMap = audioLabel
+
+    if (filters.length) args.push('-filter_complex', filters.join(';'))
+    args.push('-map', videoMap, '-map', audioMap)
+    if (musicBlob || captionPngNames.length) args.push('-shortest')
     args.push(outputName)
 
     await ffmpeg.exec(args)
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not render the caption/trim onto the video. (${err instanceof Error ? err.message : String(err)})`)
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
+    if (musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
+    for (const name of captionPngNames) await ffmpeg.deleteFile(name).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }
+
+export interface SegmentTrim {
+  /** Where this original clip starts/ends within the already-merged video. */
+  start: number
+  end: number
+  /** Extra seconds to cut from this segment's own start/end, on top of that. */
+  cutStart?: number
+  cutEnd?: number
+}
+
+export interface RenderSegmentsOptions {
+  captions?: TimedCaption[]
+  musicBlob?: Blob
+  muteOriginalAudio?: boolean
+  musicVolume?: number
+  musicStart?: number
+  musicEnd?: number
+  fadeIn?: number
+  fadeOut?: number
+  originalVolume?: number
+}
+
+/**
+ * Re-trims a video that was made by joining several clips, per original
+ * clip, using the boundaries joinClips recorded when it made the video —
+ * cutting further into "clip 2" doesn't require re-uploading anything,
+ * because the merged file already contains clip 2 at a known [start, end].
+ * A segment cut down to nothing (or past its own length) is dropped
+ * entirely rather than erroring, same as autoEditRemoveSilence's keep-list.
+ */
+export async function renderSegments(
+  file: Blob,
+  segments: SegmentTrim[],
+  opts: RenderSegmentsOptions = {},
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  const {
+    captions = [], musicBlob, muteOriginalAudio = false, musicVolume = 0.18,
+    musicStart = 0, musicEnd = 0, fadeIn = 0, fadeOut = 0, originalVolume = 1,
+  } = opts
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'segtrim-input.mp4'
+  const musicName = 'segtrim-music.mp3'
+  const outputName = 'segtrim-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  if (musicBlob) await ffmpeg.writeFile(musicName, new Uint8Array(await musicBlob.arrayBuffer()))
+
+  const capNames: string[] = []
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const keep = segments
+      .map((s) => ({ start: s.start + Math.max(0, s.cutStart ?? 0), end: s.end - Math.max(0, s.cutEnd ?? 0) }))
+      .filter((s) => s.end - s.start > 0.05)
+
+    if (keep.length === 0) throw new AutoEditError('Trimming every clip down to nothing would leave an empty video — loosen the cuts.')
+
+    const filters = keep
+      .map((s, i) => `[0:v]trim=start=${s.start}:end=${s.end},setpts=PTS-STARTPTS[v${i}];` +
+        `[0:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS[a${i}]`)
+      .join(';')
+    const refs = keep.map((_, i) => `[v${i}][a${i}]`).join('')
+    const filterComplex: string[] = [`${filters};${refs}concat=n=${keep.length}:v=1:a=1[outv][outa]`]
+
+    const { loadArgs, filterLines, videoLabel } = await planCaptionOverlays(ffmpeg, inputName, captions, '[outv]', 1)
+    for (let i = 0; i < loadArgs.length; i += 4) capNames.push(loadArgs[i + 3])
+    filterComplex.push(...filterLines)
+    const videoOut = videoLabel
+
+    const args = ['-i', inputName, ...loadArgs]
+    const musicInputIndex = 1 + capNames.length
+    if (musicBlob) args.push('-stream_loop', '-1', '-i', musicName)
+
+    const { filterLines: audioFilters, audioLabel: audioOut } = buildAudioFilters({
+      originalAudioLabel: '[outa]',
+      musicInputIndex: musicBlob ? musicInputIndex : null,
+      muteOriginalAudio, originalVolume, musicVolume, musicStart, musicEnd, fadeIn, fadeOut,
+    })
+    filterComplex.push(...audioFilters)
+
+    onProgress?.({ phase: 'rendering' })
+    args.push('-filter_complex', filterComplex.join(';'), '-map', videoOut, '-map', audioOut)
+    if (musicBlob || capNames.length) args.push('-shortest')
+    args.push(outputName)
+    await ffmpeg.exec(args)
+
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the per-clip trims. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    if (musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
+    for (const name of capNames) await ffmpeg.deleteFile(name).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+

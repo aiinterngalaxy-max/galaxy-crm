@@ -200,8 +200,28 @@ const PANEL_DICTIONARY: Record<string, string> = {
   // "Galaxy Intelligent Fan Controller With 1 Switch" intentionally left unmapped for now.
 }
 
+// Excel's "regional" export settings vary by system locale — some write
+// comma-separated files, others (common outside the US) write semicolon- or
+// tab-separated ones and still call the file .csv. Guessing wrong makes every
+// header keyword end up crammed into one giant first field, which is exactly
+// what "could not find header row" looks like from the outside. Picking
+// whichever delimiter actually splits the first real line into the most
+// columns avoids that failure mode instead of assuming comma.
+function detectDelimiter(text: string): string {
+  const firstLine = text.split(/\r\n|\n|\r/).find(l => l.trim() !== '') ?? ''
+  const counts: [string, number][] = [',', ';', '\t'].map(d => [d, firstLine.split(d).length - 1])
+  counts.sort((a, b) => b[1] - a[1])
+  return counts[0][1] > 0 ? counts[0][0] : ','
+}
+
 // Minimal RFC-4180-ish CSV parser (mirrors the inventory page parser).
-function parseCsv(text: string): string[][] {
+function parseCsv(text: string, delimiter = ','): string[][] {
+  // A UTF-8 BOM (common from "Save As CSV" on Windows Excel) lands on the
+  // very first character of the very first header cell — String.trim()
+  // strips it in most engines, but stripping it here up front means the
+  // header-matching logic never has to think about it either way.
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
+
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -214,7 +234,7 @@ function parseCsv(text: string): string[][] {
       } else field += c
     } else if (c === '"') {
       inQuotes = true
-    } else if (c === ',') {
+    } else if (c === delimiter) {
       row.push(field); field = ''
     } else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++
@@ -280,23 +300,33 @@ export function ProjectMaterials({ projectId, projectCode, canManage, userId, us
   //    Panel→Module dictionary, with Material/Color defaulting to Aluminium/Grey.
   const handleFile = async (file: File) => {
     try {
-      const rows = parseCsv(await file.text())
+      const text = await file.text()
+      const rows = parseCsv(text, detectDelimiter(text))
       if (rows.length < 2) { toast.error('CSV has no data rows'); return }
 
       // Dynamically find the header row — quotation sheets often have title/client/date
       // rows above the actual column headers (e.g. row 5 is "Sr | Panels | Module | ...").
-      const HEADER_KEYWORDS = ['panels', 'panel', 'panel name', 'item code', 'code', 'sku', 'item name', 'sr', 'sr.']
+      // Normalize aggressively (collapse whitespace, strip trailing dots) since real-world
+      // sheets vary: "Qty." vs "Qty", "Model" vs "Item Code", etc.
+      const normalizeHeader = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\.+$/, '')
+      const HEADER_KEYWORDS = ['panels', 'panel', 'panel name', 'item code', 'code', 'sku', 'item name', 'sr', 'model', 'description', 'no']
       const headerIdx = rows.findIndex(r =>
-        r.some(c => HEADER_KEYWORDS.includes(c.trim().toLowerCase().replace(/\.+$/, '')))
+        r.some(c => HEADER_KEYWORDS.includes(normalizeHeader(c)))
       )
       if (headerIdx === -1) {
-        toast.error('Could not find header row — CSV must have a Panels, Item Code, or Item Name column')
+        toast.error('Could not find header row — CSV must have a Panels, Item Code, Model, or Item Name column')
         return
       }
 
-      const header = rows[headerIdx].map(h => h.trim().toLowerCase())
-      const find = (...names: string[]) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i } return -1 }
-      const iCode = find('item code', 'code', 'sku')
+      const header = rows[headerIdx].map(normalizeHeader)
+      // Exact match first, then a substring fallback for verbose/varied headers
+      // (e.g. "Normal  Lights   Rate" for "rate", "Qty." already stripped to "qty").
+      const find = (...names: string[]) => {
+        for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i }
+        for (const n of names) { const i = header.findIndex(h => h.includes(n)); if (i !== -1) return i }
+        return -1
+      }
+      const iCode = find('item code', 'code', 'sku', 'model')
       const iName = find('item name', 'name', 'product', 'description')
       const iPanel = find('panels', 'panel', 'panel name')
       const iQty = find('quantity', 'qty', 'ordered', 'ordered qty', 'rooms', 'total qty')
@@ -774,6 +804,81 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
   )
 }
 
+// ─── Editable combo field (type-to-filter, with an explicit "+ Add" row) ──────
+//
+// A plain <input list=…><datalist> already lets you type anything — the
+// datalist is only suggestions. But that's invisible: once a box has a value
+// in it there's nothing telling you it's still editable, and there's no way
+// to see "the thing I'm typing isn't on the list yet, but I can add it" the
+// way a native dropdown would show. This renders the dropdown ourselves so a
+// "+ Add "X"" row can sit at the top whenever the typed text isn't already
+// one of the known options.
+function ComboField({ value, onChange, options, placeholder, className }: {
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+  placeholder: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [open])
+
+  const trimmed = value.trim()
+  const filtered = options.filter(o => o.toLowerCase().includes(trimmed.toLowerCase()))
+  const exactMatch = options.some(o => o.toLowerCase() === trimmed.toLowerCase())
+  const showAddNew = trimmed !== '' && !exactMatch
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        className={className}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+          {showAddNew && (
+            <button
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => setOpen(false)}
+              className="w-full text-left px-3 py-1.5 text-xs font-semibold text-gold-400 hover:bg-gray-800 border-b border-gray-800"
+            >
+              + Add "{trimmed}"
+            </button>
+          )}
+          {filtered.length === 0 && !showAddNew && (
+            <p className="px-3 py-1.5 text-xs text-gray-600">Type to search…</p>
+          )}
+          {filtered.map(o => (
+            <button
+              key={o}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(o); setOpen(false) }}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
+            >
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Mapping review modal ──────────────────────────────────────────────────────
 
 function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
@@ -922,28 +1027,47 @@ function MappingModal({ mapping, importing, onChange, onConfirm, onClose }: {
             )}
             <p className="text-xs text-gray-500">
               Module resolved automatically where possible. Unresolved rows need a Module picked manually.
+              Every box below — item name, Module, Material, Colour, Qty, Price — is editable: click any of them
+              and type. For Module/Material/Colour, click the box to see existing options — if what you type isn't
+              in the list yet, a "+ Add" option appears at the top so you can add it.
             </p>
             {mapping.map((m, idx) => {
               if (m.isCurtain) return null
               return (
                 <div key={idx} className={cn('rounded-lg border p-3 space-y-2', m.module ? 'border-gray-800' : 'border-red-900/50 bg-red-900/10')}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-gray-300 truncate">{m.csvLabel}</span>
+                    <input
+                      type="text"
+                      className="form-input text-xs flex-1 bg-transparent border-transparent hover:border-gray-800 focus:border-gray-700 px-1 py-0.5"
+                      value={m.csvLabel}
+                      onChange={e => set(idx, { csvLabel: e.target.value })}
+                      title="Item name — click to edit"
+                    />
                     {m.module
                       ? (m.auto ? <span className="text-[11px] text-green-400 shrink-0">auto-resolved</span> : <span className="text-[11px] text-indigo-400 shrink-0">manual</span>)
                       : <span className="text-[11px] text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle className="w-3 h-3" /> needs Module</span>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    <select className="form-input text-xs col-span-2 sm:col-span-1" value={m.module} onChange={e => set(idx, { module: e.target.value, auto: false })}>
-                      <option value="">— Module —</option>
-                      {ELYSIA_MODULES.map(mod => <option key={mod}>{mod}</option>)}
-                    </select>
-                    <select className="form-input text-xs" value={m.material} onChange={e => set(idx, { material: e.target.value })}>
-                      {ELYSIA_MATERIALS.map(mat => <option key={mat}>{mat}</option>)}
-                    </select>
-                    <select className="form-input text-xs" value={m.color} onChange={e => set(idx, { color: e.target.value })}>
-                      {ELYSIA_COLORS.map(c => <option key={c}>{c}</option>)}
-                    </select>
+                    <div className="col-span-2 sm:col-span-1">
+                      <ComboField
+                        value={m.module} onChange={v => set(idx, { module: v, auto: false })}
+                        options={ELYSIA_MODULES} placeholder="Module — type or pick"
+                        className="form-input text-xs w-full"
+                      />
+                    </div>
+
+                    <ComboField
+                      value={m.material} onChange={v => set(idx, { material: v })}
+                      options={ELYSIA_MATERIALS} placeholder="Material — type or pick"
+                      className="form-input text-xs w-full"
+                    />
+
+                    <ComboField
+                      value={m.color} onChange={v => set(idx, { color: v })}
+                      options={ELYSIA_COLORS} placeholder="Colour — type or pick"
+                      className="form-input text-xs w-full"
+                    />
+
                     <input type="number" min="0" className="form-input text-xs" placeholder="Qty"
                       value={m.orderedQty || ''} onChange={e => set(idx, { orderedQty: Number(e.target.value) || 0 })} />
                     <input type="number" min="0" className="form-input text-xs" placeholder="Unit ₹"

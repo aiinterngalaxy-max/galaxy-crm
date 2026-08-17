@@ -14,7 +14,7 @@
 const GRAPH = 'https://graph.facebook.com/v21.0'
 
 /** Vision-capable by default; override if the model name moves on. */
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
+export const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
 const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
 /** Groq's own compound system — it decides on its own when to run a real web
  * search (via Tavily) before answering. The "-mini" variant does at most one
@@ -29,12 +29,12 @@ const RESEARCH_MODEL = process.env.GROQ_RESEARCH_MODEL || 'groq/compound-mini'
  * are all still capable instruction-followers, so trying the next one on a
  * 429 costs a little quality at worst, not a broken script.
  */
-const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
+export const TEXT_MODEL_CHAIN = [TEXT_MODEL, 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(
   (m, i, arr) => arr.indexOf(m) === i, // TEXT_MODEL may already be one of these via env override
 )
 const RESEARCH_MODEL_CHAIN = [RESEARCH_MODEL, RESEARCH_MODEL === 'groq/compound-mini' ? 'groq/compound' : 'groq/compound-mini']
 
-function groqKey(): string {
+export function groqKey(): string {
   // The VITE_ copy is what the project has today. Set GROQ_API_KEY in Vercel and
   // the browser one can be deleted — this reads either.
   const key = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY
@@ -56,7 +56,7 @@ class GroqError extends Error {
   }
 }
 
-async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
+export async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${groqKey()}`, 'Content-Type': 'application/json' },
@@ -210,7 +210,7 @@ Be concrete about what you can see. Never invent view counts, dates or dialogue.
  * meant it silently saw no image and wrote a guess from the caption instead,
  * which reads plausible and is exactly the failure that is hard to notice.
  */
-async function fetchAsDataUrl(url: string): Promise<string | null> {
+export async function fetchAsDataUrl(url: string): Promise<string | null> {
   try {
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GalaxyCRM/1.0)' } })
     if (!r.ok) return null
@@ -349,7 +349,7 @@ BANNED, whatever the examples say: "Experience the…", "Transform your…", "th
 Return ONLY a JSON array of 3 caption strings. No markdown, no numbering, no commentary outside the array.`
 
 /** Models wrap JSON in prose or fences no matter how firmly they are told not to. */
-function extractJson<T>(raw: string, opener: '{' | '['): T | null {
+export function extractJson<T>(raw: string, opener: '{' | '['): T | null {
   const closer = opener === '{' ? '}' : ']'
   const start = raw.indexOf(opener)
   const end = raw.lastIndexOf(closer)

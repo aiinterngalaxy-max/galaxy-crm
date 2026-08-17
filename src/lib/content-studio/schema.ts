@@ -167,6 +167,8 @@ export const SCHEMA: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
      reference_url TEXT DEFAULT '',
+     -- What the editor should take from reference_url (style, pacing, hook, etc).
+     reference_notes TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -178,12 +180,51 @@ export const SCHEMA: string[] = [
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
+     caption_position TEXT DEFAULT 'bottom',
+     -- JSON array of {text,start,end,position} — replaces the single
+     -- caption_text/caption_position pair with any number of timed captions.
+     captions TEXT DEFAULT '[]',
      export_drive_id TEXT DEFAULT '',
      export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,
      approved_at TEXT,
+     -- AI plan step (see api/content-studio/video-plan.ts): each is a JSON blob.
+     link_analysis TEXT DEFAULT '',
+     transcript TEXT DEFAULT '',
+     edit_plan TEXT DEFAULT '',
+     -- Set by joinClips when raw footage came from 2+ clips: JSON array of
+     -- each original clip's [start,end] within the merged video, so it can
+     -- be trimmed further per-clip after the fact without re-uploading.
+     clip_segments TEXT DEFAULT '',
+     -- Reviewer sign-off on this specific edit, layered on top of the coarse
+     -- cmo_content.stage pipeline (Editing/Review/Ready To Publish/Published):
+     -- '' | 'ready_for_review' | 'approved' | 'changes_requested'. The
+     -- Approve/Request Changes actions also move cmo_content.stage (reusing
+     -- the existing stage machinery), but that alone can't distinguish
+     -- "sent back with feedback" from "never submitted" once stage reads
+     -- Editing again — this is what the workspace's feedback card keys off.
+     review_status TEXT DEFAULT '',
+     review_feedback TEXT DEFAULT '',
+     reviewed_by TEXT DEFAULT '',
+     reviewed_at TEXT DEFAULT '',
+     submitted_by TEXT DEFAULT '',
+     submitted_at TEXT DEFAULT '',
+     -- Background music: uploaded to Drive the same way raw/edited footage
+     -- is, so it survives a reload without a second storage system.
+     music_drive_id TEXT DEFAULT '',
+     music_view_url TEXT DEFAULT '',
+     music_name TEXT DEFAULT '',
+     music_volume REAL DEFAULT 0.18,
+     -- Where in the VIDEO's own timeline the music starts/stops playing
+     -- (0/0 = plays from the start for the whole video).
+     music_start REAL DEFAULT 0,
+     music_end REAL DEFAULT 0,
+     mute_original_audio INTEGER DEFAULT 0,
+     original_volume REAL DEFAULT 1,
+     music_fade_in REAL DEFAULT 0,
+     music_fade_out REAL DEFAULT 0,
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
@@ -241,6 +282,7 @@ export const MIGRATE: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      content_id INTEGER NOT NULL,
      reference_url TEXT DEFAULT '',
+     reference_notes TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -252,16 +294,51 @@ export const MIGRATE: string[] = [
      trim_start REAL DEFAULT 0,
      trim_end REAL DEFAULT 0,
      caption_text TEXT DEFAULT '',
+     caption_position TEXT DEFAULT 'bottom',
+     -- JSON array of {text,start,end,position} — replaces the single
+     -- caption_text/caption_position pair with any number of timed captions.
+     captions TEXT DEFAULT '[]',
      export_drive_id TEXT DEFAULT '',
      export_view_url TEXT DEFAULT '',
      error TEXT DEFAULT '',
      regen_count INTEGER DEFAULT 0,
      approved INTEGER DEFAULT 0,
      approved_at TEXT,
+     -- AI plan step (see api/content-studio/video-plan.ts): each is a JSON blob.
+     link_analysis TEXT DEFAULT '',
+     transcript TEXT DEFAULT '',
+     edit_plan TEXT DEFAULT '',
+     -- Set by joinClips when raw footage came from 2+ clips: JSON array of
+     -- each original clip's [start,end] within the merged video, so it can
+     -- be trimmed further per-clip after the fact without re-uploading.
+     clip_segments TEXT DEFAULT '',
      created_at TEXT DEFAULT (datetime('now')),
      updated_at TEXT DEFAULT (datetime('now')),
      UNIQUE(content_id)
    )`,
+  "ALTER TABLE cmo_video_jobs ADD COLUMN link_analysis TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN transcript TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN edit_plan TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN clip_segments TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN caption_position TEXT DEFAULT 'bottom'",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN captions TEXT DEFAULT '[]'",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN reference_notes TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN review_status TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN review_feedback TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN reviewed_by TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN reviewed_at TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN submitted_by TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN submitted_at TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_drive_id TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_view_url TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_name TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_volume REAL DEFAULT 0.18",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_start REAL DEFAULT 0",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_end REAL DEFAULT 0",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN mute_original_audio INTEGER DEFAULT 0",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN original_volume REAL DEFAULT 1",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_fade_in REAL DEFAULT 0",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN music_fade_out REAL DEFAULT 0",
 ];
 
 // Drop everything (used by /api/init?reset=1) so re-seeding is clean.

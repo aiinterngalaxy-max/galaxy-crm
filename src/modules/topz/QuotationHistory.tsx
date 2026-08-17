@@ -1,14 +1,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil, MessageCircle } from 'lucide-react'
-import { getQuotations, deleteQuotation, updateQuotationStatus, saveBooking, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type SavedQuotation } from './data/storage'
+import { FileText, Trash2, CheckCircle, Send, RotateCcw, Plus, Loader2, Download, Pencil, MessageCircle, Zap, XCircle, Eye } from 'lucide-react'
+import { getQuotations, deleteQuotation, updateQuotationStatus, saveQuotation, saveBooking, TOPZ_TEAM, TOPZ_BUSINESS_NAME, type SavedQuotation } from './data/storage'
 import { getVehicles } from './data/rateCard'
 import { printQuotation } from './printQuotation'
+import { printQuickQuote } from './printQuickQuote'
+import { buildQuickQuoteMessage, openWhatsApp } from './whatsapp'
+import { QuickQuoteModal } from './QuickQuoteModal'
+import { QuickQuoteDetail } from './QuickQuoteDetail'
 import toast from 'react-hot-toast'
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<SavedQuotation['status'], { label: string; color: string; bg: string }> = {
   draft:     { label: 'Draft',     color: '#9ca3af', bg: 'rgba(156,163,175,0.1)' },
   sent:      { label: 'Sent',      color: '#60a5fa', bg: 'rgba(96,165,250,0.1)'  },
+  follow_up: { label: 'Follow-up', color: '#fbbf24', bg: 'rgba(251,191,36,0.1)'  },
+  lost:      { label: 'Lost',      color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
   converted: { label: 'Converted', color: '#34d399', bg: 'rgba(52,211,153,0.1)'  },
 }
 
@@ -33,10 +39,13 @@ export function QuotationHistory() {
   const [quotes, setQuotes] = useState<SavedQuotation[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | SavedQuotation['status']>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'full' | 'quick'>('all')
   const [convertTarget, setConvertTarget] = useState<SavedQuotation | null>(null)
   const [supplierName, setSupplierName] = useState('')
   const [takenBy, setTakenBy] = useState('')
   const [converting, setConverting] = useState(false)
+  const [quickQuoteModal, setQuickQuoteModal] = useState<{ edit: SavedQuotation | null } | null>(null)
+  const [detailQuote, setDetailQuote] = useState<SavedQuotation | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -52,6 +61,7 @@ export function QuotationHistory() {
   useEffect(() => { refresh() }, [refresh])
 
   async function handlePrint(q: SavedQuotation) {
+    if (q.type === 'quick') { await printQuickQuote({ quote: q }); return }
     const vehicle = getVehicles().find(v => v.name === q.vehicleName)
     if (!vehicle) { toast.error('Vehicle data not found'); return }
     await printQuotation({
@@ -82,6 +92,12 @@ export function QuotationHistory() {
 
   function handleWhatsApp(q: SavedQuotation) {
     if (!q.clientPhone) { toast.error('No phone number on this quote'); return }
+    if (q.type === 'quick') {
+      openWhatsApp(q.clientPhone, buildQuickQuoteMessage(q))
+      if (q.status === 'draft') handleStatus(q.id, 'sent')
+      toast.success('Opening WhatsApp...')
+      return
+    }
     const vehicle = getVehicles().find(v => v.name === q.vehicleName)
     const phone = q.clientPhone.replace(/\D/g, '').replace(/^0/, '91').replace(/^(?!91)/, '91')
     const isLocal = q.tripType === 'local'
@@ -134,8 +150,17 @@ export function QuotationHistory() {
   async function handleStatus(id: string, status: SavedQuotation['status']) {
     try {
       await updateQuotationStatus(id, status); refresh()
-      toast.success(`Marked as ${status}`)
+      toast.success(`Marked as ${STATUS_CONFIG[status].label}`)
     } catch { toast.error('Failed to update') }
+  }
+
+  async function handleSetFollowUp(q: SavedQuotation, date: string) {
+    try {
+      await saveQuotation({ ...q, followUpDate: date, status: 'follow_up' })
+      refresh()
+      setDetailQuote(null)
+      toast.success('Follow-up date set')
+    } catch { toast.error('Failed to set follow-up') }
   }
 
   async function doConvert() {
@@ -156,7 +181,7 @@ export function QuotationHistory() {
         totalAmount: convertTarget.totalAmount,
         advancePaid: 0,
         status: 'confirmed',
-        notes: '',
+        notes: [convertTarget.timing ? `Timing: ${convertTarget.timing}` : '', convertTarget.extraChargesText, convertTarget.notes].filter(Boolean).join('\n'),
         tripType: convertTarget.tripType,
         supplier: supplierName.trim(),
         commission: 0,
@@ -168,12 +193,22 @@ export function QuotationHistory() {
       setConvertTarget(null)
       setSupplierName('')
       setTakenBy('')
+      setDetailQuote(null)
     } catch { toast.error('Failed to convert') }
     finally { setConverting(false) }
   }
 
-  const filtered = filter === 'all' ? quotes : quotes.filter(q => q.status === filter)
+  const isQuick = (q: SavedQuotation) => q.type === 'quick'
+  const filtered = quotes
+    .filter(q => filter === 'all' || q.status === filter)
+    .filter(q => typeFilter === 'all' || (typeFilter === 'quick' ? isQuick(q) : !isQuick(q)))
   const groups = groupByMonth(filtered)
+
+  const fullCount = quotes.filter(q => !isQuick(q)).length
+  const quickCount = quotes.filter(isQuick).length
+  const sentCount = quotes.filter(q => q.status === 'sent').length
+  const convertedCount = quotes.filter(q => q.status === 'converted').length
+  const lostCount = quotes.filter(q => q.status === 'lost').length
 
   return (
     <div className="space-y-6">
@@ -190,15 +225,60 @@ export function QuotationHistory() {
           >
             <Plus className="w-4 h-4" /> New Quotation
           </button>
-          {(['all', 'draft', 'sent', 'converted'] as const).map(f => (
-            <button key={f} onClick={() => setFilter(f)}
+          <button
+            onClick={() => setQuickQuoteModal({ edit: null })}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105"
+            style={{ background: 'linear-gradient(135deg,#25d366,#1da851)', color: '#0a0a0a' }}
+          >
+            <Zap className="w-4 h-4" /> Quick Quote
+          </button>
+        </div>
+      </div>
+
+      {/* Summary counts */}
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+        {[
+          { label: 'Total Quotes', value: quotes.length, color: '#f0c040' },
+          { label: 'Full Quotes', value: fullCount, color: '#60a5fa' },
+          { label: 'WhatsApp Quick', value: quickCount, color: '#25d366' },
+          { label: 'Sent', value: sentCount, color: '#60a5fa' },
+          { label: 'Converted', value: convertedCount, color: '#34d399' },
+          { label: 'Lost', value: lostCount, color: '#f87171' },
+        ].map(tile => (
+          <div key={tile.label} className="glass-card rounded-xl p-3 text-center">
+            <p className="text-lg font-bold" style={{ color: tile.color }}>{tile.value}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{tile.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Type:</span>
+          {(['all', 'full', 'quick'] as const).map(t => (
+            <button key={t} onClick={() => setTypeFilter(t)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all capitalize"
+              style={typeFilter === t
+                ? { background: 'rgba(240,192,64,0.15)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }
+                : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }
+              }
+            >
+              {t === 'all' ? 'All' : t}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Status:</span>
+          {(['all', 'draft', 'sent', 'follow_up', 'lost', 'converted'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
               style={filter === f
                 ? { background: 'rgba(240,192,64,0.15)', borderColor: 'rgba(240,192,64,0.4)', color: '#f0c040' }
                 : { background: 'var(--glass-bg)', borderColor: 'var(--glass-border)', color: 'var(--text-muted)' }
               }
             >
-              {f === 'all' ? `All (${quotes.length})` : f}
+              {f === 'all' ? `All (${quotes.length})` : STATUS_CONFIG[f].label}
             </button>
           ))}
         </div>
@@ -241,7 +321,7 @@ export function QuotationHistory() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border)' }}>
-                          {['Quote #', 'Date', 'Client', 'Vehicle', 'Trip', 'Total', 'Status', ''].map(h => (
+                          {['Quote #', 'Type', 'Date', 'Client', 'Vehicle', 'Trip', 'Total', 'Status', ''].map(h => (
                             <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{h}</th>
                           ))}
                         </tr>
@@ -251,7 +331,18 @@ export function QuotationHistory() {
                           const sc = STATUS_CONFIG[q.status]
                           return (
                             <tr key={q.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)', borderBottom: '1px solid var(--glass-border)' }}>
-                              <td className="px-4 py-3 font-mono text-xs" style={{ color: '#f0c040' }}>{q.quoteNo}</td>
+                              <td className="px-4 py-3 font-mono text-xs" style={{ color: '#f0c040' }}>
+                                {isQuick(q) ? (
+                                  <button onClick={() => setDetailQuote(q)} className="font-mono hover:underline" style={{ color: '#f0c040' }}>{q.quoteNo}</button>
+                                ) : q.quoteNo}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={isQuick(q)
+                                  ? { background: 'rgba(37,211,102,0.12)', color: '#25d366', border: '1px solid rgba(37,211,102,0.3)' }
+                                  : { background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>
+                                  {isQuick(q) ? 'WHATSAPP QUICK' : 'FULL'}
+                                </span>
+                              </td>
                               <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>{fmtDate(q.createdAt)}</td>
                               <td className="px-4 py-3">
                                 <p className="font-medium whitespace-nowrap" style={{ color: 'var(--text-base)' }}>{q.clientName}</p>
@@ -269,7 +360,15 @@ export function QuotationHistory() {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
-                                  <button onClick={() => navigate('/topz/quotation', { state: { edit: q } })} title="Edit quotation"
+                                  {isQuick(q) && (
+                                    <button onClick={() => setDetailQuote(q)} title="View details"
+                                      className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--text-muted)' }}
+                                      onMouseEnter={e => (e.currentTarget.style.color = '#f0c040')}
+                                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button onClick={() => isQuick(q) ? setQuickQuoteModal({ edit: q }) : navigate('/topz/quotation', { state: { edit: q } })} title="Edit quotation"
                                     className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--text-muted)' }}
                                     onMouseEnter={e => (e.currentTarget.style.color = '#f0c040')}
                                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
@@ -280,7 +379,7 @@ export function QuotationHistory() {
                                       <Send className="w-3.5 h-3.5" />
                                     </button>
                                   )}
-                                  {q.status !== 'converted' && (
+                                  {q.status !== 'converted' && q.status !== 'lost' && (
                                     <button onClick={() => { setConvertTarget(q); setSupplierName(''); setTakenBy(q.sentBy ?? '') }} title="Convert to booking" className="p-1.5 rounded-lg hover:bg-green-900/20 text-green-400 transition-colors">
                                       <CheckCircle className="w-3.5 h-3.5" />
                                     </button>
@@ -290,12 +389,19 @@ export function QuotationHistory() {
                                       <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  {q.status !== 'converted' && q.status !== 'lost' && (
+                                    <button onClick={() => handleStatus(q.id, 'lost')} title="Mark as lost" className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-400 transition-colors">
+                                      <XCircle className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                   <button onClick={() => handleWhatsApp(q)} title="Send on WhatsApp" className="p-1.5 rounded-lg hover:bg-green-900/20 transition-colors" style={{ color: '#25d366' }}>
                                     <MessageCircle className="w-3.5 h-3.5" />
                                   </button>
-                                  <button onClick={() => handlePrint(q)} title="Download PDF" className="p-1.5 rounded-lg hover:bg-yellow-900/20 transition-colors" style={{ color: '#f0c040' }}>
-                                    <Download className="w-3.5 h-3.5" />
-                                  </button>
+                                  {!isQuick(q) && (
+                                    <button onClick={() => handlePrint(q)} title="Download PDF" className="p-1.5 rounded-lg hover:bg-yellow-900/20 transition-colors" style={{ color: '#f0c040' }}>
+                                      <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                   <button onClick={() => handleDelete(q.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-900/20 text-red-500 transition-colors">
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -307,7 +413,7 @@ export function QuotationHistory() {
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'rgba(240,192,64,0.05)', borderTop: '1px solid var(--glass-border)' }}>
-                          <td colSpan={5} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
+                          <td colSpan={6} className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{group.label} total</td>
                           <td className="px-4 py-2 font-bold text-sm" style={{ color: '#f0c040' }}>{fmt(monthTotal)}</td>
                           <td colSpan={2} />
                         </tr>
@@ -367,6 +473,28 @@ export function QuotationHistory() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quick Quote create/edit modal */}
+      {quickQuoteModal && (
+        <QuickQuoteModal
+          initial={quickQuoteModal.edit}
+          onClose={() => setQuickQuoteModal(null)}
+          onSaved={() => { setQuickQuoteModal(null); refresh() }}
+        />
+      )}
+
+      {/* Quick Quote detail modal */}
+      {detailQuote && (
+        <QuickQuoteDetail
+          quote={detailQuote}
+          onClose={() => setDetailQuote(null)}
+          onEdit={() => { setQuickQuoteModal({ edit: detailQuote }); setDetailQuote(null) }}
+          onWhatsApp={() => handleWhatsApp(detailQuote)}
+          onConvert={() => { setConvertTarget(detailQuote); setSupplierName(''); setTakenBy(detailQuote.sentBy ?? ''); setDetailQuote(null) }}
+          onSetFollowUp={date => handleSetFollowUp(detailQuote, date)}
+          onMarkLost={() => { handleStatus(detailQuote.id, 'lost'); setDetailQuote(null) }}
+        />
       )}
     </div>
   )

@@ -1,24 +1,95 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Play, Pencil, Send, ChevronDown } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
-import { ensureVideoJob, updateVideoJob, getContent, deleteContent } from '@/lib/content-studio/queries'
-import { autoEditRemoveSilence, renderFinal, AutoEditError, type AutoEditProgress } from '@/lib/content-studio/autoEdit'
+import { ensureVideoJob, updateVideoJob, updateContent, getContent, deleteContent } from '@/lib/content-studio/queries'
+import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
+import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
 /** ffmpeg.wasm handles these; anything else is rejected after upload. */
 const ACCEPTED = '.mp4,.mov,.webm,.m4v'
+const ACCEPTED_EXT = ACCEPTED.split(',')
+
+interface PendingClip {
+  id: string
+  file: File
+  trimStart: number
+  trimEnd: number
+  duration: number | null
+  thumbnail: string
+}
 
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-function progressLabel(p: AutoEditProgress | null): string {
+function fmtSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes / (1024 * 1024) >= 10 ? 0 : 1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
+function isAcceptedVideoFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return ACCEPTED_EXT.some((ext) => name.endsWith(ext)) || file.type.startsWith('video/')
+}
+
+/** Reads a local clip's duration and a JPEG thumbnail entirely client-side (no upload needed yet). */
+function probeClip(file: File): Promise<{ duration: number; thumbnail: string }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.preload = 'auto'
+    video.muted = true
+    video.playsInline = true
+    const finish = (duration: number, thumbnail: string) => {
+      URL.revokeObjectURL(url)
+      resolve({ duration, thumbnail })
+    }
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.5, (video.duration || 0) / 2)
+    }
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 160
+      canvas.height = 90
+      const ctx = canvas.getContext('2d')
+      let thumb = ''
+      try {
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          thumb = canvas.toDataURL('image/jpeg', 0.6)
+        }
+      } catch {
+        thumb = ''
+      }
+      finish(video.duration, thumb)
+    }
+    video.onerror = () => finish(0, '')
+    video.src = url
+  })
+}
+
+function progressLabel(p: AutoEditProgress | null, mode: 'edit' | 'join' | 'plan' | 'trim' = 'edit'): string {
   if (!p) return ''
   if (p.phase === 'loading') return 'Loading the video engine (first time only)…'
-  if (p.phase === 'analyzing') return 'Finding silence and dead air…'
-  const pct = p.fraction != null ? ` ${Math.round(p.fraction * 100)}%` : ''
+  if (p.phase === 'analyzing') {
+    if (mode === 'join') return 'Reading clip formats…'
+    if (mode === 'plan') return 'Preparing captions and branding…'
+    if (mode === 'trim') return 'Applying trim & caption…'
+    return 'Finding silence and dead air…'
+  }
+  // ffmpeg's progress fraction is time-processed ÷ estimated total duration.
+  // For joinClips, that estimate comes from only the first input clip, so
+  // once processing runs past that clip's length the ratio climbs past 1 —
+  // real work is still happening, the percentage is just wrong. Clamped so
+  // the display never claims more than "done".
+  const pct = p.fraction != null ? ` ${Math.min(100, Math.round(p.fraction * 100))}%` : ''
+  if (mode === 'join') return `Joining clips…${pct}`
+  if (mode === 'plan') return `Rendering the styled video…${pct}`
+  if (mode === 'trim') return `Rendering the trimmed preview…${pct}`
   return `Rendering…${pct}`
 }
 
@@ -43,8 +114,34 @@ export function VideoStudioPage() {
   const [uploadPct, setUploadPct] = useState(0)
   const [editProgress, setEditProgress] = useState<AutoEditProgress | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
-  const [showOptions, setShowOptions] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [showAutoEditInfo, setShowAutoEditInfo] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitMsg, setSubmitMsg] = useState('')
+  const footageSectionRef = useRef<HTMLElement>(null)
+  const autoEditSectionRef = useRef<HTMLElement>(null)
+  const editSectionRef = useRef<HTMLElement>(null)
+  const previewSectionRef = useRef<HTMLElement>(null)
+  // Unlimited pending clips, added via drag-drop or the file picker, in the
+  // order they'll be joined. trimStart/trimEnd are absolute timestamps within
+  // that clip's OWN timeline to keep (e.g. 5/10 keeps seconds 5-10 of THAT
+  // clip) — 0/0 means "keep the whole clip". duration/thumbnail fill in once
+  // the browser has read the file.
+  const [pendingClips, setPendingClips] = useState<PendingClip[]>([])
+  const [previewingPendingId, setPreviewingPendingId] = useState<string | null>(null)
+  const [rawPreviewUrl, setRawPreviewUrl] = useState('')
+  const [rawPreviewLoading, setRawPreviewLoading] = useState(false)
+  const [replacingFootage, setReplacingFootage] = useState(false)
+  const [joining, setJoining] = useState(false)
+  const [applyingTrim, setApplyingTrim] = useState(false)
+  const [musicFile, setMusicFile] = useState<File | null>(null)
+  const [muteOriginalAudio, setMuteOriginalAudio] = useState(false)
+  const referenceInputRef = useRef<HTMLInputElement>(null)
+  const multiClipInputRef = useRef<HTMLInputElement>(null)
+  const replaceClipInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const musicInputRef = useRef<HTMLInputElement>(null)
+  const pendingPreviewUrlRef = useRef('')
+  const rawPreviewUrlRef = useRef('')
 
   // The raw File and the just-edited Blob stay in memory for this session so
   // Regenerate and Export don't need to re-download from Drive every time —
@@ -65,7 +162,19 @@ export function VideoStudioPage() {
     setPreviewUrl(url)
   }
 
+  function setPendingPreview(url: string) {
+    if (pendingPreviewUrlRef.current) URL.revokeObjectURL(pendingPreviewUrlRef.current)
+    pendingPreviewUrlRef.current = url
+  }
+
+  function setRawPreview(url: string) {
+    if (rawPreviewUrlRef.current) URL.revokeObjectURL(rawPreviewUrlRef.current)
+    rawPreviewUrlRef.current = url
+    setRawPreviewUrl(url)
+  }
+
   useEffect(() => () => setPreview(null), []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { setPendingPreview(''); setRawPreview('') }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!contentId) {
@@ -108,34 +217,191 @@ export function VideoStudioPage() {
     }
   }
 
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file || !job || !content) return
-    setError('')
-    rawFileRef.current = file
-    setPreview(file)
+  const clipSegments = useMemo(() => parseJsonField<ClipSegmentRecord[]>(job?.clip_segments), [job?.clip_segments])
 
+  // Any number of timed captions, each in its own [start,end] window (blank
+  // start+end = shown for the whole video). Falls back to the old single
+  // caption_text/caption_position pair so a job saved before this existed
+  // still shows its caption here instead of silently losing it.
+  const captionsList = useMemo((): TimedCaption[] => {
+    const parsed = parseJsonField<TimedCaption[]>(job?.captions)
+    if (parsed?.length) return parsed
+    if (job?.caption_text?.trim()) return [{ text: job.caption_text, position: job.caption_position }]
+    return []
+  }, [job?.captions, job?.caption_text, job?.caption_position])
+
+  function onAddCaption() {
+    if (!job) return
+    persist({ captions: JSON.stringify([...captionsList, { text: '', start: 0, end: 0, position: 'bottom' as CaptionPosition }]) })
+  }
+
+  function onUpdateCaption(i: number, patch: Partial<TimedCaption>) {
+    if (!job) return
+    persist({ captions: JSON.stringify(captionsList.map((c, idx) => (idx === i ? { ...c, ...patch } : c))) })
+  }
+
+  function onRemoveCaption(i: number) {
+    if (!job) return
+    persist({ captions: JSON.stringify(captionsList.filter((_, idx) => idx !== i)) })
+  }
+
+  function addPendingFiles(fileList: FileList | File[] | null) {
+    if (!fileList) return
+    const files = Array.from(fileList).filter(isAcceptedVideoFile)
+    if (!files.length) return
+    const additions: PendingClip[] = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      trimStart: 0,
+      trimEnd: 0,
+      duration: null,
+      thumbnail: '',
+    }))
+    setPendingClips((clips) => [...clips, ...additions])
+    additions.forEach((clip) => {
+      probeClip(clip.file).then(({ duration, thumbnail }) => {
+        setPendingClips((clips) => clips.map((c) => (c.id === clip.id ? { ...c, duration, thumbnail } : c)))
+      })
+    })
+  }
+
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    addPendingFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  function onDropFiles(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    addPendingFiles(e.dataTransfer.files)
+  }
+
+  function onReplacePendingFile(id: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !isAcceptedVideoFile(file)) return
+    setPendingClips((clips) => clips.map((c) => (c.id === id ? { ...c, file, trimStart: 0, trimEnd: 0, duration: null, thumbnail: '' } : c)))
+    probeClip(file).then(({ duration, thumbnail }) => {
+      setPendingClips((clips) => clips.map((c) => (c.id === id ? { ...c, duration, thumbnail } : c)))
+    })
+    if (previewingPendingId === id) { setPendingPreview(''); setPreviewingPendingId(null) }
+  }
+
+  function onRemovePendingClip(id: string) {
+    setPendingClips((clips) => clips.filter((c) => c.id !== id))
+    delete replaceClipInputRefs.current[id]
+    if (previewingPendingId === id) { setPendingPreview(''); setPreviewingPendingId(null) }
+  }
+
+  function onSetPendingTrim(id: string, field: 'trimStart' | 'trimEnd', value: number) {
+    setPendingClips((clips) => clips.map((c) => (c.id === id ? { ...c, [field]: Math.max(0, value) } : c)))
+  }
+
+  function onTogglePendingPreview(id: string) {
+    if (previewingPendingId === id) {
+      setPendingPreview('')
+      setPreviewingPendingId(null)
+      return
+    }
+    const clip = pendingClips.find((c) => c.id === id)
+    if (!clip) return
+    const url = URL.createObjectURL(clip.file)
+    setPendingPreview(url)
+    setPreviewingPendingId(id)
+  }
+
+  /**
+   * One clip with no trim works exactly like the old single-file upload
+   * always did. Anything else — more than one clip, or a trim on the one
+   * clip — goes through joinClips (which handles a single trimmed clip fine,
+   * it just skips the concat step). That result is what everything
+   * downstream (analysis, transcript, auto-edit) treats as "the raw
+   * footage", same as a plain upload would be.
+   */
+  async function onUseClips() {
+    const entries = pendingClips.map((c) => ({
+      file: c.file,
+      trim: { start: c.trimStart, end: c.trimEnd },
+      duration: c.duration,
+    }))
+    if (!entries.length || !job || !content) return
+    setError('')
     setBusy(true)
     setUploadPct(0)
     try {
-      await persist({ status: 'Uploading', error: '', raw_name: file.name })
-      const { driveFileId, driveViewUrl } = await uploadToDrive(file, (f) => setUploadPct(Math.round(f * 100)))
+      await persist({ status: 'Uploading', error: '' })
+
+      // trim.start/end are already the absolute [keep-from, keep-to]
+      // timestamps within that clip's own timeline — exactly what
+      // joinClips'/ffmpeg's trim filter wants, no conversion needed.
+      const clipInputs: ClipInput[] = entries.map(({ file, trim }) => ({
+        blob: file,
+        trimStart: trim.start > 0 ? trim.start : undefined,
+        trimEnd: trim.end > 0 ? trim.end : undefined,
+      }))
+      const needsProcessing = clipInputs.length > 1 || clipInputs.some((c) => c.trimStart || c.trimEnd)
+
+      let combined: Blob
+      let name: string
+      if (needsProcessing) {
+        setJoining(true)
+        combined = await joinClips(clipInputs, setEditProgress)
+        name = entries.length > 1 ? `${content.title} (${entries.length} clips joined).mp4` : entries[0].file.name
+        setJoining(false)
+        setEditProgress(null)
+      } else {
+        combined = entries[0].file
+        name = entries[0].file.name
+      }
+      rawFileRef.current = needsProcessing ? null : entries[0].file
+      setPreview(combined)
+
+      const { driveFileId, driveViewUrl } = !needsProcessing
+        ? await uploadToDrive(entries[0].file, (f) => setUploadPct(Math.round(f * 100)))
+        : await uploadBlobToDrive(combined, name)
+
+      // Only worth recording when there's more than one clip — a segment
+      // list of one doesn't offer anything the plain trim_start/trim_end
+      // fields don't already, and each entry's boundary is only meaningful
+      // (i.e. only maps onto the actual joined output) once joinClips has
+      // actually applied that entry's own trim and concatenated it in.
+      let clipSegments = ''
+      if (entries.length > 1 && entries.every((e) => e.duration != null)) {
+        let cursor = 0
+        const segments = entries.map((e, i) => {
+          const keepStart = e.trim.start > 0 ? e.trim.start : 0
+          const keepEnd = e.trim.end > 0 ? Math.min(e.trim.end, e.duration!) : e.duration!
+          const trimmedDuration = Math.max(0, keepEnd - keepStart)
+          const seg = { start: cursor, end: cursor + trimmedDuration, label: `Clip ${i + 1}` }
+          cursor += trimmedDuration
+          return seg
+        })
+        clipSegments = JSON.stringify(segments)
+      }
+
       const saved = await persist({
         raw_drive_id: driveFileId,
         raw_view_url: driveViewUrl,
+        raw_name: name,
         status: 'Idle',
-        // A fresh upload invalidates whatever was generated/approved before.
+        clip_segments: clipSegments,
+        // A fresh upload invalidates whatever was generated/planned before.
         edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
+        link_analysis: '', transcript: '', edit_plan: '',
       })
       editedBlobRef.current = null
-      if (saved) await generate(saved, file)
+      setPendingPreview('')
+      setPreviewingPendingId(null)
+      setPendingClips([])
+      setReplacingFootage(false)
+      if (saved) await generate(saved, combined)
     } catch (err) {
       await persist({ status: 'Failed', error: errText(err) }).catch(() => {})
       handleError(err)
     } finally {
       setBusy(false)
+      setJoining(false)
       setUploadPct(0)
-      if (fileRef.current) fileRef.current.value = ''
+      if (multiClipInputRef.current) multiClipInputRef.current.value = ''
     }
   }
 
@@ -185,8 +451,42 @@ export function VideoStudioPage() {
     if (next) await generate(next)
   }
 
+
   function onChangeFootage() {
-    fileRef.current?.click()
+    setPendingClips([])
+    setReplacingFootage(true)
+  }
+
+  async function onDeleteFootage() {
+    if (!job || !confirm('Delete the uploaded footage? This clears everything generated from it too — the AI plan, auto-edit and export.')) return
+    rawFileRef.current = null
+    editedBlobRef.current = null
+    setPreview(null)
+    setRawPreview('')
+    setPendingClips([])
+    setReplacingFootage(false)
+    await persist({
+      raw_drive_id: '', raw_view_url: '', raw_name: '', status: 'Idle',
+      edited_drive_id: '', edited_view_url: '', approved: 0, export_drive_id: '', export_view_url: '',
+      link_analysis: '', transcript: '', edit_plan: '', clip_segments: '',
+    })
+  }
+
+  async function onToggleRawPreview() {
+    if (rawPreviewUrl) {
+      setRawPreview('')
+      return
+    }
+    if (!job) return
+    setRawPreviewLoading(true)
+    try {
+      const blob = await getRawBlob(job)
+      setRawPreview(URL.createObjectURL(blob))
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setRawPreviewLoading(false)
+    }
   }
 
   async function onApprove() {
@@ -194,16 +494,79 @@ export function VideoStudioPage() {
     await persist({ approved: 1 })
   }
 
-  async function onDelete() {
-    if (!content) return
-    if (!confirm(`Delete "${content.title}"? This cannot be undone.`)) return
+  /**
+   * Trim/caption only ever got applied at Export — the preview above it kept
+   * showing the un-trimmed auto-edit, so setting these fields looked like it
+   * did nothing until you actually exported. This renders them onto the
+   * preview immediately (same renderFinal Export uses) without uploading or
+   * touching approval/export state, so what you see here is what Export
+   * will produce.
+   */
+  async function onPreviewTrim() {
+    if (!job) return
+    setError('')
     setBusy(true)
+    setApplyingTrim(true)
+    setEditProgress(null)
     try {
-      await deleteContent(content.id, viewer?.name)
-      navigate('/content-studio/editing')
+      const base = editedBlobRef.current
+        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+      if (!base) throw new Error('No auto-edited footage to preview yet.')
+      const rendered = await renderFinal(
+        base,
+        {
+          trimStart: job.trim_start, trimEnd: job.trim_end, captions: captionsList,
+          musicBlob: musicFile ?? undefined, muteOriginalAudio,
+        },
+        setEditProgress,
+      )
+      setPreview(rendered)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not delete this piece.')
+      handleError(err)
+    } finally {
       setBusy(false)
+      setApplyingTrim(false)
+      setEditProgress(null)
+    }
+  }
+
+  function onSetSegmentCut(i: number, field: 'cutStart' | 'cutEnd', value: number) {
+    if (!clipSegments) return
+    const next = clipSegments.map((s, idx) => (idx === i ? { ...s, [field]: Math.max(0, value) } : s))
+    persist({ clip_segments: JSON.stringify(next) })
+  }
+
+  /**
+   * Same idea as onPreviewTrim, but per original clip — re-cuts the merged
+   * video using the boundaries joinClips recorded for each source clip, so
+   * "trim clip 2" works on the already-merged footage without re-uploading.
+   */
+  async function onPreviewSegments() {
+    if (!job || !clipSegments?.length) return
+    setError('')
+    setBusy(true)
+    setApplyingTrim(true)
+    setEditProgress(null)
+    try {
+      const base = editedBlobRef.current
+        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+      if (!base) throw new Error('No auto-edited footage to preview yet.')
+      const rendered = await renderSegments(
+        base,
+        clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
+        {
+          captions: captionsList,
+          musicBlob: musicFile ?? undefined, muteOriginalAudio,
+        },
+        setEditProgress,
+      )
+      setPreview(rendered)
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setBusy(false)
+      setApplyingTrim(false)
+      setEditProgress(null)
     }
   }
 
@@ -215,11 +578,24 @@ export function VideoStudioPage() {
     try {
       await persist({ status: 'Exporting', error: '' })
       const source = editedBlobRef.current ?? (await downloadFromDrive(job.edited_drive_id))
-      const finalBlob = await renderFinal(
-        source,
-        { trimStart: job.trim_start, trimEnd: job.trim_end, captionText: job.caption_text },
-        setEditProgress,
-      )
+      const finalBlob = clipSegments?.length
+        ? await renderSegments(
+            source,
+            clipSegments.map((s): SegmentTrim => ({ start: s.start, end: s.end, cutStart: s.cutStart, cutEnd: s.cutEnd })),
+            {
+              captions: captionsList,
+              musicBlob: musicFile ?? undefined, muteOriginalAudio,
+            },
+            setEditProgress,
+          )
+        : await renderFinal(
+            source,
+            {
+              trimStart: job.trim_start, trimEnd: job.trim_end, captions: captionsList,
+              musicBlob: musicFile ?? undefined, muteOriginalAudio,
+            },
+            setEditProgress,
+          )
       setPreview(finalBlob)
       const { driveFileId, driveViewUrl } = await uploadBlobToDrive(finalBlob, `${content.title} (final).mp4`)
       await persist({ status: 'Exported', export_drive_id: driveFileId, export_view_url: driveViewUrl })
@@ -236,6 +612,52 @@ export function VideoStudioPage() {
 
   const status = job?.status ?? 'Idle'
   const hasEdit = !!job?.edited_drive_id
+
+  function scrollToRef(ref: React.RefObject<HTMLElement>) {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function onPreviewVideo() {
+    scrollToRef(hasEdit ? previewSectionRef : footageSectionRef)
+  }
+
+  function onEditVideo() {
+    // The dedicated editing workspace works on the generated first cut — with
+    // nothing generated yet, there's nothing to open, so point at Auto-Edit
+    // (or Raw footage, if there isn't footage to generate from either) instead.
+    if (hasEdit) {
+      navigate(`/content-studio/editing/${contentId}/edit`)
+      return
+    }
+    scrollToRef(job?.raw_drive_id ? autoEditSectionRef : footageSectionRef)
+  }
+
+  async function onSubmitForReview() {
+    if (!content || !confirm(`Submit "${content.title}" for review?`)) return
+    setSubmitting(true)
+    setSubmitMsg('')
+    try {
+      const updated = await updateContent(content.id, { stage: 'Review' }, viewer?.name)
+      setContent(updated)
+      setSubmitMsg('Submitted for review.')
+    } catch (err) {
+      setError(errText(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!content || !confirm(`Delete "${content.title}"? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await deleteContent(content.id, viewer?.name)
+      navigate('/content-studio/editing')
+    } catch (err) {
+      setError(errText(err))
+      setDeleting(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -259,39 +681,59 @@ export function VideoStudioPage() {
 
   return (
     <Page>
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <button
           onClick={() => navigate('/content-studio/editing')}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Editing
         </button>
+        <button
+          disabled={deleting}
+          onClick={handleDelete}
+          title="Delete this piece"
+          aria-label="Delete this piece"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+        >
+          🗑 DELETE
+        </button>
       </div>
 
-      <PageHeader
-        title={content?.title ?? 'Video studio'}
-        subtitle={content?.brand_name}
-        right={
-          <div className="flex items-center gap-2">
-            <StatusStrip status={status} approved={!!job?.approved} />
-            <button
-              disabled={busy}
-              onClick={onDelete}
-              title="Delete this piece"
-              className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
-            >
-              🗑 Delete
-            </button>
-          </div>
-        }
+      <ProjectHeader
+        content={content}
+        status={status}
+        approved={!!job?.approved}
+        editor={content?.editor}
+        onPreview={onPreviewVideo}
+        onEdit={onEditVideo}
+        onSubmitForReview={onSubmitForReview}
+        submitting={submitting}
+        busy={busy}
       />
 
       <div className="max-w-3xl space-y-5">
-        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 text-[12px] text-gray-500">
-          Auto-edit removes silence and dead air — it does not copy any other video's style. Footage is stored in
-          your own Google Drive (no size limit); the editing itself runs in this browser, no external service, no
-          API key.
+        <div className="rounded-lg border border-gray-800 bg-gray-900/60">
+          <button
+            onClick={() => setShowAutoEditInfo((s) => !s)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-[12px] font-semibold text-gray-400 hover:text-gray-200"
+          >
+            <span>ⓘ How Auto-Edit Works</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showAutoEditInfo ? 'rotate-180' : ''}`} />
+          </button>
+          {showAutoEditInfo && (
+            <div className="px-4 pb-3 text-[12px] text-gray-500 border-t border-gray-800 pt-3">
+              Auto-edit removes silence/dead air, then Section 4 · Edit lets you trim, add timed captions, position
+              them, and mix in your own music — all in this browser via ffmpeg.wasm, no external service. It does
+              not rearrange clips or add zooms/transitions/color effects yet, and it never sources music on its own
+              — reusing a reference video's actual track would be a copyright problem, so music only gets added if
+              you supply your own track.
+            </div>
+          )}
         </div>
+
+        {submitMsg && (
+          <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">{submitMsg}</div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>
@@ -299,64 +741,287 @@ export function VideoStudioPage() {
 
         {editProgress && (
           <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-4 py-3 text-sm text-indigo-200">
-            {progressLabel(editProgress)}
+            {progressLabel(editProgress, joining ? 'join' : applyingTrim ? 'trim' : 'edit')}
           </div>
         )}
 
-        {/* ---------- reference (informational only) ---------- */}
+        {/* ---------- 1. reference ---------- */}
         <section>
-          <label className="form-label">Reference link (optional)</label>
-          <input
-            className="form-input"
-            placeholder="https://… — a video whose style you want the editor to aim for"
-            value={job?.reference_url ?? ''}
-            onChange={(e) => persist({ reference_url: e.target.value })}
-            disabled={busy}
-          />
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">🔗 Reference</h3>
+          <p className="text-[11px] text-gray-600 mb-2">
+            Add a website, app, social-media post, or reference video that the editor should use for this project.
+          </p>
+          <div className="space-y-2">
+            <div>
+              <label className="text-[10px] text-gray-600">Reference Link</label>
+              <input
+                ref={referenceInputRef}
+                className="form-input"
+                placeholder="Paste URL here"
+                value={job?.reference_url ?? ''}
+                onChange={(e) => persist({ reference_url: e.target.value })}
+                disabled={busy}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-600">Reference Notes (optional)</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                placeholder="Example: Use the same style, pacing, hook, or visual idea."
+                value={job?.reference_notes ?? ''}
+                onChange={(e) => persist({ reference_notes: e.target.value })}
+                disabled={busy}
+              />
+            </div>
+          </div>
           <p className="text-[11px] text-gray-600 mt-1">
-            Shown to whoever does the Edit step below as a guide — not applied automatically.
+            Stored as a note for whoever edits this piece — not applied automatically.
           </p>
         </section>
 
-        {/* ---------- 1. source footage ---------- */}
-        <section>
-          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">1 · Raw footage</h3>
-          {job?.raw_drive_id ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-sm min-w-0">
-                <p className="text-gray-300 truncate">{job.raw_name || 'Uploaded footage'}</p>
-                <a href={job.raw_view_url} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:text-gray-300 hover:underline">
-                  View in Google Drive
-                </a>
+        {/* ---------- 2. source footage ---------- */}
+        <section ref={footageSectionRef}>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">🎥 Raw Footage</h3>
+          <p className="text-[11px] text-gray-600 mb-2">
+            Upload the original video clips from the shoot. These clips will be used to create the final video.
+          </p>
+
+          {job?.raw_drive_id && !replacingFootage ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+                <div className="w-16 h-10 shrink-0 rounded bg-gray-800 flex items-center justify-center text-gray-600">🎬</div>
+                <div className="flex-1 min-w-0 text-sm">
+                  <p className="text-gray-300 truncate">✓ {job.raw_name || 'Uploaded footage'}</p>
+                  <p className="text-[11px] text-gray-600">
+                    {clipSegments?.length ? `${clipSegments.length} clips joined` : 'Uploaded'} · Ready
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={onToggleRawPreview} disabled={busy || rawPreviewLoading} className="btn-secondary text-xs disabled:opacity-50">
+                    {rawPreviewLoading ? 'Loading…' : rawPreviewUrl ? 'Hide preview' : 'Preview'}
+                  </button>
+                  <button onClick={onChangeFootage} disabled={busy} className="text-xs font-semibold text-gold-500 hover:underline disabled:opacity-50">
+                    Replace
+                  </button>
+                  <button
+                    onClick={onDeleteFootage}
+                    disabled={busy}
+                    title="Delete this footage"
+                    aria-label="Delete this footage"
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:border-rose-700 hover:text-rose-400 disabled:opacity-50 transition-colors"
+                  >
+                    🗑 Delete
+                  </button>
+                </div>
               </div>
-              <button onClick={onChangeFootage} disabled={busy} className="text-xs font-semibold text-gold-500 hover:underline disabled:opacity-50">
-                Replace footage
-              </button>
+
+              {rawPreviewUrl && (
+                <video src={rawPreviewUrl} controls className="w-full max-h-72 rounded-lg border border-gray-800 bg-black" />
+              )}
+
+              {!!clipSegments?.length && (
+                <div className="pl-1 space-y-0.5">
+                  {clipSegments.map((seg, i) => (
+                    <p key={i} className="text-[11px] text-gray-600">
+                      {seg.label} · {fmtTime(seg.start)}–{fmtTime(seg.end)}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <a href={job.raw_view_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-gray-600 hover:text-gray-300 hover:underline">
+                View in Google Drive
+              </a>
             </div>
           ) : (
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              className="w-full rounded-lg border-2 border-dashed border-gray-700 py-8 text-sm text-gray-400 hover:border-gold-600 hover:text-gold-500 disabled:opacity-50 transition-colors"
-            >
-              {busy && uploadPct > 0 ? `Uploading to Drive… ${uploadPct}%` : 'Upload raw footage (MP4 / MOV / WebM)'}
-            </button>
+            <div className="space-y-3">
+              <div
+                onClick={() => multiClipInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDropFiles}
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer rounded-lg border-2 border-dashed border-gray-700 hover:border-gold-700/60 hover:bg-gray-900/40 transition-colors px-4 py-8 text-center"
+              >
+                <p className="text-sm font-semibold text-gray-300">+ Add Raw Footage</p>
+                <p className="text-[11px] text-gray-600 mt-1">Drag & drop video files here, or click to browse</p>
+                <input
+                  ref={multiClipInputRef}
+                  type="file"
+                  accept={ACCEPTED}
+                  multiple
+                  className="hidden"
+                  onChange={onPickFiles}
+                />
+              </div>
+
+              {pendingClips.length > 0 && (
+                <div className="space-y-2">
+                  {pendingClips.map((clip, i) => (
+                    <div key={clip.id} className="rounded-lg border border-gray-800 p-2.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-14 h-9 shrink-0 rounded bg-gray-800 overflow-hidden flex items-center justify-center text-gray-600 text-xs">
+                          {clip.thumbnail ? (
+                            <img src={clip.thumbnail} alt="" className="w-full h-full object-cover" />
+                          ) : '🎬'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-300 truncate">
+                            {pendingClips.length > 1 ? `${i + 1}. ` : ''}{clip.file.name}
+                          </p>
+                          <p className="text-[11px] text-gray-600">
+                            {clip.duration != null ? fmtTime(clip.duration) : 'Reading…'} · {fmtSize(clip.file.size)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => onTogglePendingPreview(clip.id)} disabled={busy} className="text-[11px] font-semibold text-gray-400 hover:text-gray-200 disabled:opacity-50">
+                            {previewingPendingId === clip.id ? 'Hide' : 'Preview'}
+                          </button>
+                          <button onClick={() => replaceClipInputRefs.current[clip.id]?.click()} disabled={busy} className="text-[11px] font-semibold text-gold-500 hover:underline disabled:opacity-50">
+                            Replace
+                          </button>
+                          <button onClick={() => onRemovePendingClip(clip.id)} disabled={busy} className="text-[11px] font-semibold text-rose-400 hover:underline disabled:opacity-50">
+                            Delete
+                          </button>
+                          <input
+                            ref={(el) => { replaceClipInputRefs.current[clip.id] = el }}
+                            type="file"
+                            accept={ACCEPTED}
+                            className="hidden"
+                            onChange={(e) => onReplacePendingFile(clip.id, e)}
+                          />
+                        </div>
+                      </div>
+
+                      {previewingPendingId === clip.id && pendingPreviewUrlRef.current && (
+                        <video src={pendingPreviewUrlRef.current} controls className="mt-2 w-full max-h-56 rounded-lg border border-gray-800 bg-black" />
+                      )}
+
+                      <details className="mt-2">
+                        <summary className="text-[10px] text-gray-600 cursor-pointer hover:text-gray-400">Trim this clip (optional)</summary>
+                        <div className="mt-1.5 grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-600">Trim start (sec)</label>
+                            <input
+                              type="number" min="0" step="0.5"
+                              className="form-input py-1 text-xs"
+                              value={clip.trimStart || ''}
+                              placeholder="0"
+                              onChange={(e) => onSetPendingTrim(clip.id, 'trimStart', Number(e.target.value) || 0)}
+                              disabled={busy}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-600">Trim end (sec, blank = full)</label>
+                            <input
+                              type="number" min="0" step="0.5"
+                              className="form-input py-1 text-xs"
+                              value={clip.trimEnd || ''}
+                              placeholder={clip.duration != null ? clip.duration.toFixed(1) : '0'}
+                              onChange={(e) => onSetPendingTrim(clip.id, 'trimEnd', Number(e.target.value) || 0)}
+                              disabled={busy}
+                            />
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                {pendingClips.length > 0 && (
+                  <button
+                    onClick={() => multiClipInputRef.current?.click()}
+                    disabled={busy}
+                    className="btn-secondary text-xs disabled:opacity-50"
+                  >
+                    + Add Another Clip
+                  </button>
+                )}
+                <button
+                  onClick={onUseClips}
+                  disabled={busy || !pendingClips.length}
+                  className="btn-primary text-sm disabled:opacity-50"
+                >
+                  {joining
+                    ? 'Joining clips…'
+                    : busy && uploadPct > 0
+                      ? `Uploading… ${uploadPct}%`
+                      : busy
+                        ? 'Uploading…'
+                        : pendingClips.length > 1
+                          ? `Join ${pendingClips.length} clips & upload`
+                          : 'Upload footage'}
+                </button>
+                {job?.raw_drive_id && (
+                  <button
+                    onClick={() => { setPendingClips([]); setReplacingFootage(false) }}
+                    disabled={busy}
+                    className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
           )}
-          <input ref={fileRef} type="file" accept={ACCEPTED} className="hidden" onChange={onPickFile} />
         </section>
 
-        {/* ---------- 2 & 3. auto-edit result: edit / change / regenerate ---------- */}
+        {/* ---------- auto-edit result: edit / change / regenerate ---------- */}
         {job?.raw_drive_id && (
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">2 · Auto-edit</h3>
-              <button onClick={() => setShowOptions((s) => !s)} className="text-xs text-gray-500 hover:text-gray-300">
-                {showOptions ? 'Hide options' : 'Options'}
-              </button>
-            </div>
+          <section ref={autoEditSectionRef}>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">🤖 Auto-Edit</h3>
+            <p className="text-[11px] text-gray-600 mb-3">
+              Let AI create a first cut from your uploaded footage. You can edit the result manually afterwards.
+            </p>
 
-            {showOptions && (
-              <div className="mb-3 grid grid-cols-2 gap-3 rounded-lg border border-gray-800 p-3 text-sm">
+            {status === 'Generating' ? (
+              <p className="text-sm text-gray-400">Auto-editing… this runs in your browser, so a long clip can take a few minutes. Don't close this tab.</p>
+            ) : !hasEdit ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+                  <span className="rounded-md border border-gray-800 px-2 py-1">Raw Footage</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded-md border border-gray-800 px-2 py-1">AI creates first cut</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded-md border border-gray-800 px-2 py-1">You edit the result</span>
+                </div>
+                <button
+                  onClick={() => job && generate(job)}
+                  disabled={busy}
+                  className="btn-primary text-sm disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  ✨ Generate First Cut
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-emerald-400">✓ First Cut Generated</p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={onPreviewVideo} disabled={busy} className="btn-secondary text-xs disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Play className="w-3.5 h-3.5" /> Preview
+                  </button>
+                  <button onClick={onEditVideo} disabled={busy} className="btn-secondary text-xs disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Pencil className="w-3.5 h-3.5" /> Edit Video
+                  </button>
+                  <button onClick={onRegenerate} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+                    ↻ Regenerate
+                  </button>
+                  <button onClick={onChangeFootage} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+                    Change Footage
+                  </button>
+                </div>
+                {job && job.regen_count > 0 && (
+                  <p className="text-[11px] text-gray-600">regenerated {job.regen_count}×</p>
+                )}
+              </div>
+            )}
+
+            <details className="mt-3">
+              <summary className="text-[11px] text-gray-600 cursor-pointer hover:text-gray-400">Advanced settings (silence sensitivity)</summary>
+              <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-gray-800 p-3 text-sm">
                 <div>
                   <label className="form-label">Silence threshold (dB)</label>
                   <input
@@ -378,65 +1043,185 @@ export function VideoStudioPage() {
                   <p className="text-[11px] text-gray-600 mt-1">Shorter cuts more; catches natural pauses too.</p>
                 </div>
               </div>
-            )}
-
-            {status === 'Generating' ? (
-              <p className="text-sm text-gray-400">Auto-editing… this runs in your browser, so a long clip can take a few minutes. Don't close this tab.</p>
-            ) : !hasEdit ? (
-              <button
-                onClick={() => job && generate(job)}
-                disabled={busy}
-                className="btn-primary text-sm disabled:opacity-50"
-              >
-                Generate edit
-              </button>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <button onClick={onRegenerate} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-                  ↻ Regenerate
-                </button>
-                <button onClick={onChangeFootage} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-                  ⤒ Change footage
-                </button>
-                {job && job.regen_count > 0 && (
-                  <span className="text-[11px] text-gray-600 self-center">regenerated {job.regen_count}×</span>
-                )}
-              </div>
-            )}
+            </details>
           </section>
         )}
 
         {/* ---------- 4. edit the result ---------- */}
         {hasEdit && (
-          <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">3 · Edit</h3>
+          <section ref={editSectionRef}>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">4 · Edit</h3>
             <div className="grid gap-3 sm:grid-cols-2 rounded-lg border border-gray-800 p-3">
-              <div>
-                <label className="form-label">Trim start (seconds)</label>
-                <input
-                  type="number" min="0" step="0.1" className="form-input"
-                  value={job?.trim_start ?? 0}
-                  onChange={(e) => persist({ trim_start: Number(e.target.value) || 0 })}
-                  disabled={busy}
-                />
-              </div>
-              <div>
-                <label className="form-label">Trim end (seconds, 0 = none)</label>
-                <input
-                  type="number" min="0" step="0.1" className="form-input"
-                  value={job?.trim_end ?? 0}
-                  onChange={(e) => persist({ trim_end: Number(e.target.value) || 0 })}
-                  disabled={busy}
-                />
+              {clipSegments?.length ? (
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="form-label">Per-clip trim (this footage was joined from {clipSegments.length} clips)</label>
+                  {clipSegments.map((seg, i) => (
+                    <div key={i} className="grid grid-cols-3 gap-2 items-end rounded-lg border border-gray-800 p-2">
+                      <span className="text-xs text-gray-400">
+                        {seg.label}
+                        <span className="block text-[10px] text-gray-600">{fmtTime(seg.start)}–{fmtTime(seg.end)}</span>
+                      </span>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Cut more from start (sec)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={seg.cutStart || ''} placeholder="0"
+                          onChange={(e) => onSetSegmentCut(i, 'cutStart', Number(e.target.value) || 0)}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Cut more from end (sec)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={seg.cutEnd || ''} placeholder="0"
+                          onChange={(e) => onSetSegmentCut(i, 'cutEnd', Number(e.target.value) || 0)}
+                          disabled={busy}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="form-label">Trim start (seconds)</label>
+                    <input
+                      type="number" min="0" step="0.1" className="form-input"
+                      value={job?.trim_start ?? 0}
+                      onChange={(e) => persist({ trim_start: Number(e.target.value) || 0 })}
+                      disabled={busy}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Trim end (seconds, 0 = none)</label>
+                    <input
+                      type="number" min="0" step="0.1" className="form-input"
+                      value={job?.trim_end ?? 0}
+                      onChange={(e) => persist({ trim_end: Number(e.target.value) || 0 })}
+                      disabled={busy}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="sm:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="form-label mb-0">Captions (burned into the export)</label>
+                  <button onClick={onAddCaption} disabled={busy} className="text-xs font-semibold text-gold-500 hover:underline disabled:opacity-50">
+                    + Add caption
+                  </button>
+                </div>
+                {captionsList.length === 0 && (
+                  <p className="text-[11px] text-gray-600">
+                    None yet — add one for the whole video, or several with their own time windows (e.g. one for the
+                    first 5 seconds, a different one in the middle, another at the end).
+                  </p>
+                )}
+                {captionsList.map((c, i) => (
+                  <div key={i} className="rounded-lg border border-gray-800 p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <textarea
+                        className="form-input flex-1" rows={2}
+                        value={c.text}
+                        onChange={(e) => onUpdateCaption(i, { text: e.target.value })}
+                        disabled={busy}
+                      />
+                      <button onClick={() => onRemoveCaption(i)} disabled={busy} className="text-xs text-rose-400 hover:underline disabled:opacity-50 shrink-0">
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-gray-600">Show from (sec, blank = start)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={c.start || ''} placeholder="0"
+                          onChange={(e) => onUpdateCaption(i, { start: Number(e.target.value) || 0 })}
+                          disabled={busy}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-600">Show until (sec, blank = end)</label>
+                        <input
+                          type="number" min="0" step="0.5" className="form-input py-1 text-xs"
+                          value={c.end || ''} placeholder="end"
+                          onChange={(e) => onUpdateCaption(i, { end: Number(e.target.value) || 0 })}
+                          disabled={busy}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['top', 'bottom', 'left', 'right', 'center'] as CaptionPosition[]).map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => onUpdateCaption(i, { position: pos })}
+                          disabled={busy}
+                          className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold capitalize transition-colors disabled:opacity-50 ${
+                            (c.position ?? 'bottom') === pos
+                              ? 'bg-gold-500/20 border-gold-700/60 text-gold-500'
+                              : 'border-gray-800 bg-gray-900 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                          }`}
+                        >
+                          {pos}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="sm:col-span-2">
-                <label className="form-label">Caption / on-screen text (burned into the export)</label>
-                <textarea
-                  className="form-input" rows={2}
-                  value={job?.caption_text ?? ''}
-                  onChange={(e) => persist({ caption_text: e.target.value })}
+                <label className="form-label">Background music (optional — your own licensed track)</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => musicInputRef.current?.click()}
+                    disabled={busy}
+                    className="btn-secondary text-xs disabled:opacity-50"
+                  >
+                    {musicFile ? 'Replace track' : '+ Add music'}
+                  </button>
+                  {musicFile && (
+                    <>
+                      <span className="text-xs text-gray-400 truncate">{musicFile.name}</span>
+                      <button onClick={() => setMusicFile(null)} disabled={busy} className="text-xs text-rose-400 hover:underline disabled:opacity-50">
+                        Remove
+                      </button>
+                    </>
+                  )}
+                  <input
+                    ref={musicInputRef}
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => setMusicFile(e.target.files?.[0] ?? null)}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-gray-400 ml-2">
+                    <input
+                      type="checkbox"
+                      checked={muteOriginalAudio}
+                      onChange={(e) => setMuteOriginalAudio(e.target.checked)}
+                      disabled={busy || !musicFile}
+                    />
+                    Mute the clip's own sound (use only this track)
+                  </label>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">
+                  Nothing here sources music automatically — reusing a reference video's actual track would be a
+                  copyright problem, so this only mixes in a track you supply. Unchecked, it mixes under the clip's
+                  own audio; checked, it replaces it entirely.
+                </p>
+              </div>
+              <div className="sm:col-span-2 flex items-center gap-3">
+                <button
+                  onClick={clipSegments?.length ? onPreviewSegments : onPreviewTrim}
                   disabled={busy}
-                />
+                  className="btn-secondary text-xs disabled:opacity-50"
+                >
+                  {clipSegments?.length ? 'Preview per-clip trims & caption' : 'Preview trim & caption'}
+                </button>
+                <p className="text-[11px] text-gray-600">
+                  Regenerate (above) and the AI plan don't apply these — they're only ever used at Export. Click this
+                  to see them applied to the preview below before you export for real.
+                </p>
               </div>
             </div>
           </section>
@@ -444,8 +1229,8 @@ export function VideoStudioPage() {
 
         {/* ---------- 5. preview → approve → export ---------- */}
         {hasEdit && (
-          <section>
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">4 · Preview → Approve → Export</h3>
+          <section ref={previewSectionRef}>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Preview → Approve → Export</h3>
 
             {previewUrl ? (
               <video src={previewUrl} controls className="w-full max-h-96 rounded-lg border border-gray-800 bg-black" />
@@ -500,6 +1285,83 @@ export function VideoStudioPage() {
         )}
       </div>
     </Page>
+  )
+}
+
+function ProjectHeader({
+  content,
+  status,
+  approved,
+  editor,
+  onPreview,
+  onEdit,
+  onSubmitForReview,
+  submitting,
+  busy,
+}: {
+  content: ContentRow | null
+  status: string
+  approved: boolean
+  editor?: string
+  onPreview: () => void
+  onEdit: () => void
+  onSubmitForReview: () => void
+  submitting: boolean
+  busy: boolean
+}) {
+  const subtitle = [content?.brand_name, content?.platform, content?.format].filter(Boolean).join(' ')
+  return (
+    <div className="mb-6 rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-4 sm:px-5 sm:py-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title flex items-center gap-2">
+            <span aria-hidden="true">🎬</span> {content?.title ?? 'Video studio'}
+          </h1>
+          {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+
+          <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              <dt className="text-gray-600">Status:</dt>
+              <dd><StatusStrip status={status} approved={approved} /></dd>
+            </div>
+            {editor && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Editor:</dt>
+                <dd className="text-gray-300">{editor}</dd>
+              </div>
+            )}
+            {content?.platform && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Platform:</dt>
+                <dd className="text-gray-300">{content.platform}</dd>
+              </div>
+            )}
+            {content?.format && (
+              <div className="flex items-center gap-1.5">
+                <dt className="text-gray-600">Format:</dt>
+                <dd className="text-gray-300">{content.format}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 no-print">
+          <button onClick={onPreview} className="btn-secondary text-xs inline-flex items-center gap-1.5">
+            <Play className="w-3.5 h-3.5" /> Preview Video
+          </button>
+          <button onClick={onEdit} className="btn-secondary text-xs inline-flex items-center gap-1.5">
+            <Pencil className="w-3.5 h-3.5" /> Edit Video
+          </button>
+          <button
+            onClick={onSubmitForReview}
+            disabled={busy || submitting}
+            className="btn-primary text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Send className="w-3.5 h-3.5" /> {submitting ? 'Submitting…' : 'Submit for Review'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

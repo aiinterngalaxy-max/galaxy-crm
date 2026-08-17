@@ -195,6 +195,8 @@ export interface ContentComment {
 export type VideoJobStatus =
   | "Idle" // row exists, no footage uploaded yet
   | "Uploading" // footage going to Drive
+  | "Analyzing" // reading the referral link + transcribing the footage
+  | "Planning" // AI is turning the analysis into an editing plan
   | "Generating" // ffmpeg.wasm is removing silence, in the browser
   | "Generated" // an edited draft exists — Edit / Change / Regenerate
   | "Exporting" // applying trim/caption, rendering the final file
@@ -204,9 +206,11 @@ export type VideoJobStatus =
 export interface VideoJob {
   id: number;
   content_id: number;
-  // Informational only — shown to whoever does the Edit step as their guide.
-  // Nothing here auto-matches a reference video's style; no vendor does that.
+  // Shown to whoever does the Edit step as a guide, AND (if it resolves)
+  // analyzed by AI into link_analysis for the editing plan below.
   reference_url: string;
+  // What the editor should take from reference_url (style, pacing, hook, etc). Optional.
+  reference_notes: string;
   raw_drive_id: string;
   raw_view_url: string;
   raw_name: string;
@@ -220,12 +224,45 @@ export interface VideoJob {
   trim_start: number;
   trim_end: number;
   caption_text: string;
+  caption_position: 'top' | 'bottom' | 'left' | 'right' | 'center';
+  // JSON array of {text,start,end,position} — any number of timed captions,
+  // each shown only in its own [start,end] window (or the whole video if unset).
+  captions: string;
   export_drive_id: string;
   export_view_url: string;
   error: string;
   regen_count: number;
   approved: number; // 0/1 — gates Export
   approved_at: string | null;
+  // JSON blobs from the AI plan step (api/content-studio/video-plan.ts) —
+  // stored as strings so a bad/empty response never breaks a column read.
+  link_analysis: string;
+  transcript: string;
+  edit_plan: string;
+  // JSON array of {start,end,label,cutStart?,cutEnd?} — set when raw footage
+  // came from 2+ joined clips, so each can be trimmed further after the merge.
+  clip_segments: string;
+  // Reviewer sign-off on this edit, layered on top of cmo_content.stage —
+  // see schema.ts's cmo_video_jobs comment for why this exists separately.
+  review_status: '' | 'ready_for_review' | 'approved' | 'changes_requested';
+  review_feedback: string;
+  reviewed_by: string;
+  reviewed_at: string;
+  submitted_by: string;
+  submitted_at: string;
+  // Background music, uploaded to Drive the same way raw/edited footage is.
+  music_drive_id: string;
+  music_view_url: string;
+  music_name: string;
+  music_volume: number;
+  // Where in the VIDEO's own timeline the music starts/stops (0/0 = plays
+  // from the start for the whole video).
+  music_start: number;
+  music_end: number;
+  mute_original_audio: number; // 0/1
+  original_volume: number;
+  music_fade_in: number;
+  music_fade_out: number;
   created_at: string;
   updated_at: string;
 }
