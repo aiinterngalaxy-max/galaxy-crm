@@ -173,6 +173,7 @@ Never invent features, numbers or claims the page doesn't make. If the page give
 async function analyzeLink(url: string) {
   if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
   const meta = await fetchPageMeta(url)
+  checkNotBotWalled(url, meta)
   if (!meta.title && !meta.description) {
     throw new Error("Couldn't read anything useful from that page — it may block automated visits, or have no preview tags.")
   }
@@ -254,9 +255,34 @@ Return ONLY valid JSON with this exact shape:
 
 Base every field on what's actually visible in the image — if you can't tell, use the neutral default (brightness 0, contrast 1, saturation 1, warmth 0) rather than guessing dramatically.`
 
+// Platforms known to serve a generic, content-free shell (no real og:tags,
+// title just the site's own name) to any non-browser request — reels/shorts
+// there require a real logged-in browser session to load at all, so there
+// is never anything real to read from a plain server-side fetch. Checked
+// up front so the operator gets ONE specific, accurate explanation instead
+// of a vague "model didn't return usable JSON" several steps later, which
+// is what actually happens today when the vision model is handed a blank
+// or unrelated "cover image" and has nothing real to describe.
+const BOT_WALLED_HOSTS = ['instagram.com', 'tiktok.com']
+
+function checkNotBotWalled(url: string, meta: PageMeta) {
+  let host = ''
+  try { host = new URL(url).hostname.replace(/^www\./, '') } catch { /* validated as a URL already */ }
+  const walled = BOT_WALLED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))
+  const genericTitle = !meta.title || meta.title.trim().toLowerCase() === host.split('.')[0]
+  if (walled && genericTitle) {
+    const name = host.includes('instagram') ? 'Instagram' : host.includes('tiktok') ? 'TikTok' : host
+    throw new Error(
+      `${name} blocks automated access to reels/shorts — it needs a real logged-in browser session, so there's nothing real to read from this link on the server. ` +
+      'Try a YouTube Shorts link instead (those expose a real cover image publicly), or describe the look you want directly in the AI Edit box.',
+    )
+  }
+}
+
 async function analyzeStyle(url: string): Promise<StyleProfile> {
   if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
   const meta = await fetchPageMeta(url)
+  checkNotBotWalled(url, meta)
   if (!meta.image) {
     throw new Error("Couldn't find a cover image on that link to analyze — it may block automated visits, or have no preview image.")
   }
@@ -269,7 +295,11 @@ async function analyzeStyle(url: string): Promise<StyleProfile> {
   ], 400)
 
   const parsed = extractJson<Record<string, unknown>>(raw, '{')
-  if (!parsed) throw new Error('The model did not return a usable style analysis. Try again.')
+  if (!parsed) {
+    throw new Error(
+      'The model could not read a usable style from that image — this can happen when the link\'s cover image isn\'t the actual reel (some platforms block real previews). Try again, or try a different link.',
+    )
+  }
 
   const aspects: StyleAspect[] = ['9:16', '16:9', '1:1', '4:5']
   const positions: StyleCaptionPosition[] = ['top', 'bottom', 'left', 'right', 'center']
