@@ -143,6 +143,24 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('remove_text', () => {
+    it('accepts a start/end window with an optional text hint', () => {
+      const result = validateCommand({ type: 'remove_text', start: 0, end: 0.5, text: 'Galaxy Home Automation' }, ctx)
+      expect(result).toEqual({ type: 'remove_text', start: 0, end: 0.5, text: 'Galaxy Home Automation' })
+    })
+    it('accepts a start/end window with no text hint at all', () => {
+      const result = validateCommand({ type: 'remove_text', start: 0, end: 0.5 }, ctx)
+      expect(result).toEqual({ type: 'remove_text', start: 0, end: 0.5 })
+    })
+    it('rejects a missing start or end rather than guessing one', () => {
+      expect(validateCommand({ type: 'remove_text', end: 0.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'remove_text', start: 0 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects an end before the start', () => {
+      expect(validateCommand({ type: 'remove_text', start: 5, end: 2 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('audio_volume / mute', () => {
     it('accepts a valid volume', () => {
       expect(validateCommand({ type: 'audio_volume', volume: 0.5 }, ctx)).toEqual({ type: 'audio_volume', volume: 0.5 })

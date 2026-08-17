@@ -1151,6 +1151,19 @@ export function VideoEditWorkspacePage() {
           commit(nextClips, 'Trim')
         } else if (cmd.type === 'text' || cmd.type === 'caption') {
           addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size })
+        } else if (cmd.type === 'remove_text') {
+          // Overlap, not exact match — the operator's phrasing of the time
+          // range won't necessarily equal the overlay's own stored
+          // start/end to the decimal. Prefer whichever overlapping overlay
+          // also matches the mentioned text, if any was given.
+          const overlapping = overlays.filter((o) => o.start < cmd.end && o.end > cmd.start)
+          const target = (cmd.text
+            ? overlapping.find((o) => o.text.toLowerCase().includes(cmd.text!.toLowerCase()))
+            : undefined) ?? overlapping[0]
+          if (!target) {
+            throw new Error(`No text overlay found between ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} to remove.`)
+          }
+          deleteOverlay(target.id)
         } else if (cmd.type === 'audio_volume') {
           setOriginalVolume(cmd.volume)
           setDirty(true)

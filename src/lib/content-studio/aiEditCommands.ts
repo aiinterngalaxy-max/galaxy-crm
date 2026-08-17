@@ -36,6 +36,12 @@ export interface PanCommand { type: 'pan'; start: number; end: number; direction
 export interface SpeedCommand { type: 'speed'; start: number; end: number; factor: number }
 export interface TextCommand { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
 export interface CaptionCommand { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
+/** Removes an existing text/caption overlay that occupies [start,end] — as
+ *  opposed to `text`/`caption`, which only ever ADD an overlay. `text` here
+ *  is an optional hint (e.g. "Galaxy Home Automation") used to disambiguate
+ *  when more than one overlay sits in the same time window; it is never
+ *  required, since the instruction may only give a time range. */
+export interface RemoveTextCommand { type: 'remove_text'; start: number; end: number; text?: string }
 export interface AudioVolumeCommand { type: 'audio_volume'; volume: number }
 export interface MuteCommand { type: 'mute'; muted: boolean }
 export interface MusicCommand { type: 'music'; action: 'volume' | 'remove'; volume?: number }
@@ -43,10 +49,10 @@ export interface LoopCommand { type: 'loop'; times: number }
 
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
-  | TextCommand | CaptionCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
+  | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
 
 export const COMMAND_TYPES = [
-  'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption',
+  'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop',
 ] as const
 
@@ -184,6 +190,13 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: type as 'text' | 'caption', text: text.trim(), start, end, position, size }
     }
 
+    case 'remove_text': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const text = str(c.text)
+      return { type: 'remove_text', ...w, ...(text ? { text } : {}) }
+    }
+
     case 'audio_volume': {
       const volume = num(c.volume)
       if (volume === null) return { error: 'Missing the volume level.' }
@@ -252,6 +265,7 @@ pan         { "type": "pan", "start": number, "end": number, "direction": "left-
 speed       { "type": "speed", "start": number, "end": number, "factor": number }  — factor > 1 is faster, < 1 is slower, range 0.25-4
 text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg" }  — start:0, end:0 means "shown for the whole video", not "missing"
 caption     { "type": "caption", ...same fields as text }
+remove_text { "type": "remove_text", "start": number, "end": number, "text": string }  — REMOVES an existing text/caption overlay in [start,end]; use this whenever the instruction says to remove/delete an on-screen text, never the "text"/"caption" type (those only ADD text). "text" is optional — include the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given, to help pick the right overlay when more than one sits in that time range, but omit it rather than guessing if none is named.
 audio_volume{ "type": "audio_volume", "volume": number }  — 0 to 3, 1 = unchanged
 mute        { "type": "mute", "muted": boolean }
 music       { "type": "music", "action": "volume" | "remove", "volume": number }  — volume (0-1) only used with action "volume", and only valid if the video already has a music track
@@ -265,6 +279,7 @@ Examples:
 "Remove the first 3 seconds." → {"commands":[{"type":"trim","start":3,"end":${ctx.durationSec.toFixed(1)}}]}
 "Zoom into the product." (no timing given) → {"clarification":"Which part of the video should I zoom into — what start and end time?"}
 "Add 'Galaxy Home Automation' at the beginning." ("at the beginning" means a brief intro, not the whole video — default to the first 3 seconds unless told otherwise) → {"commands":[{"type":"text","text":"Galaxy Home Automation","start":0,"end":3,"position":"top","size":"lg"}]}
+"Remove the Galaxy Home Automation text between 0 and 0.5 seconds." → {"commands":[{"type":"remove_text","start":0,"end":0.5,"text":"Galaxy Home Automation"}]}
 "Loop this 3 times." → {"commands":[{"type":"loop","times":3}]}`
 }
 
@@ -339,6 +354,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text': return `Text "${cmd.text}" (${cmd.position})`
     case 'caption': return `Caption "${cmd.text}" (${cmd.position})`
+    case 'remove_text': return `Remove text${cmd.text ? ` "${cmd.text}"` : ''}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
     case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
     case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
@@ -365,6 +381,8 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
     case 'caption':
       return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
+    case 'remove_text':
+      return { title: 'Remove Text', lines: [cmd.text ? `"${cmd.text}"` : 'Matching overlay', `${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`] }
     case 'audio_volume':
       return { title: 'Audio Volume', lines: [`Original audio set to ${Math.round(cmd.volume * 100)}%`] }
     case 'mute':
