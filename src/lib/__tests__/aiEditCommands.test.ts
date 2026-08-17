@@ -531,12 +531,13 @@ describe('interpretInstruction', () => {
     expect(result.clarification).toEqual(expect.any(String))
   })
 
-  it('handles a network/API failure without throwing', async () => {
+  it('handles a network/API failure without throwing — reported as `error`, not `clarification`, since it is a real failure the operator can\'t fix by rephrasing', async () => {
     callClaude.mockImplementation(async () => {
       throw new Error('502 Bad Gateway')
     })
     const result = await interpretInstruction('Zoom in.', ctx)
-    expect(result.clarification).toContain('502 Bad Gateway')
+    expect(result.error).toContain('502 Bad Gateway')
+    expect(result.clarification).toBeUndefined()
   })
 
   it('rejects an empty instruction without calling the AI at all', async () => {

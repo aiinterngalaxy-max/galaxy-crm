@@ -84,6 +84,13 @@ export interface TextStyleCommand extends TextStyleFields {
   type: 'text_style'; overlayId: string; text: string
   position?: CaptionPosition; size?: CaptionSize
 }
+/** Changes the WORDING of an existing text/caption overlay — as opposed to
+ *  text_style (which only ever touches styling, never content). Covers
+ *  "add a 🔥 emoji to the CEO text" (the AI composes the full new string —
+ *  existing text + emoji — since ctx.textLayers gives it the current
+ *  wording) and "change the text to say 'Welcome!'" alike. overlayId is
+ *  resolved by validateCommand the same way as text_style/remove_text. */
+export interface TextEditCommand { type: 'text_edit'; overlayId: string; text: string }
 /** Auto-generates timed captions from the video's own speech (real
  *  transcription via the app's existing Whisper integration) — not a guess,
  *  not fake captions. */
@@ -107,13 +114,13 @@ export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
   | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand
-  | TextStyleCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
+  | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop',
   'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
-  'text_style', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
+  'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
 
 const CROP_ASPECTS: CropAspect[] = ['9:16', '1:1', '4:5', '16:9', '4:3']
@@ -498,6 +505,17 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       }
     }
 
+    case 'text_edit': {
+      const newText = str(c.text)
+      if (!newText || !newText.trim()) return { error: 'Missing the new wording for that text.' }
+      if (newText.length > 200) return { error: 'That text is too long (200 characters max).' }
+      // target is the wording hint identifying WHICH layer to edit — never
+      // confused with the new text itself, which is a separate field.
+      const resolved = resolveTextLayer({ text: c.target }, ctx)
+      if ('error' in resolved) return resolved
+      return { type: 'text_edit', overlayId: resolved.id, text: newText.trim() }
+    }
+
     case 'captions_auto':
       return { type: 'captions_auto' }
 
@@ -529,9 +547,20 @@ export interface InterpretResult {
    *  command for a compound instruction, e.g. "crop for reels AND add
    *  captions"). Always already validated — never shown/executed raw. */
   commands?: EditCommand[]
-  /** Present instead of commands when the AI couldn't determine something
-   *  required — a timestamp, a target, a missing music file. Never both. */
+  /** Present instead of commands when the AI (or validation) couldn't
+   *  determine something required — a timestamp, a target, a missing music
+   *  file, an unsupported font. This is a NORMAL outcome of a genuinely
+   *  ambiguous/incomplete instruction, not a failure — the caller should
+   *  show it as a plain question, not an error. */
   clarification?: string
+  /** Present instead of commands/clarification when something actually went
+   *  wrong reaching or parsing a response from the AI service itself (rate
+   *  limit, network failure, malformed response) — as opposed to the AI
+   *  successfully responding but needing more information. The caller
+   *  should show this as a real error (distinct styling from
+   *  clarification), since it's not something rephrasing the instruction
+   *  will fix — it's the service being unavailable. */
+  error?: string
 }
 
 function systemPrompt(ctx: InterpretContext): string {
@@ -660,7 +689,7 @@ export async function interpretInstruction(instruction: string, ctx: InterpretCo
   try {
     raw = await callClaude(trimmed, systemPrompt(ctx), 1024)
   } catch (err) {
-    return { clarification: `Could not reach the AI service: ${err instanceof Error ? err.message : String(err)}` }
+    return { error: `Could not reach the AI service: ${err instanceof Error ? err.message : String(err)}` }
   }
 
   let parsed: unknown

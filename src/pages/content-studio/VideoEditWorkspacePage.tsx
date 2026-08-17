@@ -1127,8 +1127,8 @@ export function VideoEditWorkspacePage() {
   async function interpretAiEdit() {
     const instruction = aiEditPrompt.trim()
     if (!instruction) {
-      setAiEditError('Please enter an editing instruction.')
-      setAiEditQuestion('')
+      setAiEditQuestion('Please enter an editing instruction.')
+      setAiEditError('')
       return
     }
     setAiEditError('')
@@ -1141,13 +1141,13 @@ export function VideoEditWorkspacePage() {
     // approximation of it.
     const lower = instruction.toLowerCase().replace(/[.!]+$/, '').trim()
     if (/^(undo|undo that|undo the last (edit|change)|undo last (edit|change))$/.test(lower)) {
-      if (historyIndex <= 0) { setAiEditError('Nothing to undo yet.'); return }
+      if (historyIndex <= 0) { setAiEditQuestion('Nothing to undo yet.'); return }
       await undo()
       setAiEditPrompt('')
       return
     }
     if (/^(redo|redo that|redo the last (edit|change)|redo last (edit|change))$/.test(lower)) {
-      if (historyIndex >= history.length - 1) { setAiEditError('Nothing to redo.'); return }
+      if (historyIndex >= history.length - 1) { setAiEditQuestion('Nothing to redo.'); return }
       await redo()
       setAiEditPrompt('')
       return
@@ -1159,12 +1159,18 @@ export function VideoEditWorkspacePage() {
       const topSnap = historyIndex >= 0 ? history[historyIndex] : undefined
       const lastEffectType = topSnap?.effectTypes?.length === 1 ? (topSnap.effectTypes[0] as EffectType) : undefined
       const result = await interpretInstruction(instruction, { durationSec: duration || 0, hasMusic, textLayers, lastEffectType })
-      if (result.clarification) {
+      // A real service failure (network/rate-limit/etc.) is a genuine error —
+      // everything else (the AI asking a clarifying question, or a validated
+      // instruction it just couldn't parse) is a normal outcome, not a
+      // failure, and is shown as a plain question instead.
+      if (result.error) {
+        setAiEditError(result.error)
+      } else if (result.clarification) {
         setAiEditQuestion(result.clarification)
       } else if (result.commands?.length) {
         setAiPendingCommands(result.commands)
       } else {
-        setAiEditError("Couldn't understand that instruction — try rephrasing it.")
+        setAiEditQuestion("Couldn't understand that instruction — try rephrasing it.")
       }
     } catch (err) {
       setAiEditError(errText(err))
