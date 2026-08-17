@@ -11,8 +11,13 @@ import {
 } from '@/lib/content-studio/queries'
 import {
   renderFinal, renderSegments, AutoEditError,
+  applyCropAspect, applyZoomPan, applyWindowedSpeed, loopVideo,
   type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize,
 } from '@/lib/content-studio/autoEdit'
+import {
+  interpretInstruction, targetToCenter, directionToPanPoints,
+  type EditCommand,
+} from '@/lib/content-studio/aiEditCommands'
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
@@ -826,19 +831,159 @@ export function VideoEditWorkspacePage() {
     }
   }
 
-  // ---------- AI edit (UI only for now — not wired to anything) ----------
+  // ---------- AI edit ----------
+  // instruction (free text) -> interpretInstruction() [AI + validation, see
+  // aiEditCommands.ts] -> aiPendingCommands (shown to the operator, nothing
+  // has happened yet) -> confirmAiEdit() actually executes them, only once
+  // the operator clicks Apply. Nothing here ever runs unreviewed.
   const [aiEditPrompt, setAiEditPrompt] = useState('')
-  const [aiEditSubmitted, setAiEditSubmitted] = useState('')
   const [aiEditError, setAiEditError] = useState('')
+  const [aiPendingCommands, setAiPendingCommands] = useState<EditCommand[] | null>(null)
+  const [aiInterpreting, setAiInterpreting] = useState(false)
+  const [aiApplying, setAiApplying] = useState(false)
+  const [aiProgress, setAiProgress] = useState<AutoEditProgress | null>(null)
+  const [aiLastApplied, setAiLastApplied] = useState('')
 
-  function applyAiEdit() {
+  function describeAiCommand(cmd: EditCommand): string {
+    switch (cmd.type) {
+      case 'trim': return `Trim to ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+      case 'crop': return `Crop to ${cmd.aspect}`
+      case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+      case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+      case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+      case 'text': return `Text "${cmd.text}" (${cmd.position})`
+      case 'caption': return `Caption "${cmd.text}" (${cmd.position})`
+      case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
+      case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
+      case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
+      case 'loop': return `Loop ${cmd.times}x`
+    }
+  }
+
+  async function interpretAiEdit() {
     if (!aiEditPrompt.trim()) {
       setAiEditError('Please enter an editing instruction.')
-      setAiEditSubmitted('')
       return
     }
     setAiEditError('')
-    setAiEditSubmitted(aiEditPrompt.trim())
+    setAiPendingCommands(null)
+    setAiInterpreting(true)
+    try {
+      const result = await interpretInstruction(aiEditPrompt, { durationSec: duration || 0, hasMusic })
+      if (result.clarification) {
+        setAiEditError(result.clarification)
+      } else if (result.commands?.length) {
+        setAiPendingCommands(result.commands)
+      } else {
+        setAiEditError("Couldn't understand that instruction — try rephrasing it.")
+      }
+    } catch (err) {
+      setAiEditError(errText(err))
+    } finally {
+      setAiInterpreting(false)
+    }
+  }
+
+  function cancelAiEdit() {
+    setAiPendingCommands(null)
+  }
+
+  /**
+   * Executes every pending command in order. crop/zoom/pan/speed/loop are
+   * "hard-bake" operations — they re-render the actual source video (same
+   * as Regenerate/Change footage elsewhere in this workspace) via the new
+   * autoEdit.ts functions, upload the result to Drive, and point the job at
+   * it. Doing that CLEARS clips/history rather than trying to remap old
+   * clip boundaries onto a video whose duration or content just changed
+   * (loop and windowed speed both change duration) — the existing
+   * single-source init effect (above) rebuilds a fresh one-clip timeline
+   * automatically once the new video's metadata loads, same as it does on
+   * first open. trim/text/caption/audio_volume/mute/music are NOT hard-bake:
+   * they just call the same state setters the Trim/Text/Captions/Audio/
+   * Music panels already call, so they show up as normal, still-editable
+   * state — an AI-added caption is not different from a manually-added one.
+   */
+  async function confirmAiEdit() {
+    const commands = aiPendingCommands
+    if (!commands || !job || !content) return
+    setAiApplying(true)
+    setAiEditError('')
+    setAiProgress(null)
+    try {
+      const isHardBake = (c: EditCommand) => c.type === 'crop' || c.type === 'zoom' || c.type === 'pan' || c.type === 'speed' || c.type === 'loop'
+      const hardBake = commands.filter((c): c is Extract<EditCommand, { type: 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' }> => isHardBake(c))
+      const soft = commands.filter((c) => !isHardBake(c))
+
+      if (hardBake.length) {
+        if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
+        let blob = sourceBlobRef.current
+        // crop first (whole-video, order-independent), then zoom/pan/speed
+        // in the order given, loop last (it should wrap the fully-edited
+        // result, not a pre-edit segment).
+        const ordered = [
+          ...hardBake.filter((c) => c.type === 'crop'),
+          ...hardBake.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
+          ...hardBake.filter((c) => c.type === 'loop'),
+        ]
+        for (const cmd of ordered) {
+          if (cmd.type === 'crop') {
+            blob = await applyCropAspect(blob, cmd.aspect, setAiProgress)
+          } else if (cmd.type === 'zoom') {
+            const { x, y } = targetToCenter(cmd.target)
+            blob = await applyZoomPan(blob, { start: cmd.start, end: cmd.end, fromScale: cmd.fromScale, toScale: cmd.toScale, fromX: x, fromY: y, toX: x, toY: y }, setAiProgress)
+          } else if (cmd.type === 'pan') {
+            const { fromX, fromY, toX, toY } = directionToPanPoints(cmd.direction)
+            blob = await applyZoomPan(blob, { start: cmd.start, end: cmd.end, fromScale: cmd.scale, toScale: cmd.scale, fromX, fromY, toX, toY }, setAiProgress)
+          } else if (cmd.type === 'speed') {
+            blob = await applyWindowedSpeed(blob, cmd.start, cmd.end, cmd.factor, setAiProgress)
+          } else if (cmd.type === 'loop') {
+            blob = await loopVideo(blob, cmd.times, setAiProgress)
+          }
+        }
+
+        const { driveFileId, driveViewUrl } = await uploadBlobToDrive(blob, `${content.title} (ai-edited).mp4`)
+        const saved = await updateVideoJob(job.id, {
+          edited_drive_id: driveFileId, edited_view_url: driveViewUrl, clip_segments: '',
+        })
+        sourceBlobRef.current = blob
+        setClips([])
+        setHistory([])
+        setHistoryIndex(-1)
+        setJob(saved)
+      }
+
+      for (const cmd of soft) {
+        if (cmd.type === 'trim') {
+          if (mode !== 'single' || !clips[0]) {
+            throw new Error('AI trim only works on a single-source video right now — use the Trim panel for a multi-clip timeline.')
+          }
+          setStartAt(clips[0].id, cmd.start)
+          setEndAt(clips[0].id, cmd.end)
+        } else if (cmd.type === 'text' || cmd.type === 'caption') {
+          addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size })
+        } else if (cmd.type === 'audio_volume') {
+          setOriginalVolume(cmd.volume)
+          setDirty(true)
+        } else if (cmd.type === 'mute') {
+          setMuteOriginal(cmd.muted)
+          setDirty(true)
+        } else if (cmd.type === 'music') {
+          if (cmd.action === 'remove') removeMusic()
+          else if (cmd.volume != null) { setMusicVolume(cmd.volume); setDirty(true) }
+        }
+      }
+
+      const summary = commands.map(describeAiCommand).join('; ')
+      setAiLastApplied(summary)
+      setAiPendingCommands(null)
+      setAiEditPrompt('')
+      await logActivity('content', content.id, 'ai-edit', summary, viewer?.name || 'System')
+    } catch (err) {
+      handleError(err)
+    } finally {
+      setAiApplying(false)
+      setAiProgress(null)
+    }
   }
 
   if (loading) {
@@ -1141,7 +1286,7 @@ export function VideoEditWorkspacePage() {
               )}
             </div>
 
-            {/* ---------- ai edit (UI only — not wired to anything yet) ---------- */}
+            {/* ---------- ai edit ---------- */}
             <div className="rounded-lg border border-gray-800 p-3 space-y-2">
               <h3 className="text-xs font-bold text-gray-300 flex items-center gap-1.5">✨ AI Edit</h3>
               <textarea
@@ -1149,15 +1294,44 @@ export function VideoEditWorkspacePage() {
                 rows={3}
                 value={aiEditPrompt}
                 onChange={(e) => setAiEditPrompt(e.target.value)}
-                placeholder="Tell me what you want to change..."
+                placeholder='e.g. "Zoom into the person from 5 to 8 seconds" or "Crop this for Instagram Reel"'
+                disabled={aiInterpreting || aiApplying}
               />
-              <button className="btn-primary text-xs w-full" onClick={applyAiEdit}>
-                Apply AI Edit
-              </button>
-              {aiEditError && <p className="text-[11px] text-rose-400">{aiEditError}</p>}
-              {aiEditSubmitted && (
-                <p className="text-[11px] text-gray-500">Instruction received: <span className="text-gray-300">"{aiEditSubmitted}"</span></p>
+
+              {!aiPendingCommands ? (
+                <button
+                  className="btn-primary text-xs w-full disabled:opacity-50"
+                  onClick={interpretAiEdit}
+                  disabled={aiInterpreting || aiApplying || !sourceBlobRef.current}
+                >
+                  {aiInterpreting ? 'Thinking…' : 'Interpret instruction'}
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="rounded-md border border-gray-700 bg-gray-900/60 p-2 space-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Will apply:</p>
+                    {aiPendingCommands.map((cmd, i) => (
+                      <p key={i} className="text-[11px] text-gray-300">• {describeAiCommand(cmd)}</p>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn-primary text-xs flex-1 disabled:opacity-50" onClick={confirmAiEdit} disabled={aiApplying}>
+                      {aiApplying ? progressLabel(aiProgress, 'Applying…') : 'Apply'}
+                    </button>
+                    <button className="btn-secondary text-xs" onClick={cancelAiEdit} disabled={aiApplying}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               )}
+
+              {aiEditError && <p className="text-[11px] text-rose-400">{aiEditError}</p>}
+              {aiLastApplied && !aiPendingCommands && (
+                <p className="text-[11px] text-emerald-400">✓ Applied: {aiLastApplied}</p>
+              )}
+              <p className="text-[10px] text-gray-600">
+                Every instruction is turned into a specific, reviewable edit before anything runs — nothing is applied without your confirmation above.
+              </p>
             </div>
 
             {/* ---------- text tool ---------- */}

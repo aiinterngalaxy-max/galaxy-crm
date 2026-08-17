@@ -290,6 +290,21 @@ async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ wid
   return { width: m ? Number(m[1]) : 1080, height: m ? Number(m[2]) : 1920 }
 }
 
+async function probeFps(ffmpeg: FFmpeg, inputName: string): Promise<number> {
+  let log = ''
+  const collect = ({ message }: { message: string }) => (log += message + '\n')
+  ffmpeg.on('log', collect)
+  try {
+    await ffmpeg.exec(['-i', inputName])
+  } catch {
+    // Expected — same as probeDuration.
+  } finally {
+    ffmpeg.off('log', collect)
+  }
+  const m = /(\d+(?:\.\d+)?)\s*fps/.exec(log)
+  return m ? Number(m[1]) : 30
+}
+
 export interface ClipInput {
   blob: Blob
   /** Seconds to cut from the start of this clip before joining. */
@@ -748,6 +763,270 @@ export async function renderSegments(
     await ffmpeg.deleteFile(inputName).catch(() => {})
     if (musicBlob) await ffmpeg.deleteFile(musicName).catch(() => {})
     for (const name of capNames) await ffmpeg.deleteFile(name).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+// ---------- AI-instructable operations: crop / zoom / pan / speed / loop ----------
+//
+// Everything above this point predates the natural-language AI Edit feature.
+// These five are the operations the AI command interpreter (see
+// aiEditCommands.ts) can actually produce and execute — trim, text/captions,
+// audio volume/mute and background music are NOT duplicated here because
+// they already have working ffmpeg support above (renderFinal/renderSegments)
+// and a working UI (the Trim/Text/Captions/Music panels in
+// VideoEditWorkspacePage.tsx); an AI command for those just edits that same
+// state, same as a human clicking those controls would.
+//
+// Every filter string below was verified against a real, native ffmpeg build
+// (not just ffmpeg.wasm) with real test footage and real pixel-level
+// inspection before being written here.
+
+export type CropAspect = '9:16' | '1:1' | '4:5' | '16:9' | '4:3'
+
+const ASPECT_RATIOS: Record<CropAspect, number> = {
+  '9:16': 9 / 16,
+  '1:1': 1,
+  '4:5': 4 / 5,
+  '16:9': 16 / 9,
+  '4:3': 4 / 3,
+}
+
+/**
+ * Crops the whole video to a target aspect ratio, centered — "crop this for
+ * Instagram Reel" (9:16), a square post (1:1), and so on. Whichever
+ * dimension the source is proportionally too wide/tall in gets cut; the
+ * other axis is untouched. trunc(.../2)*2 keeps both output dimensions even,
+ * which yuv420p encoding requires.
+ */
+export async function applyCropAspect(
+  file: Blob,
+  aspect: CropAspect,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const ratio = ASPECT_RATIOS[aspect]
+  const inputName = 'crop-input.mp4'
+  const outputName = 'crop-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    const cropFilter =
+      `crop=w='trunc(if(gt(iw/ih\\,${ratio})\\,ih*${ratio}\\,iw)/2)*2':` +
+      `h='trunc(if(gt(iw/ih\\,${ratio})\\,ih\\,iw/${ratio})/2)*2':` +
+      `x='(iw-out_w)/2':y='(ih-out_h)/2'`
+    await ffmpeg.exec(['-i', inputName, '-vf', cropFilter, '-c:a', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not crop the video. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface ZoomPanOp {
+  /** Seconds within the video's own (already-trimmed) timeline. */
+  start: number
+  end: number
+  fromScale: number
+  toScale: number
+  /** 0..1 fraction of frame, the CENTER of the visible window (not its
+   *  top-left corner) — 0.5,0.5 is a plain centered zoom. Omit for a pure
+   *  zoom with no pan; omit toX/toY to hold the same point throughout. */
+  fromX?: number
+  fromY?: number
+  toX?: number
+  toY?: number
+}
+
+/**
+ * A single time-windowed zoom and/or pan: scale and position change
+ * linearly from the "from" values to the "to" values across [start,end],
+ * holding the start state before `start` and the end state after `end`
+ * (an ffmpeg "zoom in and hold", not a zoom that reverses itself).
+ *
+ * Built on the zoompan filter, not crop — crop's own w/h can vary per frame
+ * only for reading, encoding requires a CONSTANT output frame size, and
+ * crop's w/h expressions referencing time fail filter setup outright for
+ * exactly that reason (verified: "Error when evaluating the expression").
+ * zoompan is ffmpeg's own purpose-built filter for this: fixed output size
+ * (`s=`), variable *source window* per output frame (`z`/`x`/`y`, keyed on
+ * `on`, the output frame index — that's why fps must be probed and frames
+ * computed from it, not left to consume the input's timestamps directly).
+ */
+export async function applyZoomPan(
+  file: Blob,
+  op: ZoomPanOp,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'zoom-input.mp4'
+  const outputName = 'zoom-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const fps = await probeFps(ffmpeg, inputName)
+    const startFrame = Math.max(0, Math.round(op.start * fps))
+    const endFrame = Math.max(startFrame + 1, Math.round(op.end * fps))
+
+    // 0 before the window, 1 after it, linear in between — shared by the
+    // zoom and pan expressions so they animate in lockstep.
+    const progress = `if(lt(on\\,${startFrame})\\,0\\,if(gt(on\\,${endFrame})\\,1\\,(on-${startFrame})/(${endFrame}-${startFrame})))`
+    const zExpr = `${op.fromScale}+(${op.toScale - op.fromScale})*(${progress})`
+
+    const fromX = op.fromX ?? 0.5
+    const fromY = op.fromY ?? 0.5
+    const toX = op.toX ?? fromX
+    const toY = op.toY ?? fromY
+    const cx = `${fromX}+(${toX - fromX})*(${progress})`
+    const cy = `${fromY}+(${toY - fromY})*(${progress})`
+    // zoompan's x/y are the crop window's top-left corner, not its center —
+    // offset by half the (zoomed) visible width/height so fromX/toX=0.5
+    // means "centered" regardless of how zoomed in the frame currently is.
+    // clip()'d because an off-center target near a frame edge, combined with
+    // a small zoom, can otherwise ask for a window that runs off the source.
+    const xExpr = `clip(iw*(${cx})-(iw/zoom/2)\\,0\\,iw-iw/zoom)`
+    const yExpr = `clip(ih*(${cy})-(ih/zoom/2)\\,0\\,ih-ih/zoom)`
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName,
+      '-vf', `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${width}x${height}:fps=${fps}`,
+      '-c:a', 'copy',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the zoom/pan. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+/**
+ * Decomposes a speed factor into a chain of ffmpeg atempo filters, each
+ * within atempo's own supported range (0.5-2.0) — a 3x speed-up is
+ * `atempo=2.0,atempo=1.5`, a 0.25x slow-down is `atempo=0.5,atempo=0.5`.
+ * Exported and pure so this decomposition is unit-testable on its own.
+ */
+export function atempoChain(factor: number): string {
+  const parts: number[] = []
+  let remaining = factor
+  while (remaining > 2) { parts.push(2); remaining /= 2 }
+  while (remaining < 0.5) { parts.push(0.5); remaining /= 0.5 }
+  parts.push(remaining)
+  return parts.map((p) => `atempo=${p}`).join(',')
+}
+
+/**
+ * Speeds up (factor > 1) or slows down (factor < 1) just [start,end] of the
+ * video, leaving the rest untouched. Splits into up to three segments
+ * (before/window/after — a segment this trims to nothing is just skipped),
+ * retimes the window with setpts (video) and atempoChain (audio), and
+ * concats the pieces back — the same trim+concat shape already used
+ * elsewhere in this file (autoEditRemoveSilence, renderSegments), just with
+ * one segment's timestamps rescaled instead of removed.
+ */
+export async function applyWindowedSpeed(
+  file: Blob,
+  start: number,
+  end: number,
+  factor: number,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'speed-input.mp4'
+  const outputName = 'speed-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const duration = await probeDuration(ffmpeg, inputName)
+    const winStart = Math.max(0, start)
+    const winEnd = Math.min(duration, end)
+    if (winEnd - winStart < 0.1) {
+      throw new AutoEditError('That time window is too short to change the speed of.')
+    }
+
+    const segments: { s: number; e: number; speed: boolean }[] = []
+    if (winStart > 0.05) segments.push({ s: 0, e: winStart, speed: false })
+    segments.push({ s: winStart, e: winEnd, speed: true })
+    if (duration - winEnd > 0.05) segments.push({ s: winEnd, e: duration, speed: false })
+
+    const filters: string[] = []
+    segments.forEach((seg, i) => {
+      const vpts = seg.speed ? `(PTS-STARTPTS)/${factor}` : 'PTS-STARTPTS'
+      filters.push(`[0:v]trim=start=${seg.s}:end=${seg.e},setpts=${vpts}[v${i}]`)
+      const atempo = seg.speed ? `,${atempoChain(factor)}` : ''
+      filters.push(`[0:a]atrim=start=${seg.s}:end=${seg.e},asetpts=PTS-STARTPTS${atempo}[a${i}]`)
+    })
+    const refs = segments.map((_, i) => `[v${i}][a${i}]`).join('')
+    filters.push(`${refs}concat=n=${segments.length}:v=1:a=1[outv][outa]`)
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filters.join(';'), '-map', '[outv]', '-map', '[outa]', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not change the speed of that section. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+/**
+ * Repeats the whole (already-edited) video so it plays `times` times total
+ * — times=2 is the original plus one extra repeat. Stream-copied, not
+ * re-encoded: looping doesn't change any frame's content, so there's
+ * nothing for a re-encode to do except spend time.
+ */
+export async function loopVideo(
+  file: Blob,
+  times: number,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  if (times <= 1) return file
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+
+  const inputName = 'loop-input.mp4'
+  const outputName = 'loop-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-stream_loop', String(times - 1), '-i', inputName, '-c', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not loop the video. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
 }

@@ -8,6 +8,9 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+  },
   test: {
     environment: 'node',
     globals: true,

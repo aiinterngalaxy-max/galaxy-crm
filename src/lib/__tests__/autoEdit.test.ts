@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSilenceLog, computeKeepSegments } from '../content-studio/autoEdit'
+import { parseSilenceLog, computeKeepSegments, atempoChain } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
   it('pairs up start/end lines in ffmpeg silencedetect output', () => {
@@ -83,5 +83,29 @@ describe('computeKeepSegments', () => {
     // Longest is [0,5]; ties for second are broken by array order (first found).
     expect(keep[0]).toEqual({ start: 0, end: 5 })
     expect(keep.every((s, i) => i === 0 || s.start > keep[i - 1].start)).toBe(true)
+  })
+})
+
+describe('atempoChain', () => {
+  it('leaves a factor already in ffmpeg atempo\'s own 0.5-2.0 range as a single filter', () => {
+    expect(atempoChain(1.5)).toBe('atempo=1.5')
+    expect(atempoChain(2)).toBe('atempo=2')
+    expect(atempoChain(0.5)).toBe('atempo=0.5')
+  })
+
+  it('chains two atempo=2 filters for a 4x speed-up (2 * 2 = 4, each within range)', () => {
+    expect(atempoChain(4)).toBe('atempo=2,atempo=2')
+  })
+
+  it('chains two atempo=0.5 filters for a 0.25x slow-down (0.5 * 0.5 = 0.25)', () => {
+    expect(atempoChain(0.25)).toBe('atempo=0.5,atempo=0.5')
+  })
+
+  it('produces a chain whose product equals the requested factor', () => {
+    for (const factor of [0.25, 0.4, 0.6, 1, 1.8, 3, 4]) {
+      const chain = atempoChain(factor)
+      const product = chain.split(',').reduce((acc, part) => acc * Number(part.split('=')[1]), 1)
+      expect(product).toBeCloseTo(factor, 5)
+    }
   })
 })
