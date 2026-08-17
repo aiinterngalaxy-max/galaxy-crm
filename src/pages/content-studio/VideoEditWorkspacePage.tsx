@@ -1311,7 +1311,12 @@ export function VideoEditWorkspacePage() {
             text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size,
             fontFamily: cmd.fontFamily, color: cmd.color, bold: cmd.bold, italic: cmd.italic, underline: cmd.underline, strikethrough: cmd.strikethrough,
             outlineColor: cmd.outlineColor, outlineWidth: cmd.outlineWidth, backgroundColor: cmd.backgroundColor, backgroundOpacity: cmd.backgroundOpacity,
+            animation: cmd.animation, animationDuration: cmd.animationDuration,
           })
+        } else if (cmd.type === 'text_edit') {
+          // Already resolved to a concrete overlayId by validateCommand —
+          // only the wording changes, every style/timing property is untouched.
+          updateOverlay(cmd.overlayId, { text: cmd.text })
         } else if (cmd.type === 'remove_text') {
           // Already resolved to a concrete overlayId by validateCommand
           // (using the real current layers) — nothing left to match here.
@@ -1348,6 +1353,8 @@ export function VideoEditWorkspacePage() {
             ...(cmd.fontFamily != null ? { fontFamily: cmd.fontFamily } : {}),
             ...(cmd.backgroundColor != null ? { backgroundColor: cmd.backgroundColor } : {}),
             ...(cmd.backgroundOpacity != null ? { backgroundOpacity: cmd.backgroundOpacity } : {}),
+            ...(cmd.animation != null ? { animation: cmd.animation } : {}),
+            ...(cmd.animationDuration != null ? { animationDuration: cmd.animationDuration } : {}),
           })
         } else if (cmd.type === 'captions_auto') {
           if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')

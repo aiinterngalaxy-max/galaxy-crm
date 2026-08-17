@@ -199,6 +199,17 @@ describe('validateCommand', () => {
         expect(second).toMatchObject({ text: "I'm the CEO of Galaxy", start: 1, end: 3.5, animation: 'slide-down' })
       })
     })
+
+    describe('emoji support', () => {
+      it('accepts a literal emoji character directly in new text, no special handling needed', () => {
+        const result = validateCommand({ type: 'text', text: 'Launching Now 🚀', start: 0, end: 3 }, ctx)
+        expect(result).toMatchObject({ text: 'Launching Now 🚀' })
+      })
+      it('accepts a compound/multi-codepoint emoji (family, ZWJ sequence) without truncating it', () => {
+        const result = validateCommand({ type: 'caption', text: 'Family time 👨‍👩‍👧‍👦', start: 0, end: 3 }, ctx)
+        expect(result).toMatchObject({ text: 'Family time 👨‍👩‍👧‍👦' })
+      })
+    })
   })
 
   describe('remove_text (context-aware: resolves an existing layer, never asks for font/size/color/position/timing)', () => {
@@ -411,6 +422,42 @@ describe('validateCommand', () => {
     it('rejects a font that is not in the supported list, rather than silently dropping it', () => {
       const result = validateCommand({ type: 'text_style', fontFamily: 'Papyrus' }, oneLayer)
       expect(result).toEqual({ error: expect.stringContaining('Papyrus') })
+    })
+  })
+
+  describe('text_edit (TEST: "Add a 🔥 emoji to the CEO text." — changes wording, never styling)', () => {
+    const oneLayer: InterpretContext = {
+      ...ctx,
+      textLayers: [{ id: 'ov-1', text: "I'm the CEO of Galaxy", start: 0, end: 3 }],
+    }
+    const twoLayers: InterpretContext = {
+      ...ctx,
+      textLayers: [
+        { id: 'ov-1', text: "I'm the CEO of Galaxy", start: 0, end: 3 },
+        { id: 'ov-2', text: 'Smart Living', start: 3, end: 6 },
+      ],
+    }
+
+    it('resolves by target and replaces the wording with the AI-composed full string (existing text + emoji)', () => {
+      const result = validateCommand({ type: 'text_edit', target: 'CEO', text: "I'm the CEO of Galaxy 🔥" }, twoLayers)
+      expect(result).toEqual({ type: 'text_edit', overlayId: 'ov-1', text: "I'm the CEO of Galaxy 🔥" })
+    })
+    it('resolves with no target when there is only one layer', () => {
+      const result = validateCommand({ type: 'text_edit', text: 'Welcome Home' }, oneLayer)
+      expect(result).toEqual({ type: 'text_edit', overlayId: 'ov-1', text: 'Welcome Home' })
+    })
+    it('asks which layer when ambiguous, same as text_style/remove_text', () => {
+      const result = validateCommand({ type: 'text_edit', text: 'Welcome Home' }, twoLayers)
+      expect(result).toEqual({ error: expect.stringContaining('Galaxy') })
+    })
+    it('rejects empty new text', () => {
+      expect(validateCommand({ type: 'text_edit', text: '   ' }, oneLayer)).toHaveProperty('error')
+    })
+    it('rejects text over 200 characters', () => {
+      expect(validateCommand({ type: 'text_edit', text: 'x'.repeat(201) }, oneLayer)).toHaveProperty('error')
+    })
+    it('errors when there is no text layer to edit', () => {
+      expect(validateCommand({ type: 'text_edit', text: 'Hi' }, ctx)).toEqual({ error: expect.stringContaining('no text or caption') })
     })
   })
 
