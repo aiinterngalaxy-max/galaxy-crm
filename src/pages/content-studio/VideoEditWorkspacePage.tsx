@@ -826,6 +826,9 @@ export function VideoEditWorkspacePage() {
     }
   }
 
+  // ---------- AI edit (UI only for now — not wired to anything) ----------
+  const [aiEditPrompt, setAiEditPrompt] = useState('')
+
   if (loading) {
     return (
       <Page>
@@ -1124,6 +1127,21 @@ export function VideoEditWorkspacePage() {
               ) : (
                 <p className="text-[11px] text-gray-600">Select a clip on the timeline to trim it.</p>
               )}
+            </div>
+
+            {/* ---------- ai edit (UI only — not wired to anything yet) ---------- */}
+            <div className="rounded-lg border border-gray-800 p-3 space-y-2">
+              <h3 className="text-xs font-bold text-gray-300 flex items-center gap-1.5">✨ AI Edit</h3>
+              <textarea
+                className="form-input text-xs"
+                rows={3}
+                value={aiEditPrompt}
+                onChange={(e) => setAiEditPrompt(e.target.value)}
+                placeholder="Tell me what you want to change..."
+              />
+              <button className="btn-primary text-xs w-full" onClick={() => {}}>
+                Apply AI Edit
+              </button>
             </div>
 
             {/* ---------- text tool ---------- */}
