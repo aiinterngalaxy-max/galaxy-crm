@@ -466,11 +466,16 @@ export interface TimedCaption {
    *  for defaults when omitted (white text, no outline, unbolded). */
   color?: string
   bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  strikethrough?: boolean
   outlineColor?: string
   outlineWidth?: number
   /** One of FONT_FAMILIES (see aiEditCommands.ts) — omitted means the
    *  original fixed sans-serif look. */
   fontFamily?: string
+  backgroundColor?: string
+  backgroundOpacity?: number
 }
 
 /**
@@ -502,7 +507,8 @@ async function planCaptionOverlays(
     const png = await renderCaptionImage({
       text: cap.text, position: cap.position, size: cap.size,
       color: cap.color, bold: cap.bold, outlineColor: cap.outlineColor, outlineWidth: cap.outlineWidth,
-      fontFamily: cap.fontFamily,
+      fontFamily: cap.fontFamily, italic: cap.italic, underline: cap.underline, strikethrough: cap.strikethrough,
+      backgroundColor: cap.backgroundColor, backgroundOpacity: cap.backgroundOpacity,
     }, width, height)
     const name = `capimg-${pngInputsFrom + i}.png`
     await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))

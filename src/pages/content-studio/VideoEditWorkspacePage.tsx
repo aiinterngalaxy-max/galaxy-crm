@@ -71,17 +71,23 @@ interface Overlay {
    *  unbolded, no outline), same as before these existed. */
   color?: string
   bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  strikethrough?: boolean
   outlineColor?: string
   outlineWidth?: number
   /** One of FONT_FAMILIES (aiEditCommands.ts) — omitted means the default sans-serif look. */
   fontFamily?: string
+  backgroundColor?: string
+  backgroundOpacity?: number
 }
 
 function overlayToTimedCaption(o: Overlay): TimedCaption {
   return {
     text: o.text, start: o.start, end: o.end, position: o.position, size: o.size, kind: o.kind,
     color: o.color, bold: o.bold, outlineColor: o.outlineColor, outlineWidth: o.outlineWidth,
-    fontFamily: o.fontFamily,
+    fontFamily: o.fontFamily, italic: o.italic, underline: o.underline, strikethrough: o.strikethrough,
+    backgroundColor: o.backgroundColor, backgroundOpacity: o.backgroundOpacity,
   }
 }
 
@@ -656,6 +662,8 @@ export function VideoEditWorkspacePage() {
 
   // ---------- text / captions overlays ----------
   const [overlays, setOverlays] = useState<Overlay[]>([])
+  const overlaysRef = useRef<Overlay[]>([])
+  useEffect(() => { overlaysRef.current = overlays }, [overlays])
   const overlaysInitRef = useRef(false)
 
   useEffect(() => {
@@ -678,7 +686,9 @@ export function VideoEditWorkspacePage() {
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) ?? null
 
-  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & { fontFamily?: string; color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number }) {
+  type OverlayStyleFields = Partial<Pick<Overlay, 'color' | 'bold' | 'italic' | 'underline' | 'strikethrough' | 'outlineColor' | 'outlineWidth' | 'fontFamily' | 'backgroundColor' | 'backgroundOpacity'>>
+
+  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & OverlayStyleFields) {
     if (!form.text.trim()) return
     const id = `ov-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setOverlays((prev) => [...prev, { id, kind, ...form }])
@@ -710,6 +720,55 @@ export function VideoEditWorkspacePage() {
     setDirty(true)
     if (editingOverlayId === id) setEditingOverlayId(null)
   }
+
+  // ---------- drag-to-adjust text/caption timing (same interaction as clip trim handles) ----------
+  const textTrackRef = useRef<HTMLDivElement>(null)
+  const captionTrackRef = useRef<HTMLDivElement>(null)
+  const overlayDragRef = useRef<{ overlayId: string; edge: 'start' | 'end'; startX: number; startVal: number; pxPerSec: number } | null>(null)
+
+  function onOverlayHandleMouseDown(trackRef: React.RefObject<HTMLDivElement>, overlayId: string, edge: 'start' | 'end', e: React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
+    const overlay = overlaysRef.current.find((o) => o.id === overlayId)
+    const rect = trackRef.current?.getBoundingClientRect()
+    if (!overlay || !rect || !totalDuration) return
+    const effectiveEnd = overlay.end > overlay.start ? overlay.end : totalDuration
+    overlayDragRef.current = {
+      overlayId, edge, startX: e.clientX,
+      startVal: edge === 'start' ? overlay.start : effectiveEnd,
+      pxPerSec: rect.width / totalDuration,
+    }
+    window.addEventListener('mousemove', onOverlayHandleMouseMove)
+    window.addEventListener('mouseup', onOverlayHandleMouseUp)
+  }
+
+  function onOverlayHandleMouseMove(e: MouseEvent) {
+    const d = overlayDragRef.current
+    if (!d) return
+    const overlay = overlaysRef.current.find((o) => o.id === d.overlayId)
+    if (!overlay) return
+    const deltaSec = (e.clientX - d.startX) / d.pxPerSec
+    if (d.edge === 'start') {
+      const effectiveEnd = overlay.end > overlay.start ? overlay.end : totalDuration
+      const maxStart = Math.max(0, effectiveEnd - 0.2)
+      updateOverlay(d.overlayId, { start: Math.min(maxStart, Math.max(0, d.startVal + deltaSec)) })
+    } else {
+      const minEnd = overlay.start + 0.2
+      updateOverlay(d.overlayId, { end: Math.min(totalDuration, Math.max(minEnd, d.startVal + deltaSec)) })
+    }
+  }
+
+  function onOverlayHandleMouseUp() {
+    window.removeEventListener('mousemove', onOverlayHandleMouseMove)
+    window.removeEventListener('mouseup', onOverlayHandleMouseUp)
+    overlayDragRef.current = null
+  }
+
+  useEffect(() => () => {
+    window.removeEventListener('mousemove', onOverlayHandleMouseMove)
+    window.removeEventListener('mouseup', onOverlayHandleMouseUp)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ---------- music / audio ----------
   const [musicFile, setMusicFile] = useState<File | null>(null)
@@ -1234,7 +1293,8 @@ export function VideoEditWorkspacePage() {
         } else if (cmd.type === 'text' || cmd.type === 'caption') {
           addOverlay(cmd.type, {
             text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size,
-            fontFamily: cmd.fontFamily, color: cmd.color, bold: cmd.bold, outlineColor: cmd.outlineColor, outlineWidth: cmd.outlineWidth,
+            fontFamily: cmd.fontFamily, color: cmd.color, bold: cmd.bold, italic: cmd.italic, underline: cmd.underline, strikethrough: cmd.strikethrough,
+            outlineColor: cmd.outlineColor, outlineWidth: cmd.outlineWidth, backgroundColor: cmd.backgroundColor, backgroundOpacity: cmd.backgroundOpacity,
           })
         } else if (cmd.type === 'remove_text') {
           // Already resolved to a concrete overlayId by validateCommand
@@ -1262,11 +1322,16 @@ export function VideoEditWorkspacePage() {
           updateOverlay(cmd.overlayId, {
             ...(cmd.color != null ? { color: cmd.color } : {}),
             ...(cmd.bold != null ? { bold: cmd.bold } : {}),
+            ...(cmd.italic != null ? { italic: cmd.italic } : {}),
+            ...(cmd.underline != null ? { underline: cmd.underline } : {}),
+            ...(cmd.strikethrough != null ? { strikethrough: cmd.strikethrough } : {}),
             ...(cmd.outlineColor != null ? { outlineColor: cmd.outlineColor } : {}),
             ...(cmd.outlineWidth != null ? { outlineWidth: cmd.outlineWidth } : {}),
             ...(cmd.position != null ? { position: cmd.position } : {}),
             ...(cmd.size != null ? { size: cmd.size } : {}),
             ...(cmd.fontFamily != null ? { fontFamily: cmd.fontFamily } : {}),
+            ...(cmd.backgroundColor != null ? { backgroundColor: cmd.backgroundColor } : {}),
+            ...(cmd.backgroundOpacity != null ? { backgroundOpacity: cmd.backgroundOpacity } : {}),
           })
         } else if (cmd.type === 'captions_auto') {
           if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
@@ -1387,6 +1452,11 @@ export function VideoEditWorkspacePage() {
                         color: o.color ?? '#ffffff',
                         WebkitTextStroke: o.outlineWidth ? `${o.outlineWidth}px ${o.outlineColor ?? '#000000'}` : undefined,
                         fontFamily: o.fontFamily ? `"${o.fontFamily}", sans-serif` : undefined,
+                        fontStyle: o.italic ? 'italic' : undefined,
+                        textDecoration: [o.underline && 'underline', o.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
+                        backgroundColor: (o.backgroundColor || o.backgroundOpacity != null)
+                          ? `color-mix(in srgb, ${o.backgroundColor ?? '#000000'} ${Math.round((o.backgroundOpacity ?? 0.6) * 100)}%, transparent)`
+                          : undefined,
                       }}
                     >
                       {o.text}
@@ -1489,19 +1559,29 @@ export function VideoEditWorkspacePage() {
                 {overlays.some((o) => o.kind === 'text') && (
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Text</p>
-                    <div className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
+                    <div ref={textTrackRef} className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
                       {overlays.filter((o) => o.kind === 'text').map((o) => {
                         const left = o.start || o.end ? (o.start / totalDuration) * 100 : 0
                         const width = o.start || o.end ? Math.max(2, ((o.end - o.start) / totalDuration) * 100) : 100
                         return (
-                          <button
+                          <div
                             key={o.id}
                             onClick={() => setEditingOverlayId(o.id)}
                             style={{ left: `${left}%`, width: `${width}%` }}
-                            className="absolute top-0.5 bottom-0.5 rounded bg-sky-900/70 border border-sky-700/60 text-sky-200 text-[10px] px-1 truncate hover:border-sky-500"
+                            className="absolute top-0.5 bottom-0.5 rounded bg-sky-900/70 border border-sky-700/60 text-sky-200 text-[10px] px-1 truncate flex items-center cursor-pointer hover:border-sky-500"
                           >
                             {o.text || 'Text'}
-                          </button>
+                            <span
+                              onMouseDown={(e) => onOverlayHandleMouseDown(textTrackRef, o.id, 'start', e)}
+                              title="Drag to adjust the start"
+                              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-sky-500/70 hover:bg-sky-400"
+                            />
+                            <span
+                              onMouseDown={(e) => onOverlayHandleMouseDown(textTrackRef, o.id, 'end', e)}
+                              title="Drag to adjust the end"
+                              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-sky-500/70 hover:bg-sky-400"
+                            />
+                          </div>
                         )
                       })}
                     </div>
@@ -1511,19 +1591,29 @@ export function VideoEditWorkspacePage() {
                 {overlays.some((o) => o.kind === 'caption') && (
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Captions</p>
-                    <div className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
+                    <div ref={captionTrackRef} className="relative h-6 rounded-md border border-gray-800 bg-gray-900/60">
                       {overlays.filter((o) => o.kind === 'caption').map((o) => {
                         const left = o.start || o.end ? (o.start / totalDuration) * 100 : 0
                         const width = o.start || o.end ? Math.max(2, ((o.end - o.start) / totalDuration) * 100) : 100
                         return (
-                          <button
+                          <div
                             key={o.id}
                             onClick={() => setEditingOverlayId(o.id)}
                             style={{ left: `${left}%`, width: `${width}%` }}
-                            className="absolute top-0.5 bottom-0.5 rounded bg-violet-900/70 border border-violet-700/60 text-violet-200 text-[10px] px-1 truncate hover:border-violet-500"
+                            className="absolute top-0.5 bottom-0.5 rounded bg-violet-900/70 border border-violet-700/60 text-violet-200 text-[10px] px-1 truncate flex items-center cursor-pointer hover:border-violet-500"
                           >
                             {o.text || 'Caption'}
-                          </button>
+                            <span
+                              onMouseDown={(e) => onOverlayHandleMouseDown(captionTrackRef, o.id, 'start', e)}
+                              title="Drag to adjust the start"
+                              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-violet-500/70 hover:bg-violet-400"
+                            />
+                            <span
+                              onMouseDown={(e) => onOverlayHandleMouseDown(captionTrackRef, o.id, 'end', e)}
+                              title="Drag to adjust the end"
+                              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-violet-500/70 hover:bg-violet-400"
+                            />
+                          </div>
                         )
                       })}
                     </div>

@@ -41,7 +41,9 @@ export interface SpeedCommand { type: 'speed'; start: number; end: number; facto
  *  command instead of requiring a separate text_style patch, which would
  *  fail validation since the layer it'd patch doesn't exist yet. */
 export interface TextStyleFields {
-  color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number; fontFamily?: string
+  color?: string; bold?: boolean; italic?: boolean; underline?: boolean; strikethrough?: boolean
+  outlineColor?: string; outlineWidth?: number; fontFamily?: string
+  backgroundColor?: string; backgroundOpacity?: number
 }
 export interface TextCommand extends TextStyleFields { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
 export interface CaptionCommand extends TextStyleFields { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
@@ -192,9 +194,17 @@ function resolveFontFamily(v: unknown): string | undefined {
 function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | ValidationError {
   const color = str(c.color) ?? undefined
   const bold = typeof c.bold === 'boolean' ? c.bold : undefined
+  const italic = typeof c.italic === 'boolean' ? c.italic : undefined
+  const underline = typeof c.underline === 'boolean' ? c.underline : undefined
+  const strikethrough = typeof c.strikethrough === 'boolean' ? c.strikethrough : undefined
   const outlineColor = str(c.outlineColor) ?? undefined
   const outlineWidth = num(c.outlineWidth) ?? undefined
   if (outlineWidth != null && (outlineWidth < 0 || outlineWidth > 20)) return { error: 'Outline width has to be between 0 and 20.' }
+  const backgroundColor = str(c.backgroundColor) ?? undefined
+  const backgroundOpacity = num(c.backgroundOpacity) ?? undefined
+  if (backgroundOpacity != null && (backgroundOpacity < 0 || backgroundOpacity > 1)) {
+    return { error: 'Background opacity has to be between 0 (invisible) and 1 (solid).' }
+  }
   const fontFamilyRaw = str(c.fontFamily)
   const fontFamily = resolveFontFamily(c.fontFamily)
   if (fontFamilyRaw && fontFamilyRaw.trim() && !fontFamily) {
@@ -203,9 +213,14 @@ function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | Val
   return {
     ...(color != null ? { color } : {}),
     ...(bold != null ? { bold } : {}),
+    ...(italic != null ? { italic } : {}),
+    ...(underline != null ? { underline } : {}),
+    ...(strikethrough != null ? { strikethrough } : {}),
     ...(outlineColor != null ? { outlineColor } : {}),
     ...(outlineWidth != null ? { outlineWidth } : {}),
     ...(fontFamily != null ? { fontFamily } : {}),
+    ...(backgroundColor != null ? { backgroundColor } : {}),
+    ...(backgroundOpacity != null ? { backgroundOpacity } : {}),
   }
 }
 
@@ -449,7 +464,7 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       const style = parseTextStyleFields(c)
       if ('error' in style) return style
       if (Object.keys(style).length === 0 && position == null && size == null) {
-        return { error: 'Missing what to change about the text (color, bold, outline, position, size, or font).' }
+        return { error: 'Missing what to change about the text (color, bold, italic, underline, strikethrough, outline, background, position, size, or font).' }
       }
       // target is just a wording hint here (like remove_text's) — resolved
       // against the REAL current layers below, never guessed by the AI.
@@ -519,7 +534,7 @@ ${effectDesc}
 
 CRITICAL — do not ask for information already available above or already given in the instruction:
 - To remove or restyle an existing text/caption, you NEVER need to ask for its font, size, color, position, or timing — those are properties of the EXISTING layer, not something you need to know to identify it. Only the wording (if the instruction names it) matters for picking WHICH layer — pass it as "text" on remove_text/text_style, or omit "text" entirely for "it"/"that text"/"the text". The actual layer lookup (and any "which one did you mean" disambiguation, only if truly ambiguous) happens outside of you — you do not need the layer list to be unambiguous yourself, just pass through what the instruction gave you.
-- For text_style, set ONLY the fields the instruction actually asked to change (e.g. "make it red" → only "color"; "make it bigger" → only "size"; "make it bold" → only "bold"; "move it to the top" → only "position"). Never invent values for properties the instruction didn't mention — those are preserved automatically by not including them.
+- For text_style, set ONLY the fields the instruction actually asked to change (e.g. "make it red" → only "color"; "make it bigger" → only "size"; "make it bold"/"italic"/"underlined"/"struck through" → only that one boolean; "move it to the top" → only "position"). Never invent values for properties the instruction didn't mention — those are preserved automatically by not including them.
 - To remove a previously-applied effect ("remove the blur", "undo the pixelation"), use remove_effect with the matching effectType — never ask for its strength, start, or end time; those aren't needed to remove it.
 - text_style ONLY works on a layer that ALREADY appears in "Existing text/caption layers" above. If the instruction both ADDS new text and describes how it should look (color/font/bold/outline) in the same breath — e.g. "add 'Galaxy' in red, Times New Roman" — that is ONE "text"/"caption" command with the style fields set directly on it, never a "text" command followed by a separate "text_style" command: the text_style would fail because that layer doesn't exist until this instruction creates it.
 - If the instruction asks to change the font but doesn't name a specific one (e.g. "change the font to something else", "use a different font", "change it from Times New Roman to any other"), that is a clarification — but NEVER just say "choose from the allowed fonts list" without saying what they are. Spell out the actual options in the question itself, verbatim from this list: ${FONT_FAMILIES.join(', ')}. The operator can't act on a vague reference to a list they can't see.
@@ -538,7 +553,7 @@ crop        { "type": "crop", "aspect": "9:16" | "1:1" | "4:5" | "16:9" | "4:3" 
 zoom        { "type": "zoom", "start": number, "end": number, "fromScale": number, "toScale": number, "target": "center" | "left" | "right" | "top" | "bottom" }  — fromScale defaults to 1 if omitted; scales are 0.5-4
 pan         { "type": "pan", "start": number, "end": number, "direction": "left-to-right" | "right-to-left" | "top-to-bottom" | "bottom-to-top", "scale": number }  — scale (how zoomed in while panning) defaults to 1.3, range 1-4
 speed       { "type": "speed", "start": number, "end": number, "factor": number }  — factor > 1 is faster, < 1 is slower, range 0.25-4
-text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "color"?: string, "bold"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "fontFamily"?: string }  — start:0, end:0 means "shown for the whole video", not "missing". color/bold/outlineColor/outlineWidth/fontFamily are ALL optional — set any of them the instruction asks for RIGHT HERE when adding text that doesn't exist yet (e.g. "add 'Galaxy' in red, Times New Roman" is one single text command, color and fontFamily included — never a separate text_style for text being added in the same instruction, since text_style only works on text that's already on the video). fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — omit rather than guessing if no font was named.
+text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number }  — start:0, end:0 means "shown for the whole video", not "missing". ALL styling fields are optional — set any of them the instruction asks for RIGHT HERE when adding text that doesn't exist yet (e.g. "add 'Galaxy' in red, Times New Roman, italic and underlined" is one single text command with color/fontFamily/italic/underline all included — never a separate text_style for text being added in the same instruction, since text_style only works on text that's already on the video). fontFamily must be one of: ${FONT_FAMILIES.join(', ')}. backgroundColor is the color of the box behind the text (default black); backgroundOpacity is 0 (invisible box)..1 (solid), default 0.6. Omit anything not asked for rather than guessing.
 caption     { "type": "caption", ...same fields as text }
 remove_text { "type": "remove_text", "text"?: string, "start"?: number, "end"?: number }  — REMOVES an existing text/caption overlay; use this whenever the instruction says to remove/delete/take out/get rid of an on-screen text, never the "text"/"caption" type (those only ADD text). ALL fields optional: "text" is the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given — include it if named, omit it for "remove the text"/"remove it" with no wording. "start"/"end" are optional too, only useful if the instruction names a time range to disambiguate multiple similar layers. Do NOT ask the user for start/end/text just to fill these in — omit what wasn't given.
 audio_volume{ "type": "audio_volume", "volume": number }  — 0 to 3, 1 = unchanged
@@ -547,12 +562,12 @@ music       { "type": "music", "action": "volume" | "remove", "volume": number }
 loop        { "type": "loop", "times": integer }  — 2 to 10, total number of plays
 blur        { "type": "blur", "start": number, "end": number, "strength": number }  — WHOLE-FRAME blur only, strength 1-20. There is no person/object/background detection in this tool — if the instruction asks to blur only the background, only a person, or only an object (not the whole frame), you MUST use clarification instead, explaining plainly that only whole-frame blur is available and asking if they'd like that instead. Never silently apply a whole-frame blur to a "blur just the background" request.
 pixelate    { "type": "pixelate", "start": number, "end": number, "strength": number }  — same whole-frame-only rule as blur.
-color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "vignette"?: number }  — at least one field besides start/end/type required. brightness -1..1, contrast/saturation 0..3 (1=unchanged), warmth -1 (cooler)..1 (warmer), vignette 0..1. Use for "brighter/darker", "more/less contrast", "more/less saturated", "black and white"/"grayscale", "warmer/cooler tone", "vignette"/"darken the edges".
+color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "vignette"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter), contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated), warmth -1 (cooler/blue)..1 (warmer/orange), vignette 0 (none)..1 (strong, darkened edges). Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
 fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
 flip        { "type": "flip", "axis": "horizontal" | "vertical" }
 reverse     { "type": "reverse" }  — plays the whole video backwards.
-text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "position"?: "top"|"bottom"|"left"|"right"|"center", "size"?: "sm"|"md"|"lg", "fontFamily"?: string }  — MODIFIES an existing text/caption overlay (never adds a new one — use "text"/"caption" to add). "target" is the wording of the text to restyle if named (e.g. "Galaxy Home Automation"); omit target entirely for "it"/"that text" with nothing else to go on — layer lookup happens outside of you, you don't need to resolve it yourself. Set ONLY the style field(s) the instruction actually asked to change — never include a field the instruction didn't mention, that would overwrite something the user wants kept as-is. color/outlineColor are CSS colors (e.g. "white", "#ffcc00", "red"). fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — a request for a font outside this list should be a clarification saying so, not a guess at the closest match.
+text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "position"?: "top"|"bottom"|"left"|"right"|"center", "size"?: "sm"|"md"|"lg", "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number }  — MODIFIES an existing text/caption overlay (never adds a new one — use "text"/"caption" to add). "target" is the wording of the text to restyle if named (e.g. "Galaxy Home Automation"); omit target entirely for "it"/"that text" with nothing else to go on — layer lookup happens outside of you, you don't need to resolve it yourself. Set ONLY the style field(s) the instruction actually asked to change — never include a field the instruction didn't mention, that would overwrite something the user wants kept as-is. color/outlineColor/backgroundColor are CSS colors (e.g. "white", "#ffcc00", "red"). italic/underline/strikethrough are booleans — "make it italic"/"underline it"/"strike it through" each set exactly one, "remove the underline"/"un-italicize it" sets it back to false, don't touch the others. backgroundOpacity is 0 (invisible)..1 (solid); "remove the background box"/"make the background transparent" → backgroundOpacity:0. fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — a request for a font outside this list should be a clarification saying so, not a guess at the closest match.
 captions_auto { "type": "captions_auto" }  — auto-generates timed captions from the video's real speech (actual transcription). Use for "add captions"/"add subtitles"/"caption this" with no text of their own given.
 audio_noise_reduction { "type": "audio_noise_reduction" }  — reduces steady background hiss/hum in the original audio.
 remove_effect { "type": "remove_effect", "effectType": "crop"|"zoom"|"pan"|"speed"|"loop"|"blur"|"pixelate"|"color"|"fade"|"rotate"|"flip"|"reverse"|"audio_noise_reduction" }  — removes a previously-applied hard-baked effect, e.g. "remove the blur"/"undo the pixelation"/"take off that color filter". Never ask for strength/start/end to do this — just identify WHICH effect type is meant from the instruction and the CURRENT PROJECT STATE above.
@@ -574,6 +589,10 @@ Examples:
 "Change the font style from Times New Roman to any other." (no specific replacement font named — this IS a clarification, but the options must be spelled out, not just referenced) → {"clarification":"Which font would you like instead — one of: ${FONT_FAMILIES.join(', ')}?"}
 "Make the Galaxy Home Automation text bigger." (only size named — font/color/position/timing all stay as they are) → {"commands":[{"type":"text_style","target":"Galaxy Home Automation","size":"lg"}]}
 "Move it to the top." → {"commands":[{"type":"text_style","position":"top"}]}
+"Make it italic and underlined." → {"commands":[{"type":"text_style","italic":true,"underline":true}]}
+"Add a strikethrough to that text." → {"commands":[{"type":"text_style","strikethrough":true}]}
+"Remove the background box behind the text." → {"commands":[{"type":"text_style","backgroundOpacity":0}]}
+"Add 'Galaxy' at the bottom from 0 to 5 seconds, italic, underlined, in Times New Roman and red, with a blue background." (brand-new text with full styling given up front — ONE text command, every style field set directly on it) → {"commands":[{"type":"text","text":"Galaxy","start":0,"end":5,"position":"bottom","size":"md","italic":true,"underline":true,"fontFamily":"Times New Roman","color":"red","backgroundColor":"blue"}]}
 "Remove the blur." (only valid if blur really is the single most recent change — see CURRENT PROJECT STATE) → {"commands":[{"type":"remove_effect","effectType":"blur"}]}
 "Loop this 3 times." → {"commands":[{"type":"loop","times":3}]}
 "Blur the entire video from 10 to 16 seconds." → {"commands":[{"type":"blur","start":10,"end":16,"strength":8}]}
@@ -661,6 +680,37 @@ export async function interpretInstruction(instruction: string, ctx: InterpretCo
 // what changed", not just "did the JSON parse".
 
 /** One line per command — used for the pending-command review list and the activity log. */
+/** One short comma-joined summary of whichever style fields are actually
+ *  set — shared by describeAiCommand's text/caption/text_style cases. */
+function styleSummary(cmd: TextStyleFields): string {
+  const parts: string[] = []
+  if (cmd.fontFamily) parts.push(cmd.fontFamily)
+  if (cmd.color) parts.push(cmd.color)
+  if (cmd.bold) parts.push('bold')
+  if (cmd.italic) parts.push('italic')
+  if (cmd.underline) parts.push('underline')
+  if (cmd.strikethrough) parts.push('strikethrough')
+  return parts.length ? `, ${parts.join(', ')}` : ''
+}
+
+/** The same style fields as styleSummary, but as separate card lines
+ *  (describeAiCommandCard's text/caption/text_style cases) rather than one
+ *  joined string. */
+function styleCardLines(cmd: TextStyleFields): string[] {
+  const lines: string[] = []
+  if (cmd.fontFamily) lines.push(`Font: ${cmd.fontFamily}`)
+  if (cmd.color) lines.push(`Color: ${cmd.color}`)
+  if (cmd.bold != null) lines.push(cmd.bold ? 'Bold' : 'Not bold')
+  if (cmd.italic != null) lines.push(cmd.italic ? 'Italic' : 'Not italic')
+  if (cmd.underline != null) lines.push(cmd.underline ? 'Underlined' : 'No underline')
+  if (cmd.strikethrough != null) lines.push(cmd.strikethrough ? 'Strikethrough' : 'No strikethrough')
+  if (cmd.outlineColor || cmd.outlineWidth) lines.push(`Outline: ${cmd.outlineColor ?? 'black'}${cmd.outlineWidth ? `, ${cmd.outlineWidth}px` : ''}`)
+  if (cmd.backgroundColor || cmd.backgroundOpacity != null) {
+    lines.push(`Background: ${cmd.backgroundColor ?? 'black'}${cmd.backgroundOpacity != null ? `, ${Math.round(cmd.backgroundOpacity * 100)}% opacity` : ''}`)
+  }
+  return lines
+}
+
 export function describeAiCommand(cmd: EditCommand): string {
   switch (cmd.type) {
     case 'trim': return `Trim to ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
@@ -668,8 +718,8 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-    case 'text': return `Text "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}${cmd.color ? `, ${cmd.color}` : ''}`
-    case 'caption': return `Caption "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}${cmd.color ? `, ${cmd.color}` : ''}`
+    case 'text': return `Text "${cmd.text}" (${cmd.position})${styleSummary(cmd)}`
+    case 'caption': return `Caption "${cmd.text}" (${cmd.position})${styleSummary(cmd)}`
     case 'remove_text': return `Remove text "${cmd.text}"`
     case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
     case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
@@ -682,7 +732,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'rotate': return `Rotate ${cmd.degrees}°`
     case 'flip': return `Flip ${cmd.axis}`
     case 'reverse': return 'Reverse video'
-    case 'text_style': return `Restyle text "${cmd.text}"${cmd.fontFamily ? ` (${cmd.fontFamily})` : ''}`
+    case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'captions_auto': return 'Auto-generate captions from speech'
     case 'audio_noise_reduction': return 'Reduce background noise'
     case 'remove_effect': return `Remove ${cmd.effectType}`
@@ -705,9 +755,9 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
     case 'speed':
       return { title: 'Speed', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `${cmd.factor}x ${cmd.factor > 1 ? 'faster' : 'slower'}`] }
     case 'text':
-      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : []), ...(cmd.color ? [`Color: ${cmd.color}`] : [])] }
+      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...styleCardLines(cmd)] }
     case 'caption':
-      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : []), ...(cmd.color ? [`Color: ${cmd.color}`] : [])] }
+      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...styleCardLines(cmd)] }
     case 'remove_text':
       return { title: 'Remove Text', lines: [`"${cmd.text}"`] }
     case 'audio_volume':
@@ -744,13 +794,9 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
     case 'reverse':
       return { title: 'Reverse', lines: ['Video now plays backwards'] }
     case 'text_style': {
-      const lines: string[] = [`"${cmd.text}"`]
-      if (cmd.color) lines.push(`Color: ${cmd.color}`)
-      if (cmd.bold != null) lines.push(cmd.bold ? 'Bold' : 'Not bold')
-      if (cmd.outlineColor || cmd.outlineWidth) lines.push(`Outline: ${cmd.outlineColor ?? 'black'}${cmd.outlineWidth ? `, ${cmd.outlineWidth}px` : ''}`)
+      const lines: string[] = [`"${cmd.text}"`, ...styleCardLines(cmd)]
       if (cmd.position) lines.push(`Position: ${cmd.position}`)
       if (cmd.size) lines.push(`Size: ${cmd.size}`)
-      if (cmd.fontFamily) lines.push(`Font: ${cmd.fontFamily}`)
       return { title: 'Text Style', lines }
     }
     case 'captions_auto':

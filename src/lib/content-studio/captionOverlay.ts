@@ -25,11 +25,18 @@ export interface CaptionImageInput {
    *  don't pass them render exactly as before. */
   color?: string
   bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  strikethrough?: boolean
   outlineColor?: string
   outlineWidth?: number
   /** One of FONT_FAMILIES (see aiEditCommands.ts) — undefined/unrecognized
    *  falls back to the original sans-serif look. */
   fontFamily?: string
+  /** The box drawn behind the text. Both optional — default is the
+   *  original fixed look (black, 60% opaque). */
+  backgroundColor?: string
+  backgroundOpacity?: number
 }
 
 const SIZE_SCALE: Record<CaptionSize, number> = { sm: 0.72, md: 1, lg: 1.35 }
@@ -74,8 +81,9 @@ export async function renderCaptionImage(
   // on a roughly 1080-tall portrait clip. size then scales that baseline.
   const fontSize = Math.max(14, Math.round(frameHeight * 0.039 * SIZE_SCALE[caption.size ?? 'md']))
   const weight = caption.bold ? 'bold' : 'normal'
+  const style = caption.italic ? 'italic' : 'normal'
   const fonts = fontStack(caption.fontFamily)
-  ctx.font = `${weight} ${fontSize}px ${fonts}`
+  ctx.font = `${style} ${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
 
   const maxTextWidth = frameWidth * 0.86
@@ -111,11 +119,14 @@ export async function renderCaptionImage(
     case 'bottom': default: boxX = (frameWidth - boxWidth) / 2; boxY = frameHeight - boxHeight - margin; break
   }
 
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'
+  ctx.save()
+  ctx.globalAlpha = caption.backgroundOpacity ?? 0.6
+  ctx.fillStyle = caption.backgroundColor ?? '#000000'
   roundRect(ctx, boxX, boxY, boxWidth, boxHeight, fontSize * 0.25)
   ctx.fill()
+  ctx.restore()
 
-  ctx.font = `${weight} ${fontSize}px ${fonts}`
+  ctx.font = `${style} ${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
   if (caption.outlineWidth && caption.outlineWidth > 0) {
     ctx.lineWidth = caption.outlineWidth
@@ -123,12 +134,20 @@ export async function renderCaptionImage(
     ctx.lineJoin = 'round'
   }
   ctx.fillStyle = caption.color ?? '#ffffff'
+  const decorationThickness = Math.max(1, Math.round(fontSize * 0.06))
   lines.forEach((l, i) => {
     const lineWidth = ctx.measureText(l).width
     const lx = boxX + (boxWidth - lineWidth) / 2
     const ly = boxY + padY + lineHeight * i + lineHeight / 2
     if (caption.outlineWidth && caption.outlineWidth > 0) ctx.strokeText(l, lx, ly)
     ctx.fillText(l, lx, ly)
+    if (caption.underline) {
+      const uy = ly + fontSize * 0.38
+      ctx.fillRect(lx, uy, lineWidth, decorationThickness)
+    }
+    if (caption.strikethrough) {
+      ctx.fillRect(lx, ly - decorationThickness / 2, lineWidth, decorationThickness)
+    }
   })
 
   return new Promise((resolve, reject) => {

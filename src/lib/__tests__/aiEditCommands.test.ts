@@ -159,6 +159,17 @@ describe('validateCommand', () => {
         color: 'red', fontFamily: 'Times New Roman',
       })
     })
+    it('accepts italic/underline/strikethrough and a custom background directly on a brand-new text', () => {
+      const result = validateCommand(
+        { type: 'text', text: 'Galaxy', start: 0, end: 5, italic: true, underline: true, strikethrough: true, backgroundColor: 'blue', backgroundOpacity: 0.3 },
+        ctx,
+      )
+      expect(result).toMatchObject({ italic: true, underline: true, strikethrough: true, backgroundColor: 'blue', backgroundOpacity: 0.3 })
+    })
+    it('rejects a backgroundOpacity outside 0-1', () => {
+      expect(validateCommand({ type: 'text', text: 'Hi', backgroundOpacity: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'text', text: 'Hi', backgroundOpacity: -0.1 }, ctx)).toHaveProperty('error')
+    })
   })
 
   describe('remove_text (context-aware: resolves an existing layer, never asks for font/size/color/position/timing)', () => {
@@ -344,6 +355,25 @@ describe('validateCommand', () => {
     })
     it('rejects an outline width outside 0-20', () => {
       expect(validateCommand({ type: 'text_style', outlineWidth: 50 }, oneLayer)).toHaveProperty('error')
+    })
+    it('"Make it italic and underlined." — sets only those two booleans, no other style field touched', () => {
+      const result = validateCommand({ type: 'text_style', italic: true, underline: true }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', italic: true, underline: true })
+    })
+    it('"Add a strikethrough to that text." — sets only strikethrough', () => {
+      const result = validateCommand({ type: 'text_style', strikethrough: true }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', strikethrough: true })
+    })
+    it('"Remove the background box." — backgroundOpacity:0 alone is enough, not treated as "nothing to change"', () => {
+      const result = validateCommand({ type: 'text_style', backgroundOpacity: 0 }, oneLayer)
+      expect(result).toEqual({ type: 'text_style', overlayId: 'ov-1', text: 'Galaxy Home Automation', backgroundOpacity: 0 })
+    })
+    it('accepts a custom background color', () => {
+      const result = validateCommand({ type: 'text_style', backgroundColor: 'blue' }, oneLayer)
+      expect(result).toMatchObject({ backgroundColor: 'blue' })
+    })
+    it('rejects a backgroundOpacity outside 0-1', () => {
+      expect(validateCommand({ type: 'text_style', backgroundOpacity: 1.2 }, oneLayer)).toHaveProperty('error')
     })
     it('"Make it Times New Roman and red." — sets font and color together, case-insensitively matched', () => {
       const result = validateCommand({ type: 'text_style', fontFamily: 'times new roman', color: 'red' }, oneLayer)
