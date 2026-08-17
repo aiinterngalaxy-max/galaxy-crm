@@ -34,8 +34,17 @@ export interface ZoomCommand { type: 'zoom'; start: number; end: number; fromSca
 export type PanDirection = 'left-to-right' | 'right-to-left' | 'top-to-bottom' | 'bottom-to-top'
 export interface PanCommand { type: 'pan'; start: number; end: number; direction: PanDirection; scale: number }
 export interface SpeedCommand { type: 'speed'; start: number; end: number; factor: number }
-export interface TextCommand { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize; fontFamily?: string }
-export interface CaptionCommand { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize; fontFamily?: string }
+/** Styling fields shared by TextCommand/CaptionCommand (styling brand-new
+ *  text at the moment it's added) and TextStyleCommand (restyling text that
+ *  already exists) — factored out so a single instruction like "add
+ *  'Galaxy' in red, Times New Roman" can set these directly on the ADD
+ *  command instead of requiring a separate text_style patch, which would
+ *  fail validation since the layer it'd patch doesn't exist yet. */
+export interface TextStyleFields {
+  color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number; fontFamily?: string
+}
+export interface TextCommand extends TextStyleFields { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
+export interface CaptionCommand extends TextStyleFields { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
 /** Removes an existing text/caption overlay — as opposed to `text`/
  *  `caption`, which only ever ADD one. Resolved to a concrete `overlayId`
  *  by validateCommand (using the project's actual current layers, passed in
@@ -63,10 +72,9 @@ export interface ReverseCommand { type: 'reverse' }
  *  instruction actually named are set; everything else about the layer
  *  (font size, position, timing, other styling) is left untouched by the
  *  caller, which patches rather than replaces. */
-export interface TextStyleCommand {
+export interface TextStyleCommand extends TextStyleFields {
   type: 'text_style'; overlayId: string; text: string
-  color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number
-  position?: CaptionPosition; size?: CaptionSize; fontFamily?: string
+  position?: CaptionPosition; size?: CaptionSize
 }
 /** Auto-generates timed captions from the video's own speech (real
  *  transcription via the app's existing Whisper integration) — not a guess,
@@ -175,6 +183,30 @@ function resolveFontFamily(v: unknown): string | undefined {
   const raw = str(v)
   if (!raw || !raw.trim()) return undefined
   return FONT_FAMILIES.find((f) => f.toLowerCase() === raw.trim().toLowerCase())
+}
+
+/** Parses the shared color/bold/outline/font fields off a raw command
+ *  object — used by 'text'/'caption' (styling brand-new text at creation)
+ *  and 'text_style' (restyling existing text) so both accept the exact same
+ *  styling vocabulary. Returns only the fields actually present. */
+function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | ValidationError {
+  const color = str(c.color) ?? undefined
+  const bold = typeof c.bold === 'boolean' ? c.bold : undefined
+  const outlineColor = str(c.outlineColor) ?? undefined
+  const outlineWidth = num(c.outlineWidth) ?? undefined
+  if (outlineWidth != null && (outlineWidth < 0 || outlineWidth > 20)) return { error: 'Outline width has to be between 0 and 20.' }
+  const fontFamilyRaw = str(c.fontFamily)
+  const fontFamily = resolveFontFamily(c.fontFamily)
+  if (fontFamilyRaw && fontFamilyRaw.trim() && !fontFamily) {
+    return { error: `"${fontFamilyRaw}" isn't a supported font — choose one of: ${FONT_FAMILIES.join(', ')}.` }
+  }
+  return {
+    ...(color != null ? { color } : {}),
+    ...(bold != null ? { bold } : {}),
+    ...(outlineColor != null ? { outlineColor } : {}),
+    ...(outlineWidth != null ? { outlineWidth } : {}),
+    ...(fontFamily != null ? { fontFamily } : {}),
+  }
 }
 
 /**
@@ -304,10 +336,11 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       const position = (positionRaw && CAPTION_POSITIONS.includes(positionRaw as CaptionPosition) ? positionRaw : 'bottom') as CaptionPosition
       const sizeRaw = str(c.size)
       const size = (sizeRaw && CAPTION_SIZES.includes(sizeRaw as CaptionSize) ? sizeRaw : 'md') as CaptionSize
-      const fontFamily = resolveFontFamily(c.fontFamily)
+      const style = parseTextStyleFields(c)
+      if ('error' in style) return style
       return type === 'text'
-        ? { type: 'text', text: text.trim(), start, end, position, size, ...(fontFamily ? { fontFamily } : {}) }
-        : { type: 'caption', text: text.trim(), start, end, position, size, ...(fontFamily ? { fontFamily } : {}) }
+        ? { type: 'text', text: text.trim(), start, end, position, size, ...style }
+        : { type: 'caption', text: text.trim(), start, end, position, size, ...style }
     }
 
     case 'remove_text': {
@@ -409,36 +442,24 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'reverse' }
 
     case 'text_style': {
-      const color = str(c.color) ?? undefined
-      const bold = typeof c.bold === 'boolean' ? c.bold : undefined
-      const outlineColor = str(c.outlineColor) ?? undefined
-      const outlineWidth = num(c.outlineWidth) ?? undefined
       const positionRaw = str(c.position)
       const position = positionRaw && CAPTION_POSITIONS.includes(positionRaw as CaptionPosition) ? (positionRaw as CaptionPosition) : undefined
       const sizeRaw = str(c.size)
       const size = sizeRaw && CAPTION_SIZES.includes(sizeRaw as CaptionSize) ? (sizeRaw as CaptionSize) : undefined
-      const fontFamilyRaw = str(c.fontFamily)
-      const fontFamily = resolveFontFamily(c.fontFamily)
-      if (fontFamilyRaw && fontFamilyRaw.trim() && !fontFamily) {
-        return { error: `"${fontFamilyRaw}" isn't a supported font — choose one of: ${FONT_FAMILIES.join(', ')}.` }
-      }
-      if (color == null && bold == null && outlineColor == null && outlineWidth == null && position == null && size == null && fontFamily == null) {
+      const style = parseTextStyleFields(c)
+      if ('error' in style) return style
+      if (Object.keys(style).length === 0 && position == null && size == null) {
         return { error: 'Missing what to change about the text (color, bold, outline, position, size, or font).' }
       }
-      if (outlineWidth != null && (outlineWidth < 0 || outlineWidth > 20)) return { error: 'Outline width has to be between 0 and 20.' }
       // target is just a wording hint here (like remove_text's) — resolved
       // against the REAL current layers below, never guessed by the AI.
       const resolved = resolveTextLayer({ text: c.target }, ctx)
       if ('error' in resolved) return resolved
       return {
         type: 'text_style', overlayId: resolved.id, text: resolved.text,
-        ...(color != null ? { color } : {}),
-        ...(bold != null ? { bold } : {}),
-        ...(outlineColor != null ? { outlineColor } : {}),
-        ...(outlineWidth != null ? { outlineWidth } : {}),
+        ...style,
         ...(position != null ? { position } : {}),
         ...(size != null ? { size } : {}),
-        ...(fontFamily != null ? { fontFamily } : {}),
       }
     }
 
@@ -500,6 +521,7 @@ CRITICAL — do not ask for information already available above or already given
 - To remove or restyle an existing text/caption, you NEVER need to ask for its font, size, color, position, or timing — those are properties of the EXISTING layer, not something you need to know to identify it. Only the wording (if the instruction names it) matters for picking WHICH layer — pass it as "text" on remove_text/text_style, or omit "text" entirely for "it"/"that text"/"the text". The actual layer lookup (and any "which one did you mean" disambiguation, only if truly ambiguous) happens outside of you — you do not need the layer list to be unambiguous yourself, just pass through what the instruction gave you.
 - For text_style, set ONLY the fields the instruction actually asked to change (e.g. "make it red" → only "color"; "make it bigger" → only "size"; "make it bold" → only "bold"; "move it to the top" → only "position"). Never invent values for properties the instruction didn't mention — those are preserved automatically by not including them.
 - To remove a previously-applied effect ("remove the blur", "undo the pixelation"), use remove_effect with the matching effectType — never ask for its strength, start, or end time; those aren't needed to remove it.
+- text_style ONLY works on a layer that ALREADY appears in "Existing text/caption layers" above. If the instruction both ADDS new text and describes how it should look (color/font/bold/outline) in the same breath — e.g. "add 'Galaxy' in red, Times New Roman" — that is ONE "text"/"caption" command with the style fields set directly on it, never a "text" command followed by a separate "text_style" command: the text_style would fail because that layer doesn't exist until this instruction creates it.
 
 Respond with ONLY a JSON object, no prose, no markdown code fences, matching exactly one of these two shapes:
 
@@ -515,7 +537,7 @@ crop        { "type": "crop", "aspect": "9:16" | "1:1" | "4:5" | "16:9" | "4:3" 
 zoom        { "type": "zoom", "start": number, "end": number, "fromScale": number, "toScale": number, "target": "center" | "left" | "right" | "top" | "bottom" }  — fromScale defaults to 1 if omitted; scales are 0.5-4
 pan         { "type": "pan", "start": number, "end": number, "direction": "left-to-right" | "right-to-left" | "top-to-bottom" | "bottom-to-top", "scale": number }  — scale (how zoomed in while panning) defaults to 1.3, range 1-4
 speed       { "type": "speed", "start": number, "end": number, "factor": number }  — factor > 1 is faster, < 1 is slower, range 0.25-4
-text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "fontFamily"?: string }  — start:0, end:0 means "shown for the whole video", not "missing". fontFamily is optional, one of: ${FONT_FAMILIES.join(', ')} — omit rather than guessing if no font was named.
+text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "color"?: string, "bold"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "fontFamily"?: string }  — start:0, end:0 means "shown for the whole video", not "missing". color/bold/outlineColor/outlineWidth/fontFamily are ALL optional — set any of them the instruction asks for RIGHT HERE when adding text that doesn't exist yet (e.g. "add 'Galaxy' in red, Times New Roman" is one single text command, color and fontFamily included — never a separate text_style for text being added in the same instruction, since text_style only works on text that's already on the video). fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — omit rather than guessing if no font was named.
 caption     { "type": "caption", ...same fields as text }
 remove_text { "type": "remove_text", "text"?: string, "start"?: number, "end"?: number }  — REMOVES an existing text/caption overlay; use this whenever the instruction says to remove/delete/take out/get rid of an on-screen text, never the "text"/"caption" type (those only ADD text). ALL fields optional: "text" is the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given — include it if named, omit it for "remove the text"/"remove it" with no wording. "start"/"end" are optional too, only useful if the instruction names a time range to disambiguate multiple similar layers. Do NOT ask the user for start/end/text just to fill these in — omit what wasn't given.
 audio_volume{ "type": "audio_volume", "volume": number }  — 0 to 3, 1 = unchanged
@@ -542,6 +564,7 @@ Examples:
 "Remove the first 3 seconds." → {"commands":[{"type":"trim","start":3,"end":${ctx.durationSec.toFixed(1)}}]}
 "Zoom into the product." (no timing given) → {"clarification":"Which part of the video should I zoom into — what start and end time?"}
 "Add 'Galaxy Home Automation' at the beginning." ("at the beginning" means a brief intro, not the whole video — default to the first 3 seconds unless told otherwise) → {"commands":[{"type":"text","text":"Galaxy Home Automation","start":0,"end":3,"position":"top","size":"lg"}]}
+"Add write 'Galaxy' at the bottom of the video from 0 to 5 seconds, and make sure the font style is Times New Roman and the color should be red." (a brand-new text with its styling given in the same instruction — ONE command, style fields set directly on it, not a follow-up text_style) → {"commands":[{"type":"text","text":"Galaxy","start":0,"end":5,"position":"bottom","size":"md","color":"red","fontFamily":"Times New Roman"}]}
 "Remove the Galaxy Home Automation text." (no timing needed — the wording alone identifies the layer) → {"commands":[{"type":"remove_text","text":"Galaxy Home Automation"}]}
 "Remove the text." (only one text layer exists per CURRENT PROJECT STATE above) → {"commands":[{"type":"remove_text"}]}
 "Remove the Galaxy Home Automation text between 0 and 0.5 seconds." → {"commands":[{"type":"remove_text","start":0,"end":0.5,"text":"Galaxy Home Automation"}]}
@@ -630,8 +653,8 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-    case 'text': return `Text "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}`
-    case 'caption': return `Caption "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}`
+    case 'text': return `Text "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}${cmd.color ? `, ${cmd.color}` : ''}`
+    case 'caption': return `Caption "${cmd.text}" (${cmd.position})${cmd.fontFamily ? `, ${cmd.fontFamily}` : ''}${cmd.color ? `, ${cmd.color}` : ''}`
     case 'remove_text': return `Remove text "${cmd.text}"`
     case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
     case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
@@ -667,9 +690,9 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
     case 'speed':
       return { title: 'Speed', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `${cmd.factor}x ${cmd.factor > 1 ? 'faster' : 'slower'}`] }
     case 'text':
-      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : [])] }
+      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : []), ...(cmd.color ? [`Color: ${cmd.color}`] : [])] }
     case 'caption':
-      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : [])] }
+      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`, ...(cmd.fontFamily ? [`Font: ${cmd.fontFamily}`] : []), ...(cmd.color ? [`Color: ${cmd.color}`] : [])] }
     case 'remove_text':
       return { title: 'Remove Text', lines: [`"${cmd.text}"`] }
     case 'audio_volume':

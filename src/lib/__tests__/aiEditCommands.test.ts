@@ -145,9 +145,19 @@ describe('validateCommand', () => {
       const result = validateCommand({ type: 'text', text: 'Hi', fontFamily: 'times new roman' }, ctx)
       expect(result).toMatchObject({ fontFamily: 'Times New Roman' })
     })
-    it('omits an unrecognized fontFamily rather than erroring, same as position/size', () => {
+    it('rejects an unrecognized fontFamily rather than silently dropping it — unlike position/size, there is no safe default font to fall back to', () => {
       const result = validateCommand({ type: 'text', text: 'Hi', fontFamily: 'Papyrus' }, ctx)
-      expect(result).not.toHaveProperty('fontFamily')
+      expect(result).toEqual({ error: expect.stringContaining('Papyrus') })
+    })
+    it('accepts color/bold/outline set directly on a brand-new text, no text_style needed', () => {
+      const result = validateCommand(
+        { type: 'text', text: 'Galaxy', start: 0, end: 5, position: 'bottom', color: 'red', fontFamily: 'Times New Roman' },
+        ctx,
+      )
+      expect(result).toEqual({
+        type: 'text', text: 'Galaxy', start: 0, end: 5, position: 'bottom', size: 'md',
+        color: 'red', fontFamily: 'Times New Roman',
+      })
     })
   })
 

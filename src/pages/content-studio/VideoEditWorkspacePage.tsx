@@ -678,7 +678,7 @@ export function VideoEditWorkspacePage() {
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null)
   const editingOverlay = overlays.find((o) => o.id === editingOverlayId) ?? null
 
-  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & { fontFamily?: string }) {
+  function addOverlay(kind: 'text' | 'caption', form: typeof emptyForm & { fontFamily?: string; color?: string; bold?: boolean; outlineColor?: string; outlineWidth?: number }) {
     if (!form.text.trim()) return
     const id = `ov-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     setOverlays((prev) => [...prev, { id, kind, ...form }])
@@ -1232,7 +1232,10 @@ export function VideoEditWorkspacePage() {
           ))
           commit(nextClips, 'Trim')
         } else if (cmd.type === 'text' || cmd.type === 'caption') {
-          addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size, fontFamily: cmd.fontFamily })
+          addOverlay(cmd.type, {
+            text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size,
+            fontFamily: cmd.fontFamily, color: cmd.color, bold: cmd.bold, outlineColor: cmd.outlineColor, outlineWidth: cmd.outlineWidth,
+          })
         } else if (cmd.type === 'remove_text') {
           // Already resolved to a concrete overlayId by validateCommand
           // (using the real current layers) — nothing left to match here.
