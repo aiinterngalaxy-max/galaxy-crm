@@ -522,13 +522,14 @@ CRITICAL — do not ask for information already available above or already given
 - For text_style, set ONLY the fields the instruction actually asked to change (e.g. "make it red" → only "color"; "make it bigger" → only "size"; "make it bold" → only "bold"; "move it to the top" → only "position"). Never invent values for properties the instruction didn't mention — those are preserved automatically by not including them.
 - To remove a previously-applied effect ("remove the blur", "undo the pixelation"), use remove_effect with the matching effectType — never ask for its strength, start, or end time; those aren't needed to remove it.
 - text_style ONLY works on a layer that ALREADY appears in "Existing text/caption layers" above. If the instruction both ADDS new text and describes how it should look (color/font/bold/outline) in the same breath — e.g. "add 'Galaxy' in red, Times New Roman" — that is ONE "text"/"caption" command with the style fields set directly on it, never a "text" command followed by a separate "text_style" command: the text_style would fail because that layer doesn't exist until this instruction creates it.
+- If the instruction asks to change the font but doesn't name a specific one (e.g. "change the font to something else", "use a different font", "change it from Times New Roman to any other"), that is a clarification — but NEVER just say "choose from the allowed fonts list" without saying what they are. Spell out the actual options in the question itself, verbatim from this list: ${FONT_FAMILIES.join(', ')}. The operator can't act on a vague reference to a list they can't see.
 
 Respond with ONLY a JSON object, no prose, no markdown code fences, matching exactly one of these two shapes:
 
 1) { "commands": [ <one or more command objects> ] }
 2) { "clarification": "<a short question asking for the missing information>" }
 
-Use shape 2 whenever the instruction is missing a timestamp, target, or amount you cannot determine from the instruction itself — GUESSING A VALUE IS NOT ALLOWED. If someone says "zoom into the product" with no timing, ask when. If they say "crop this" with no target format, ask what aspect ratio.
+Use shape 2 whenever the instruction is missing a timestamp, target, or amount you cannot determine from the instruction itself — GUESSING A VALUE IS NOT ALLOWED. If someone says "zoom into the product" with no timing, ask when. If they say "crop this" with no target format, ask what aspect ratio. Whenever the missing information is itself a choice from a fixed, known list (fonts, crop aspect ratios, positions, etc.), the clarification question MUST list the actual options — never refer to "the allowed list"/"supported options" without spelling them out, since the operator has no other way to see that list.
 
 Supported command types (all times are seconds from the start of the video, all fields shown are required unless marked optional):
 
@@ -570,6 +571,7 @@ Examples:
 "Remove the Galaxy Home Automation text between 0 and 0.5 seconds." → {"commands":[{"type":"remove_text","start":0,"end":0.5,"text":"Galaxy Home Automation"}]}
 "Make it red." (restyling an existing text, only color named) → {"commands":[{"type":"text_style","color":"red"}]}
 "I want the text in Times New Roman and the color should be red." → {"commands":[{"type":"text_style","fontFamily":"Times New Roman","color":"red"}]}
+"Change the font style from Times New Roman to any other." (no specific replacement font named — this IS a clarification, but the options must be spelled out, not just referenced) → {"clarification":"Which font would you like instead — one of: ${FONT_FAMILIES.join(', ')}?"}
 "Make the Galaxy Home Automation text bigger." (only size named — font/color/position/timing all stay as they are) → {"commands":[{"type":"text_style","target":"Galaxy Home Automation","size":"lg"}]}
 "Move it to the top." → {"commands":[{"type":"text_style","position":"top"}]}
 "Remove the blur." (only valid if blur really is the single most recent change — see CURRENT PROJECT STATE) → {"commands":[{"type":"remove_effect","effectType":"blur"}]}
@@ -588,6 +590,19 @@ Examples:
 function stripCodeFence(text: string): string {
   const m = /```(?:json)?\s*([\s\S]*?)```/.exec(text)
   return (m ? m[1] : text).trim()
+}
+
+/** A deterministic backstop for the system prompt's "spell out the actual
+ *  font options" instruction — following a prompt instruction isn't
+ *  guaranteed, so if the model asks a font-related clarification without
+ *  actually naming any of the supported fonts in it, the real list is
+ *  appended here rather than leaving the operator staring at a vague
+ *  "choose from the allowed fonts list" with no way to see what that is. */
+function withFontOptionsIfAsking(clarification: string): string {
+  const mentionsFont = /\bfonts?\b/i.test(clarification)
+  const alreadyListsOne = FONT_FAMILIES.some((f) => clarification.toLowerCase().includes(f.toLowerCase()))
+  if (!mentionsFont || alreadyListsOne) return clarification
+  return `${clarification} (${FONT_FAMILIES.join(', ')})`
 }
 
 /**
@@ -621,7 +636,7 @@ export async function interpretInstruction(instruction: string, ctx: InterpretCo
   const obj = parsed as Record<string, unknown>
 
   if (typeof obj.clarification === 'string' && obj.clarification.trim()) {
-    return { clarification: obj.clarification.trim() }
+    return { clarification: withFontOptionsIfAsking(obj.clarification.trim()) }
   }
 
   if (!Array.isArray(obj.commands) || obj.commands.length === 0) {

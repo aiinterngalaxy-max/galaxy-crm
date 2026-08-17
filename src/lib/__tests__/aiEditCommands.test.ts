@@ -435,6 +435,29 @@ describe('interpretInstruction', () => {
     expect(result.commands).toBeUndefined()
   })
 
+  it('appends the actual font list when the AI asks a font clarification without naming any options — the reported bug', async () => {
+    callClaude.mockResolvedValue(JSON.stringify({
+      clarification: 'Which font would you like to change the text to? (Choose from the allowed fonts list)',
+    }))
+    const result = await interpretInstruction('change the font style from times new roman to any other', ctx)
+    expect(result.clarification).toContain('Times New Roman')
+    expect(result.clarification).toContain('Arial')
+    expect(result.clarification).toContain('Georgia')
+  })
+
+  it('leaves a font clarification untouched if the AI already named specific options', async () => {
+    const clarification = 'Which font — Arial or Georgia?'
+    callClaude.mockResolvedValue(JSON.stringify({ clarification }))
+    const result = await interpretInstruction('change the font', ctx)
+    expect(result.clarification).toBe(clarification)
+  })
+
+  it('leaves a non-font clarification untouched', async () => {
+    callClaude.mockResolvedValue(JSON.stringify({ clarification: 'Which part of the video should I zoom into?' }))
+    const result = await interpretInstruction('Zoom into the product.', ctx)
+    expect(result.clarification).toBe('Which part of the video should I zoom into?')
+  })
+
   it('turns a validation failure into a clarification rather than executing a bad command', async () => {
     // The AI invented a command with no toScale — must be caught, not run.
     callClaude.mockResolvedValue(JSON.stringify({ commands: [{ type: 'zoom', start: 5, end: 8 }] }))
