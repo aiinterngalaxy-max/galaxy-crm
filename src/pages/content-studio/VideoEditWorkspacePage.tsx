@@ -16,6 +16,7 @@ import {
 } from '@/lib/content-studio/autoEdit'
 import {
   interpretInstruction, targetToCenter, directionToPanPoints,
+  describeAiCommand, describeAiCommandCard,
   type EditCommand,
 } from '@/lib/content-studio/aiEditCommands'
 import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
@@ -38,6 +39,15 @@ interface EditClip {
   cutEnd: number
   deleted: boolean
   thumbnail: string
+}
+
+/** One entry in the combined undo/redo history — see the `history` state's
+ *  own comment for why clip-level and source-level changes share one stack. */
+interface HistorySnapshot {
+  clips: EditClip[]
+  sourceKey: string
+  /** Shown in the Edit History panel, e.g. "Trim clip", "Zoom 5.0s→8.0s". */
+  label: string
 }
 
 /** A Text or Captions item — same shape as TimedCaption, plus a stable id for editing/deleting in the UI. */
@@ -106,6 +116,26 @@ function captureFrame(blob: Blob, atSec: number): Promise<string> {
       }
     }
     video.onerror = () => finish('')
+    video.src = url
+  })
+}
+
+/** Reads a video Blob's real duration client-side — used right after an AI
+ *  hard-bake render (loop/speed both change total length) to size the fresh
+ *  single clip correctly, without waiting for a React effect/render cycle. */
+function probeBlobDuration(blob: Blob): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      resolve(video.duration)
+      URL.revokeObjectURL(url)
+    }
+    video.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Could not read the edited video.'))
+    }
     video.src = url
   })
 }
@@ -193,6 +223,14 @@ export function VideoEditWorkspacePage() {
   const sourceBlobRef = useRef<Blob | null>(null)
   const sourceUrlRef = useRef('')
 
+  // Every blob this session has ever produced for a given "source identity",
+  // keyed by job.edited_drive_id once saved, or a local-<timestamp> key for
+  // an AI hard-bake result not yet saved (see confirmAiEdit) — this is what
+  // lets Undo jump back to an earlier AI edit's actual video instantly,
+  // without re-downloading or re-rendering it.
+  const sourceBlobCache = useRef<Map<string, Blob>>(new Map())
+  const [currentSourceKey, setCurrentSourceKey] = useState('')
+
   useEffect(() => {
     if (!job?.edited_drive_id) return
     let cancelled = false
@@ -201,6 +239,8 @@ export function VideoEditWorkspacePage() {
       .then((blob) => {
         if (cancelled) return
         sourceBlobRef.current = blob
+        sourceBlobCache.current.set(job.edited_drive_id, blob)
+        setCurrentSourceKey(job.edited_drive_id)
         const url = URL.createObjectURL(blob)
         sourceUrlRef.current = url
         setSourceUrl(url)
@@ -212,6 +252,27 @@ export function VideoEditWorkspacePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.edited_drive_id])
+
+  /** Swaps the active source to a cached (or, failing that, Drive-fetched)
+   *  blob — used by undo/redo/history-jump when the target snapshot points
+   *  at a different video than the one currently loaded. */
+  async function switchSource(sourceKey: string): Promise<void> {
+    if (sourceKey === currentSourceKey) return
+    let blob = sourceBlobCache.current.get(sourceKey)
+    if (!blob) {
+      // Only reachable if the key is a real Drive id whose blob fell out of
+      // this session's cache (e.g. a page reload) — a local-* key always
+      // has its blob cached at creation time, since nothing else can produce one.
+      blob = await downloadFromDrive(sourceKey)
+      sourceBlobCache.current.set(sourceKey, blob)
+    }
+    sourceBlobRef.current = blob
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current)
+    const url = URL.createObjectURL(blob)
+    sourceUrlRef.current = url
+    setSourceUrl(url)
+    setCurrentSourceKey(sourceKey)
+  }
 
   useEffect(() => () => { if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current) }, [])
 
@@ -244,7 +305,13 @@ export function VideoEditWorkspacePage() {
   const [mode, setMode] = useState<'segments' | 'single'>('single')
   const [clips, setClips] = useState<EditClip[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [history, setHistory] = useState<EditClip[][]>([])
+  // One combined undo/redo history for BOTH kinds of change this editor makes:
+  // clip-level (trim/split/delete — same source video, different [start,end]
+  // windows) and source-level (an AI crop/zoom/pan/speed/loop, which is a
+  // genuinely different rendered video). sourceKey lets undo/redo tell which
+  // kind a given step was and swap the actual video back via switchSource()
+  // when it crosses a source-level step, not just restore clip boundaries.
+  const [history, setHistory] = useState<HistorySnapshot[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [dirty, setDirty] = useState(false)
   const clipsRef = useRef<EditClip[]>([])
@@ -266,7 +333,7 @@ export function VideoEditWorkspacePage() {
     }))
     setMode('segments')
     setClips(init)
-    setHistory([init])
+    setHistory([{ clips: init, sourceKey: currentSourceKey, label: 'Loaded' }])
     setHistoryIndex(0)
     setSelectedId(init[0]?.id ?? null)
     if (sourceBlobRef.current) {
@@ -298,7 +365,7 @@ export function VideoEditWorkspacePage() {
     }]
     setMode('single')
     setClips(init)
-    setHistory([init])
+    setHistory([{ clips: init, sourceKey: currentSourceKey, label: 'Loaded' }])
     setHistoryIndex(0)
     setSelectedId('whole')
     if (sourceBlobRef.current) {
@@ -340,19 +407,22 @@ export function VideoEditWorkspacePage() {
     else setEndAtInput(String(endAtValue))
   }
 
-  function commit(next: EditClip[]) {
+  /** Pushes a clip-level change — same source video, new clip boundaries.
+   *  Source-level changes (an AI hard-bake result) go through
+   *  commitNewSource below instead, which also swaps the actual video. */
+  function commit(next: EditClip[], label: string) {
     setClips(next)
-    setHistory((h) => [...h.slice(0, historyIndex + 1), next])
+    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: next, sourceKey: currentSourceKey, label }])
     setHistoryIndex((i) => i + 1)
     setDirty(true)
   }
 
   function setCutStart(clipId: string, value: number) {
-    commit(clips.map((c) => (c.id === clipId ? { ...c, cutStart: Math.max(0, value) } : c)))
+    commit(clips.map((c) => (c.id === clipId ? { ...c, cutStart: Math.max(0, value) } : c)), 'Trim start')
   }
 
   function setCutEnd(clipId: string, value: number) {
-    commit(clips.map((c) => (c.id === clipId ? { ...c, cutEnd: Math.max(0, value) } : c)))
+    commit(clips.map((c) => (c.id === clipId ? { ...c, cutEnd: Math.max(0, value) } : c)), 'Trim end')
   }
 
   // The Trim panel shows/accepts absolute "starts at" / "ends at" times (what
@@ -373,7 +443,7 @@ export function VideoEditWorkspacePage() {
   function deleteClip(clipId: string) {
     if (aliveCount <= 1) return
     const next = clips.map((c) => (c.id === clipId ? { ...c, deleted: true } : c))
-    commit(next)
+    commit(next, 'Delete clip')
     if (selectedId === clipId) setSelectedId(next.find((c) => !c.deleted)?.id ?? null)
   }
 
@@ -395,23 +465,59 @@ export function VideoEditWorkspacePage() {
     const idx = clips.findIndex((x) => x.id === clipId)
     const next = [...clips.slice(0, idx), first, second, ...clips.slice(idx + 1)]
     setMode('segments')
-    commit(next)
+    commit(next, 'Split clip')
     setSelectedId(first.id)
   }
 
-  function undo() {
-    if (historyIndex <= 0) return
-    const i = historyIndex - 1
-    setHistoryIndex(i)
-    setClips(history[i])
+  /** Pushes a source-level change — a new rendered video (an AI crop/zoom/
+   *  pan/speed/loop), replacing the clip timeline with one fresh whole-video
+   *  clip and swapping the player/export source to match. Purely local:
+   *  no Drive upload, no DB write — same "stays local until Save" rule the
+   *  Music panel already follows for a picked-but-unsaved file. */
+  async function commitNewSource(blob: Blob, newDuration: number, label: string) {
+    const sourceKey = `local-${Date.now()}`
+    sourceBlobCache.current.set(sourceKey, blob)
+    await switchSource(sourceKey)
+    const newClip: EditClip = {
+      id: `whole-${Date.now()}`, label: content?.title || 'Clip 1',
+      start: 0, end: newDuration, cutStart: 0, cutEnd: 0, deleted: false, thumbnail: '',
+    }
+    setMode('single')
+    setClips([newClip])
+    setSelectedId(newClip.id)
+    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: [newClip], sourceKey, label }])
+    setHistoryIndex((i) => i + 1)
     setDirty(true)
   }
 
-  function redo() {
+  async function undo() {
+    if (historyIndex <= 0) return
+    const i = historyIndex - 1
+    const snap = history[i]
+    if (snap.sourceKey !== currentSourceKey) await switchSource(snap.sourceKey)
+    setHistoryIndex(i)
+    setClips(snap.clips)
+    setDirty(true)
+  }
+
+  async function redo() {
     if (historyIndex >= history.length - 1) return
     const i = historyIndex + 1
+    const snap = history[i]
+    if (snap.sourceKey !== currentSourceKey) await switchSource(snap.sourceKey)
     setHistoryIndex(i)
-    setClips(history[i])
+    setClips(snap.clips)
+    setDirty(true)
+  }
+
+  /** Jumps straight to any point in the Edit History panel, not just one
+   *  step at a time — same underlying mechanics as undo/redo. */
+  async function jumpToHistory(i: number) {
+    if (i < 0 || i >= history.length || i === historyIndex) return
+    const snap = history[i]
+    if (snap.sourceKey !== currentSourceKey) await switchSource(snap.sourceKey)
+    setHistoryIndex(i)
+    setClips(snap.clips)
     setDirty(true)
   }
 
@@ -466,7 +572,7 @@ export function VideoEditWorkspacePage() {
     window.removeEventListener('mousemove', onHandleMouseMove)
     window.removeEventListener('mouseup', onHandleMouseUp)
     dragRef.current = null
-    commit(clipsRef.current)
+    commit(clipsRef.current, 'Trim')
   }
 
   useEffect(() => () => {
@@ -633,6 +739,7 @@ export function VideoEditWorkspacePage() {
 
   // ---------- save (writes the same fields Section 4 / Export already use, plus captions/music) ----------
   const [saving, setSaving] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
   async function saveChanges(): Promise<VideoJob | null> {
     if (!job || !clips.length) return null
@@ -656,6 +763,11 @@ export function VideoEditWorkspacePage() {
         const c = clips[0]
         patch.trim_start = c.cutStart
         patch.trim_end = c.cutEnd > 0 ? Math.max(0, c.end - c.cutEnd) : 0
+        // A hard-bake AI edit (or anything else that lands back on a single
+        // clip) makes any earlier multi-clip layout stale — without this,
+        // reopening the page would resurrect old segment boundaries that no
+        // longer correspond to anything in the current video.
+        patch.clip_segments = ''
       }
 
       if (musicRemoved) {
@@ -667,6 +779,24 @@ export function VideoEditWorkspacePage() {
         patch.music_drive_id = driveFileId
         patch.music_view_url = driveViewUrl
         patch.music_name = musicFile.name
+      }
+
+      // An AI crop/zoom/pan/speed/loop result lives only in memory
+      // (sourceBlobCache) until now — this is the one point it actually
+      // becomes a Drive file and a DB row, same moment a picked music file
+      // does. Re-keys the cache/history to the real Drive id afterward so a
+      // second Save (or an Undo back to this point) doesn't re-upload it.
+      if (currentSourceKey && currentSourceKey !== job.edited_drive_id) {
+        const pendingBlob = sourceBlobCache.current.get(currentSourceKey)
+        if (pendingBlob) {
+          const { driveFileId, driveViewUrl } = await uploadBlobToDrive(pendingBlob, `${content?.title ?? 'video'} (edited).mp4`)
+          patch.edited_drive_id = driveFileId
+          patch.edited_view_url = driveViewUrl
+          sourceBlobCache.current.set(driveFileId, pendingBlob)
+          sourceBlobCache.current.delete(currentSourceKey)
+          setHistory((h) => h.map((s) => (s.sourceKey === currentSourceKey ? { ...s, sourceKey: driveFileId } : s)))
+          setCurrentSourceKey(driveFileId)
+        }
       }
 
       const saved = await updateVideoJob(job.id, patch)
@@ -842,23 +972,7 @@ export function VideoEditWorkspacePage() {
   const [aiInterpreting, setAiInterpreting] = useState(false)
   const [aiApplying, setAiApplying] = useState(false)
   const [aiProgress, setAiProgress] = useState<AutoEditProgress | null>(null)
-  const [aiLastApplied, setAiLastApplied] = useState('')
-
-  function describeAiCommand(cmd: EditCommand): string {
-    switch (cmd.type) {
-      case 'trim': return `Trim to ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-      case 'crop': return `Crop to ${cmd.aspect}`
-      case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-      case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-      case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-      case 'text': return `Text "${cmd.text}" (${cmd.position})`
-      case 'caption': return `Caption "${cmd.text}" (${cmd.position})`
-      case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
-      case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
-      case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
-      case 'loop': return `Loop ${cmd.times}x`
-    }
-  }
+  const [aiLastApplied, setAiLastApplied] = useState<EditCommand[] | null>(null)
 
   async function interpretAiEdit() {
     if (!aiEditPrompt.trim()) {
@@ -917,6 +1031,23 @@ export function VideoEditWorkspacePage() {
       if (hardBake.length) {
         if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
         let blob = sourceBlobRef.current
+
+        // A still-pending (not yet baked-in) trim from an earlier "Trim the
+        // first 3 seconds" instruction is only a cutStart/cutEnd on the
+        // clip — sourceBlobRef itself is still the untrimmed video. Without
+        // baking that in first, a FOLLOW-UP "Zoom from 5 to 8 seconds"
+        // would zoom into 5-8s of the ORIGINAL video, not 5-8s of what the
+        // operator is now actually looking at post-trim — the natural
+        // reading of two sequential instructions given by example in the
+        // task spec itself ("Trim the first 3 seconds" then "Zoom into the
+        // product from 5 to 8 seconds"). Baking it in also means the fresh
+        // clip commitNewSource creates below correctly starts at cutStart=0
+        // instead of silently re-applying the same trim on top of itself.
+        if (mode === 'single' && clips[0] && (clips[0].cutStart > 0 || clips[0].cutEnd > 0)) {
+          const c = clips[0]
+          blob = await renderFinal(blob, { trimStart: c.cutStart, trimEnd: c.cutEnd > 0 ? Math.max(0.1, c.end - c.cutEnd) : 0 }, setAiProgress)
+        }
+
         // crop first (whole-video, order-independent), then zoom/pan/speed
         // in the order given, loop last (it should wrap the fully-edited
         // result, not a pre-edit segment).
@@ -941,15 +1072,15 @@ export function VideoEditWorkspacePage() {
           }
         }
 
-        const { driveFileId, driveViewUrl } = await uploadBlobToDrive(blob, `${content.title} (ai-edited).mp4`)
-        const saved = await updateVideoJob(job.id, {
-          edited_drive_id: driveFileId, edited_view_url: driveViewUrl, clip_segments: '',
-        })
-        sourceBlobRef.current = blob
-        setClips([])
-        setHistory([])
-        setHistoryIndex(-1)
-        setJob(saved)
+        // Local only — no Drive upload, no DB write, same as picking a music
+        // file: it becomes real (uploaded, saved) when the operator clicks
+        // Save, not the moment ffmpeg finishes. This is also what makes the
+        // result properly undoable through the same history/undo() as every
+        // other edit, and what keeps the original upload (raw_drive_id,
+        // untouched by any of this) and every earlier save's Drive file
+        // intact rather than replaced on every single AI instruction.
+        const newDuration = await probeBlobDuration(blob)
+        await commitNewSource(blob, newDuration, ordered.map(describeAiCommand).join(' + '))
       }
 
       for (const cmd of soft) {
@@ -957,8 +1088,17 @@ export function VideoEditWorkspacePage() {
           if (mode !== 'single' || !clips[0]) {
             throw new Error('AI trim only works on a single-source video right now — use the Trim panel for a multi-clip timeline.')
           }
-          setStartAt(clips[0].id, cmd.start)
-          setEndAt(clips[0].id, cmd.end)
+          // One combined commit, not setStartAt() then setEndAt(): those are
+          // built for two separate user actions (edit the Starts-at box,
+          // blur; edit the Ends-at box, blur) with a full re-render between
+          // them, so each reads a fresh `clips`. Called back-to-back here in
+          // the same tick, the second call would still see the PRE-first-
+          // commit `clips` and silently discard the start-trim it just set.
+          const c = clips[0]
+          const nextClips = clips.map((x) => (
+            x.id === c.id ? { ...x, cutStart: Math.max(0, cmd.start - c.start), cutEnd: Math.max(0, c.end - cmd.end) } : x
+          ))
+          commit(nextClips, 'Trim')
         } else if (cmd.type === 'text' || cmd.type === 'caption') {
           addOverlay(cmd.type, { text: cmd.text, start: cmd.start, end: cmd.end, position: cmd.position, size: cmd.size })
         } else if (cmd.type === 'audio_volume') {
@@ -974,7 +1114,7 @@ export function VideoEditWorkspacePage() {
       }
 
       const summary = commands.map(describeAiCommand).join('; ')
-      setAiLastApplied(summary)
+      setAiLastApplied(commands)
       setAiPendingCommands(null)
       setAiEditPrompt('')
       await logActivity('content', content.id, 'ai-edit', summary, viewer?.name || 'System')
@@ -1327,7 +1467,18 @@ export function VideoEditWorkspacePage() {
 
               {aiEditError && <p className="text-[11px] text-rose-400">{aiEditError}</p>}
               {aiLastApplied && !aiPendingCommands && (
-                <p className="text-[11px] text-emerald-400">✓ Applied: {aiLastApplied}</p>
+                <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 p-2 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-500">✓ AI Edit Applied</p>
+                  {aiLastApplied.map((cmd, i) => {
+                    const { title, lines } = describeAiCommandCard(cmd)
+                    return (
+                      <div key={i} className="text-[11px]">
+                        <p className="font-semibold text-emerald-300">{title}</p>
+                        {lines.map((line, j) => <p key={j} className="text-gray-400">{line}</p>)}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
               <p className="text-[10px] text-gray-600">
                 Every instruction is turned into a specific, reviewable edit before anything runs — nothing is applied without your confirmation above.
@@ -1464,6 +1615,12 @@ export function VideoEditWorkspacePage() {
           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="btn-secondary text-xs disabled:opacity-40 inline-flex items-center gap-1.5">
             <Redo2 className="w-3.5 h-3.5" /> Redo
           </button>
+          <button
+            onClick={() => setShowHistory((s) => !s)}
+            className={`text-xs font-semibold rounded-md border px-2.5 py-1.5 transition-colors ${showHistory ? 'border-gold-600 text-gold-500' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+          >
+            History ({history.length})
+          </button>
           <button onClick={saveChanges} disabled={saving || !dirty} className="btn-primary text-xs disabled:opacity-50 inline-flex items-center gap-1.5">
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -1473,6 +1630,27 @@ export function VideoEditWorkspacePage() {
           <button onClick={submitForReview} disabled={submitting} className="btn-primary text-xs disabled:opacity-50 inline-flex items-center gap-1.5 ml-auto">
             <Send className="w-3.5 h-3.5" /> {submitting ? 'Submitting…' : 'Submit for Review'}
           </button>
+        </div>
+      )}
+
+      {hasEdit && showHistory && (
+        <div className="mt-2 rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3">
+          <h3 className="text-xs font-bold text-gray-300 mb-2">Edit History</h3>
+          <ol className="space-y-1">
+            {history.map((snap, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => jumpToHistory(i)}
+                  className={`w-full text-left text-[11px] rounded px-2 py-1 transition-colors ${
+                    i === historyIndex ? 'bg-gold-500/10 text-gold-500 font-semibold' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                  }`}
+                >
+                  {i + 1}. {snap.label}{i === historyIndex ? ' (current)' : ''}
+                </button>
+              </li>
+            ))}
+          </ol>
+          <p className="text-[10px] text-gray-600 mt-2">Click any step to jump straight to it — same as Undo/Redo, just not one step at a time.</p>
         </div>
       )}
 

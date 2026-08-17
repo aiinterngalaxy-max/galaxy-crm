@@ -24,6 +24,7 @@
  * or silently producing an empty clip.
  */
 import { callClaude } from '../ai'
+import { fmtTime } from './videoEditShared'
 import type { CaptionPosition, CaptionSize, CropAspect } from './autoEdit'
 
 export interface TrimCommand { type: 'trim'; start: number; end: number }
@@ -260,8 +261,10 @@ Examples:
 "Zoom into the person from 5 to 8 seconds." → {"commands":[{"type":"zoom","start":5,"end":8,"fromScale":1,"toScale":1.5,"target":"center"}]}
 "Crop this to Instagram Reel format." → {"commands":[{"type":"crop","aspect":"9:16"}]}
 "Make seconds 10 to 12 twice as fast." → {"commands":[{"type":"speed","start":10,"end":12,"factor":2}]}
+"Make the video 2x faster." (no section named — applies to the whole video, which IS determinable, so this is not a clarification case) → {"commands":[{"type":"speed","start":0,"end":${ctx.durationSec.toFixed(1)},"factor":2}]}
 "Remove the first 3 seconds." → {"commands":[{"type":"trim","start":3,"end":${ctx.durationSec.toFixed(1)}}]}
 "Zoom into the product." (no timing given) → {"clarification":"Which part of the video should I zoom into — what start and end time?"}
+"Add 'Galaxy Home Automation' at the beginning." ("at the beginning" means a brief intro, not the whole video — default to the first 3 seconds unless told otherwise) → {"commands":[{"type":"text","text":"Galaxy Home Automation","start":0,"end":3,"position":"top","size":"lg"}]}
 "Loop this 3 times." → {"commands":[{"type":"loop","times":3}]}`
 }
 
@@ -317,4 +320,60 @@ export async function interpretInstruction(instruction: string, ctx: InterpretCo
   }
 
   return { commands: validated }
+}
+
+// ---------- human-readable descriptions ----------
+// Pure and exported (rather than defined inline in VideoEditWorkspacePage)
+// so the mapping from a validated command to what the operator actually
+// sees is unit-testable on its own, same as validateCommand's accept/reject
+// rules — this is the layer that answers "does the user understand exactly
+// what changed", not just "did the JSON parse".
+
+/** One line per command — used for the pending-command review list and the activity log. */
+export function describeAiCommand(cmd: EditCommand): string {
+  switch (cmd.type) {
+    case 'trim': return `Trim to ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'crop': return `Crop to ${cmd.aspect}`
+    case 'zoom': return `Zoom ${cmd.fromScale}x→${cmd.toScale}x on ${cmd.target}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'pan': return `Pan ${cmd.direction} (${cmd.scale}x), ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'speed': return `Speed ${cmd.factor}x, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'text': return `Text "${cmd.text}" (${cmd.position})`
+    case 'caption': return `Caption "${cmd.text}" (${cmd.position})`
+    case 'audio_volume': return `Original audio volume → ${cmd.volume}x`
+    case 'mute': return cmd.muted ? 'Mute original audio' : 'Unmute original audio'
+    case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
+    case 'loop': return `Loop ${cmd.times}x`
+  }
+}
+
+/** The structured "AI Edit Applied" card — title + plain-English detail
+ *  lines, no ffmpeg filter strings or internal field names, per the explicit
+ *  requirement that normal users never see technical rendering details. */
+export function describeAiCommandCard(cmd: EditCommand): { title: string; lines: string[] } {
+  switch (cmd.type) {
+    case 'trim':
+      return { title: 'Trim', lines: [`Kept ${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`] }
+    case 'crop':
+      return { title: 'Crop', lines: [`Aspect ratio: ${cmd.aspect}`] }
+    case 'zoom':
+      return { title: 'Zoom', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Scale: ${cmd.fromScale}x → ${cmd.toScale}x`, `Target: ${cmd.target}`] }
+    case 'pan':
+      return { title: 'Pan', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Direction: ${cmd.direction}`, `Scale: ${cmd.scale}x`] }
+    case 'speed':
+      return { title: 'Speed', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `${cmd.factor}x ${cmd.factor > 1 ? 'faster' : 'slower'}`] }
+    case 'text':
+      return { title: 'Text', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
+    case 'caption':
+      return { title: 'Caption', lines: [`"${cmd.text}"`, `Position: ${cmd.position}`] }
+    case 'audio_volume':
+      return { title: 'Audio Volume', lines: [`Original audio set to ${Math.round(cmd.volume * 100)}%`] }
+    case 'mute':
+      return { title: cmd.muted ? 'Mute' : 'Unmute', lines: [cmd.muted ? 'Original audio muted' : 'Original audio restored'] }
+    case 'music':
+      return cmd.action === 'remove'
+        ? { title: 'Music', lines: ['Background music removed'] }
+        : { title: 'Music', lines: [`Volume set to ${Math.round((cmd.volume ?? 0) * 100)}%`] }
+    case 'loop':
+      return { title: 'Loop', lines: [`Video now plays ${cmd.times} times`] }
+  }
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   validateCommand, interpretInstruction, targetToCenter, directionToPanPoints,
-  type InterpretContext,
+  describeAiCommand, describeAiCommandCard,
+  type InterpretContext, type EditCommand,
 } from '../content-studio/aiEditCommands'
 
 const callClaude = vi.hoisted(() => vi.fn())
@@ -275,5 +276,112 @@ describe('interpretInstruction', () => {
     const systemPromptSent = callClaude.mock.calls[0][1] as string
     expect(systemPromptSent).toContain('42.3')
     expect(systemPromptSent).toContain('already has a background music track')
+  })
+})
+
+describe('describeAiCommand / describeAiCommandCard', () => {
+  // One command per type, run through both — the two functions must never
+  // throw or return something empty for any of the eleven command types,
+  // and the card format must never leak an ffmpeg filter string or an
+  // internal field name (the explicit "no technical details" requirement).
+  const samples: EditCommand[] = [
+    { type: 'trim', start: 0, end: 3 },
+    { type: 'crop', aspect: '9:16' },
+    { type: 'zoom', start: 5, end: 8, fromScale: 1, toScale: 1.5, target: 'center' },
+    { type: 'pan', start: 1, end: 6, direction: 'left-to-right', scale: 1.3 },
+    { type: 'speed', start: 2, end: 5, factor: 2 },
+    { type: 'text', text: 'Galaxy Home Automation', start: 0, end: 0, position: 'bottom', size: 'md' },
+    { type: 'caption', text: 'Hello', start: 1, end: 4, position: 'top', size: 'sm' },
+    { type: 'audio_volume', volume: 0.3 },
+    { type: 'mute', muted: true },
+    { type: 'music', action: 'remove' },
+    { type: 'loop', times: 3 },
+  ]
+
+  it('produces a non-empty one-line description for every command type', () => {
+    for (const cmd of samples) {
+      expect(describeAiCommand(cmd)).toEqual(expect.any(String))
+      expect(describeAiCommand(cmd).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('produces a card with a title and at least one line for every command type', () => {
+    for (const cmd of samples) {
+      const card = describeAiCommandCard(cmd)
+      expect(card.title.length).toBeGreaterThan(0)
+      expect(card.lines.length).toBeGreaterThan(0)
+      expect(card.lines.every((l) => l.length > 0)).toBe(true)
+    }
+  })
+
+  it('never mentions ffmpeg, filter syntax, or drive ids — the explicit "no technical details" requirement', () => {
+    const forbidden = /ffmpeg|zoompan|crop=|atempo|filter_complex|drive_id/i
+    for (const cmd of samples) {
+      expect(describeAiCommand(cmd)).not.toMatch(forbidden)
+      const card = describeAiCommandCard(cmd)
+      expect(card.title).not.toMatch(forbidden)
+      for (const line of card.lines) expect(line).not.toMatch(forbidden)
+    }
+  })
+
+  it('states the zoom scale change and target the user actually asked for', () => {
+    const card = describeAiCommandCard({ type: 'zoom', start: 5, end: 8, fromScale: 1, toScale: 1.5, target: 'center' })
+    expect(card.title).toBe('Zoom')
+    expect(card.lines.join(' ')).toContain('1x → 1.5x')
+    expect(card.lines.join(' ')).toContain('center')
+    expect(card.lines.join(' ')).toContain('0:05')
+    expect(card.lines.join(' ')).toContain('0:08')
+  })
+
+  it('converts a music volume fraction to a percentage a normal user reads at a glance', () => {
+    const card = describeAiCommandCard({ type: 'music', action: 'volume', volume: 0.3 })
+    expect(card.lines.join(' ')).toContain('30%')
+  })
+})
+
+// The five instructions the AI Edit integration is required to handle
+// end-to-end. These mock the AI's response to exactly what a model
+// following the system prompt's own worked examples should produce, then
+// verify the full parse+validate pipeline accepts it and shapes it
+// correctly — this proves the PLUMBING; it does not prove Groq's real
+// llama-3.3-70b reliably phrases it this way for every way a user might
+// type these instructions (never tested against the live API — see the
+// implementation report).
+describe('the five required end-to-end instructions', () => {
+  const videoCtx: InterpretContext = { durationSec: 12, hasMusic: false }
+
+  it('1. "Remove the first 3 seconds."', async () => {
+    callClaude.mockImplementation(async () => JSON.stringify({ commands: [{ type: 'trim', start: 3, end: 12 }] }))
+    const result = await interpretInstruction('Remove the first 3 seconds.', videoCtx)
+    expect(result.commands).toEqual([{ type: 'trim', start: 3, end: 12 }])
+  })
+
+  it('2. "Zoom into the center from 5 to 8 seconds."', async () => {
+    callClaude.mockImplementation(async () => JSON.stringify({
+      commands: [{ type: 'zoom', start: 5, end: 8, fromScale: 1, toScale: 1.5, target: 'center' }],
+    }))
+    const result = await interpretInstruction('Zoom into the center from 5 to 8 seconds.', videoCtx)
+    expect(result.commands).toEqual([{ type: 'zoom', start: 5, end: 8, fromScale: 1, toScale: 1.5, target: 'center' }])
+  })
+
+  it('3. "Make the video 2x faster." — whole-video speed, not a clarification case', async () => {
+    callClaude.mockImplementation(async () => JSON.stringify({ commands: [{ type: 'speed', start: 0, end: 12, factor: 2 }] }))
+    const result = await interpretInstruction('Make the video 2x faster.', videoCtx)
+    expect(result.commands).toEqual([{ type: 'speed', start: 0, end: 12, factor: 2 }])
+    expect(result.clarification).toBeUndefined()
+  })
+
+  it('4. "Mute the original audio."', async () => {
+    callClaude.mockImplementation(async () => JSON.stringify({ commands: [{ type: 'mute', muted: true }] }))
+    const result = await interpretInstruction('Mute the original audio.', videoCtx)
+    expect(result.commands).toEqual([{ type: 'mute', muted: true }])
+  })
+
+  it('5. "Add \'Galaxy Home Automation\' at the beginning."', async () => {
+    callClaude.mockImplementation(async () => JSON.stringify({
+      commands: [{ type: 'text', text: 'Galaxy Home Automation', start: 0, end: 3, position: 'top', size: 'lg' }],
+    }))
+    const result = await interpretInstruction("Add 'Galaxy Home Automation' at the beginning.", videoCtx)
+    expect(result.commands).toEqual([{ type: 'text', text: 'Galaxy Home Automation', start: 0, end: 3, position: 'top', size: 'lg' }])
   })
 })
