@@ -283,15 +283,28 @@ function checkNotBotWalled(url: string, meta: PageMeta) {
  *  below — a link's fetched cover image and a directly-uploaded one are
  *  analyzed identically from this point on. */
 async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Promise<StyleProfile> {
-  const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
-    { type: 'text', text: `Page title (context only, not the subject): ${titleHint || '(none)'}` },
-    { type: 'image_url', image_url: { url: dataUrl } },
-  ], 400)
+  const attempt = async (extra?: string) => {
+    const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
+      { type: 'text', text: `Page title (context only, not the subject): ${titleHint || '(none)'}${extra ? `\n\n${extra}` : ''}` },
+      { type: 'image_url', image_url: { url: dataUrl } },
+    ], 400)
+    return { raw, parsed: extractJson<Record<string, unknown>>(raw, '{') }
+  }
 
-  const parsed = extractJson<Record<string, unknown>>(raw, '{')
+  let { raw, parsed } = await attempt()
   if (!parsed) {
+    // Logged so a real diagnosis is possible (was it a refusal, prose,
+    // markdown-wrapped JSON, something else?) instead of just "it failed" —
+    // this was previously silent, giving no way to tell why.
+    console.error('analyzeStyleFromDataUrl: unparseable response, retrying:', raw.slice(0, 500))
+    ;({ raw, parsed } = await attempt(
+      'Your previous reply did not contain valid JSON. Respond with ONLY the JSON object this time — no prose, no markdown fences, nothing else.',
+    ))
+  }
+  if (!parsed) {
+    console.error('analyzeStyleFromDataUrl: retry also unparseable:', raw.slice(0, 500))
     throw new Error(
-      'The model could not read a usable style from that image — try again, or try a different/clearer image.',
+      'The model could not read a usable style from that image after two attempts — try again in a moment, or try a different/clearer image.',
     )
   }
 
