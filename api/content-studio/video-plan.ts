@@ -81,6 +81,11 @@ async function groq(model: string, system: string, content: string | ChatContent
       ],
       max_tokens: maxTokens,
       temperature: 0.8,
+      // Every call site in this file asks for JSON back — this makes Groq
+      // actually enforce that at decode time instead of hoping the model
+      // follows the "return ONLY valid JSON" instruction on its own, which
+      // is what was producing prose/refusals that failed to parse.
+      response_format: { type: 'json_object' },
     }),
   })
   if (!res.ok) {
