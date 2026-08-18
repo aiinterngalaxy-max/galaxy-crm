@@ -211,19 +211,27 @@ async function analyzeLink(url: string) {
 
   const brief = `Page title: ${meta.title || '(none)'}\nSite: ${meta.siteName || '(unknown)'}\nDescription: ${meta.description || '(none)'}`
 
-  let raw: string
-  if (meta.image) {
-    const dataUrl = await fetchAsDataUrl(meta.image)
-    if (dataUrl) {
-      raw = await groq(VISION_MODEL, LINK_ANALYST, [
-        { type: 'text', text: brief },
-        { type: 'image_url', image_url: { url: dataUrl } },
-      ], 700)
+  let raw = ''
+  try {
+    if (meta.image) {
+      const dataUrl = await fetchAsDataUrl(meta.image)
+      if (dataUrl) {
+        raw = await groq(VISION_MODEL, LINK_ANALYST, [
+          { type: 'text', text: brief },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ], 700)
+      } else {
+        raw = await groqChain(TEXT_MODEL_CHAIN, LINK_ANALYST, `No screenshot could be loaded — brandColors must be [].\n${brief}`, 700)
+      }
     } else {
-      raw = await groqChain(TEXT_MODEL_CHAIN, LINK_ANALYST, `No screenshot could be loaded — brandColors must be [].\n${brief}`, 700)
+      raw = await groqChain(TEXT_MODEL_CHAIN, LINK_ANALYST, `No screenshot on this page — brandColors must be [].\n${brief}`, 700)
     }
-  } else {
-    raw = await groqChain(TEXT_MODEL_CHAIN, LINK_ANALYST, `No screenshot on this page — brandColors must be [].\n${brief}`, 700)
+  } catch (err) {
+    // json_object mode makes Groq itself reject a reply that never became
+    // valid JSON (a hard 400), not just hand back unparseable text — caught
+    // here so that surfaces as the same friendly message below instead of
+    // Groq's raw error reaching the operator.
+    console.error('analyzeLink: groq call failed:', err instanceof Error ? err.message : err)
   }
 
   const parsed = extractJson<Record<string, unknown>>(raw, '{')
@@ -315,11 +323,20 @@ function checkNotBotWalled(url: string, meta: PageMeta) {
  *  analyzed identically from this point on. */
 async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Promise<StyleProfile> {
   const attempt = async (extra?: string) => {
-    const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
-      { type: 'text', text: `Page title (context only, not the subject): ${titleHint || '(none)'}${extra ? `\n\n${extra}` : ''}` },
-      { type: 'image_url', image_url: { url: dataUrl } },
-    ], 400)
-    return { raw, parsed: extractJson<Record<string, unknown>>(raw, '{') }
+    try {
+      const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
+        { type: 'text', text: `Page title (context only, not the subject): ${titleHint || '(none)'}${extra ? `\n\n${extra}` : ''}` },
+        { type: 'image_url', image_url: { url: dataUrl } },
+      ], 400)
+      return { raw, parsed: extractJson<Record<string, unknown>>(raw, '{') }
+    } catch (err) {
+      // json_object mode makes Groq itself reject a reply that never became
+      // valid JSON (a hard 400 "json_validate_failed"), not just hand back
+      // unparseable text — treated the same as an unparseable reply below so
+      // it gets the same retry instead of leaking Groq's raw error to the UI.
+      console.error('analyzeStyleFromDataUrl: groq call failed:', err instanceof Error ? err.message : err)
+      return { raw: '', parsed: null as Record<string, unknown> | null }
+    }
   }
 
   let { raw, parsed } = await attempt()
@@ -528,7 +545,12 @@ async function generatePlan(body: Record<string, unknown>) {
       : 'No referral/app link was analyzed — plan around the footage alone.',
   ].filter(Boolean).join('\n\n')
 
-  const raw = await groqChain(TEXT_MODEL_CHAIN, PLANNER, brief, 1400)
+  let raw = ''
+  try {
+    raw = await groqChain(TEXT_MODEL_CHAIN, PLANNER, brief, 1400)
+  } catch (err) {
+    console.error('generatePlan: groq call failed:', err instanceof Error ? err.message : err)
+  }
   const parsed = extractJson<{
     timeline?: Array<{ start: number; end: number; label: string }>
     checklist?: Record<string, boolean>
