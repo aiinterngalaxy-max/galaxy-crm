@@ -353,8 +353,64 @@ async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Prom
   }
 }
 
+const GRAPH = 'https://graph.facebook.com/v21.0'
+
+/** oEmbed matches on the canonical post URL and returns nothing for a share
+ *  link carrying ?igsh=…, a missing trailing slash, or the mobile host. */
+function canonicalInstagramUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim())
+    const m = u.pathname.match(/\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/)
+    if (!m) return raw.trim()
+    const kind = m[1] === 'reels' ? 'reel' : m[1]
+    return `https://www.instagram.com/${kind}/${m[2]}/`
+  } catch {
+    return raw.trim()
+  }
+}
+
+/**
+ * Instagram's official route, using the same Facebook app credential this
+ * project already has for the page sync — the only way to get a real cover
+ * image, since Instagram serves a blank, login-walled page to any other
+ * server-side fetch. Not guaranteed to succeed for a post the app doesn't
+ * manage — Meta restricts oEmbed for arbitrary public posts unless the app
+ * has that review approval — so a failure here is expected sometimes, not
+ * a bug: it just falls through to the "upload a screenshot" path below.
+ */
+async function instagramOEmbedThumbnail(url: string): Promise<{ thumbnail: string; title: string } | null> {
+  const appId = process.env.VITE_FB_APP_ID || process.env.FB_APP_ID
+  const appSecret = process.env.VITE_FB_APP_SECRET || process.env.FB_APP_SECRET
+  if (!appId || !appSecret) return null
+  const endpoint = `${GRAPH}/instagram_oembed?url=${encodeURIComponent(canonicalInstagramUrl(url))}&omitscript=true&fields=author_name,thumbnail_url,title&access_token=${appId}|${appSecret}`
+  try {
+    const res = await fetch(endpoint)
+    if (!res.ok) {
+      console.error('instagram_oembed failed:', res.status, (await res.text()).slice(0, 300))
+      return null
+    }
+    const j = await res.json()
+    if (!j?.thumbnail_url) return null
+    return { thumbnail: String(j.thumbnail_url), title: String(j.title || j.author_name || '') }
+  } catch (err) {
+    console.error('instagram_oembed threw:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 async function analyzeStyle(url: string): Promise<StyleProfile> {
   if (!/^https?:\/\//i.test(url)) throw new Error('Paste a full link starting with https://')
+
+  let host = ''
+  try { host = new URL(url).hostname.replace(/^www\./, '') } catch { /* already validated above */ }
+  if (host === 'instagram.com' || host.endsWith('.instagram.com')) {
+    const oembed = await instagramOEmbedThumbnail(url)
+    if (oembed) {
+      const dataUrl = await fetchAsDataUrl(oembed.thumbnail)
+      if (dataUrl) return analyzeStyleFromDataUrl(dataUrl, oembed.title)
+    }
+  }
+
   const meta = await fetchPageMeta(url)
   checkNotBotWalled(url, meta)
   if (!meta.image) {
