@@ -86,6 +86,16 @@ async function groq(model: string, system: string, content: string | ChatContent
       // follows the "return ONLY valid JSON" instruction on its own, which
       // is what was producing prose/refusals that failed to parse.
       response_format: { type: 'json_object' },
+      // Qwen defaults to a hidden "thinking" pass before answering, which was
+      // eating the whole max_tokens budget on invisible reasoning and leaving
+      // nothing for the actual JSON — every reply came back truncated/invalid
+      // regardless of the image. "none" turns thinking off outright (Qwen-only
+      // value; gpt-oss doesn't accept it, so it only gets the lightest
+      // reasoning effort it does support). reasoning_format keeps any
+      // reasoning that does happen out of the content field either way —
+      // Groq's own docs call this required when combined with JSON mode.
+      ...(model.startsWith('qwen/') ? { reasoning_effort: 'none' } : { reasoning_effort: 'low' }),
+      reasoning_format: 'hidden',
     }),
   })
   if (!res.ok) {
