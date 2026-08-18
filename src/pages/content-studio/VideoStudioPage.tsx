@@ -828,6 +828,7 @@ export function VideoStudioPage() {
                 {refPreviewLoading && <p className="text-[10px] text-gray-500 mt-1">Loading preview…</p>}
                 {refPreviewError && <p className="text-[10px] text-rose-400 mt-1">{refPreviewError}</p>}
                 {refPreview?.title && <p className="text-[10px] text-gray-500 mt-1 truncate">{refPreview.title}</p>}
+                {refPreview?.note && !refPreview.image && <p className="text-[10px] text-amber-500 mt-1">{refPreview.note}</p>}
               </div>
               {/* 9:16 by default (Reels/Shorts are the common case) — object-cover
                   crops rather than stretching, so it never distorts. */}

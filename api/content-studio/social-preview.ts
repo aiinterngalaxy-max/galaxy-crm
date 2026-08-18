@@ -32,6 +32,10 @@ export interface SocialPreview {
   image: string
   url: string
   type: SocialPreviewType
+  /** Set only when the image genuinely couldn't be found, with the SPECIFIC
+   *  reason — never a generic "something went wrong". Not a secret leak: it
+   *  states whether a credential is configured, never its value. */
+  note?: string
 }
 
 interface NormalizedUrl {
@@ -202,14 +206,26 @@ export async function getSocialPreview(rawUrl: string): Promise<SocialPreview> {
 
   let tags: ScrapedTags | null = null
 
+  let note: string | undefined
+
   if (platform === 'instagram') {
+    const hasCreds = !!((process.env.VITE_FB_APP_ID || process.env.FB_APP_ID) && (process.env.VITE_FB_APP_SECRET || process.env.FB_APP_SECRET))
     tags = await instagramOEmbed(url)
     if (!tags?.image && !isScrapeBlocked(url)) tags = { ...(tags ?? { title: '', description: '', image: '' }), ...(await scrapeTags(url)) }
+    if (!tags?.image) {
+      note = hasCreds
+        ? 'Instagram oEmbed did not return a cover for this link — the post may be private, or this app may not have oEmbed access approved for public content yet. Try uploading a screenshot instead.'
+        : 'FB_APP_ID/FB_APP_SECRET are not configured on the server, so Instagram\'s official preview API can\'t be used yet — add them in Vercel → Settings → Environment Variables, or upload a screenshot instead.'
+    }
   } else if (platform === 'youtube') {
     tags = await youtubeOEmbed(url)
     if (!tags?.image) tags = await scrapeTags(url)
+    if (!tags?.image) note = "Couldn't find a cover image for that video."
   } else if (!isScrapeBlocked(url)) {
     tags = await scrapeTags(url)
+    if (!tags?.image) note = "That page doesn't expose a public preview image."
+  } else {
+    note = "This platform blocks automated preview requests — there's no cover image to show for this link."
   }
 
   return {
@@ -219,6 +235,7 @@ export async function getSocialPreview(rawUrl: string): Promise<SocialPreview> {
     title: tags?.title || '',
     description: tags?.description || '',
     image: tags?.image || '',
+    ...(note ? { note } : {}),
   }
 }
 

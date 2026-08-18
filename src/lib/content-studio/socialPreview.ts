@@ -14,6 +14,8 @@ export interface SocialPreview {
   image: string
   url: string
   type: SocialPreviewType
+  /** Set only when the image genuinely couldn't be found, with the specific reason. */
+  note?: string
 }
 
 export async function getSocialPreview(url: string): Promise<SocialPreview> {
