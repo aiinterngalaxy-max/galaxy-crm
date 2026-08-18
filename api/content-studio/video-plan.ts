@@ -52,7 +52,24 @@ class GroqError extends Error {
   }
 }
 
-async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900): Promise<string> {
+/** Groq's own message names the exact wait, e.g. "Please try again in
+ *  3.637999995s" — parsed out so the retry waits the real amount instead of
+ *  a guessed fixed delay that might fire again too early. */
+function parseRetryAfterMs(bodyText: string): number | null {
+  const m = bodyText.match(/try again in ([\d.]+)s/i)
+  if (!m) return null
+  const seconds = Number(m[1])
+  return Number.isFinite(seconds) ? Math.ceil(seconds * 1000) + 250 : null
+}
+
+/**
+ * One automatic retry on 429, waiting whatever Groq's own message says (a
+ * per-minute token cap tied to burst usage, not a real outage — it clears
+ * itself within seconds). Only after that retry also fails does the raw
+ * error reach the caller, so a normal burst is invisible to the operator
+ * instead of surfacing Groq's internal JSON as an "error".
+ */
+async function groq(model: string, system: string, content: string | ChatContent[], maxTokens = 900, _retried = false): Promise<string> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${groqKey()}`, 'Content-Type': 'application/json' },
@@ -66,7 +83,16 @@ async function groq(model: string, system: string, content: string | ChatContent
       temperature: 0.8,
     }),
   })
-  if (!res.ok) throw new GroqError(res.status, `Groq ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  if (!res.ok) {
+    const bodyText = (await res.text()).slice(0, 300)
+    if (res.status === 429 && !_retried) {
+      const waitMs = parseRetryAfterMs(bodyText) ?? 4000
+      console.error(`groq 429 on ${model}, retrying once after ${waitMs}ms:`, bodyText)
+      await new Promise((r) => setTimeout(r, waitMs))
+      return groq(model, system, content, maxTokens, true)
+    }
+    throw new GroqError(res.status, `Groq ${res.status}: ${bodyText}`)
+  }
   const data = await res.json()
   return String(data?.choices?.[0]?.message?.content ?? '').trim()
 }
@@ -493,6 +519,11 @@ export default async function handler(req: Req, res: Res) {
     }
     res.status(400).json({ error: `Unknown action "${action}"` })
   } catch (err) {
+    if (err instanceof GroqError && err.status === 429) {
+      console.error('groq 429 after retry, giving up:', err.message)
+      res.status(503).json({ error: 'The AI is briefly at its rate limit — wait about 10 seconds and try again.' })
+      return
+    }
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }
 }
