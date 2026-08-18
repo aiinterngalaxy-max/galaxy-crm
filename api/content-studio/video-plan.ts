@@ -332,6 +332,7 @@ function checkNotBotWalled(url: string, meta: PageMeta) {
  *  below — a link's fetched cover image and a directly-uploaded one are
  *  analyzed identically from this point on. */
 async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Promise<StyleProfile> {
+  let lastFailure = ''
   const attempt = async (extra?: string) => {
     try {
       const raw = await groq(VISION_MODEL, STYLE_ANALYST, [
@@ -344,13 +345,15 @@ async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Prom
       // valid JSON (a hard 400 "json_validate_failed"), not just hand back
       // unparseable text — treated the same as an unparseable reply below so
       // it gets the same retry instead of leaking Groq's raw error to the UI.
-      console.error('analyzeStyleFromDataUrl: groq call failed:', err instanceof Error ? err.message : err)
+      lastFailure = `request rejected: ${err instanceof Error ? err.message : String(err)}`
+      console.error('analyzeStyleFromDataUrl: groq call failed:', lastFailure)
       return { raw: '', parsed: null as Record<string, unknown> | null }
     }
   }
 
   let { raw, parsed } = await attempt()
   if (!parsed) {
+    if (raw) lastFailure = `unparseable reply: ${raw.slice(0, 200)}`
     // Logged so a real diagnosis is possible (was it a refusal, prose,
     // markdown-wrapped JSON, something else?) instead of just "it failed" —
     // this was previously silent, giving no way to tell why.
@@ -360,9 +363,10 @@ async function analyzeStyleFromDataUrl(dataUrl: string, titleHint: string): Prom
     ))
   }
   if (!parsed) {
+    if (raw) lastFailure = `unparseable reply: ${raw.slice(0, 200)}`
     console.error('analyzeStyleFromDataUrl: retry also unparseable:', raw.slice(0, 500))
     throw new Error(
-      'The model could not read a usable style from that image after two attempts — try again in a moment, or try a different/clearer image.',
+      `The model could not read a usable style from that image after two attempts (${lastFailure || 'no response'}) — try again in a moment, or try a different/clearer image.`,
     )
   }
 
