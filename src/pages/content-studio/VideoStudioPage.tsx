@@ -7,6 +7,7 @@ import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEdit
 import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
+import { getSocialPreview, previewImageSrc, type SocialPreview } from '@/lib/content-studio/socialPreview'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
@@ -137,6 +138,12 @@ export function VideoStudioPage() {
   const [musicFile, setMusicFile] = useState<File | null>(null)
   const [muteOriginalAudio, setMuteOriginalAudio] = useState(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
+  // ---------- reference link preview (getSocialPreview) ----------
+  const [refPreview, setRefPreview] = useState<SocialPreview | null>(null)
+  const [refPreviewLoading, setRefPreviewLoading] = useState(false)
+  const [refPreviewError, setRefPreviewError] = useState('')
+  const [refImageFailed, setRefImageFailed] = useState(false)
+  const hydratedJobIdRef = useRef<number | null>(null)
   const multiClipInputRef = useRef<HTMLInputElement>(null)
   const replaceClipInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const musicInputRef = useRef<HTMLInputElement>(null)
@@ -206,6 +213,60 @@ export function VideoStudioPage() {
     setJob(saved)
     return saved
   }
+
+  interface CachedRefPreview { forUrl: string; preview: SocialPreview }
+
+  /** Fetches (or re-fetches) a reference link's preview and caches it onto
+   *  the job — never crashes, never hangs the UI: a failure just clears the
+   *  image and shows a plain message, the actual reason logged server-side. */
+  async function fetchRefPreview(url: string) {
+    const trimmed = url.trim()
+    if (!trimmed) { setRefPreview(null); setRefPreviewError(''); return }
+    setRefPreviewError('')
+    setRefImageFailed(false)
+    setRefPreviewLoading(true)
+    try {
+      const preview = await getSocialPreview(trimmed)
+      setRefPreview(preview)
+      const cached: CachedRefPreview = { forUrl: trimmed, preview }
+      await persist({ reference_meta: JSON.stringify(cached) }).catch(() => {}) // caching is best-effort, never blocks showing the result
+    } catch (err) {
+      setRefPreview(null)
+      setRefPreviewError(errText(err))
+    } finally {
+      setRefPreviewLoading(false)
+    }
+  }
+
+  /** Only re-fetches when the pasted link actually changed since the last
+   *  successful lookup — the whole point of caching is never re-scraping
+   *  the same URL just because the field lost focus again. */
+  function refreshRefPreviewIfChanged() {
+    const current = job?.reference_url?.trim() || ''
+    if (!current) { setRefPreview(null); setRefPreviewError(''); return }
+    const cached = parseJsonField<CachedRefPreview>(job?.reference_meta)
+    if (cached?.forUrl === current) return
+    fetchRefPreview(current)
+  }
+
+  // Hydrate from the cached preview (or fetch once) the first time a job
+  // loads — after that, only refreshRefPreviewIfChanged (on blur) touches
+  // the network, so switching tabs/re-rendering never re-fetches.
+  useEffect(() => {
+    if (!job || hydratedJobIdRef.current === job.id) return
+    hydratedJobIdRef.current = job.id
+    const cached = parseJsonField<CachedRefPreview>(job.reference_meta)
+    if (cached && cached.forUrl === job.reference_url) {
+      setRefPreview(cached.preview)
+      setRefPreviewError('')
+      setRefImageFailed(false)
+    } else if (job.reference_url?.trim()) {
+      fetchRefPreview(job.reference_url)
+    } else {
+      setRefPreview(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id])
 
   function handleError(err: unknown) {
     if (err instanceof GoogleDriveError) {
@@ -752,16 +813,39 @@ export function VideoStudioPage() {
             Add a website, app, social-media post, or reference video that the editor should use for this project.
           </p>
           <div className="space-y-2">
-            <div>
-              <label className="text-[10px] text-gray-600">Reference Link</label>
-              <input
-                ref={referenceInputRef}
-                className="form-input"
-                placeholder="Paste URL here"
-                value={job?.reference_url ?? ''}
-                onChange={(e) => persist({ reference_url: e.target.value })}
-                disabled={busy}
-              />
+            <div className="flex gap-3 items-start">
+              <div className="flex-1 min-w-0">
+                <label className="text-[10px] text-gray-600">Reference Link</label>
+                <input
+                  ref={referenceInputRef}
+                  className="form-input"
+                  placeholder="Paste URL here"
+                  value={job?.reference_url ?? ''}
+                  onChange={(e) => persist({ reference_url: e.target.value })}
+                  onBlur={refreshRefPreviewIfChanged}
+                  disabled={busy}
+                />
+                {refPreviewLoading && <p className="text-[10px] text-gray-500 mt-1">Loading preview…</p>}
+                {refPreviewError && <p className="text-[10px] text-rose-400 mt-1">{refPreviewError}</p>}
+                {refPreview?.title && <p className="text-[10px] text-gray-500 mt-1 truncate">{refPreview.title}</p>}
+              </div>
+              {/* 9:16 by default (Reels/Shorts are the common case) — object-cover
+                  crops rather than stretching, so it never distorts. */}
+              <div className="w-16 aspect-[9/16] shrink-0 rounded-md bg-gray-800 overflow-hidden flex items-center justify-center">
+                {refPreviewLoading ? (
+                  <LoadingSpinner size="sm" />
+                ) : refPreview?.image && !refImageFailed ? (
+                  <img
+                    src={previewImageSrc(refPreview.image)}
+                    alt={refPreview.title || 'Reference cover'}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                    onError={() => setRefImageFailed(true)}
+                  />
+                ) : (
+                  <span className="text-[9px] text-gray-600 text-center px-1 leading-tight">No cover available</span>
+                )}
+              </div>
             </div>
             <div>
               <label className="text-[10px] text-gray-600">Reference Notes (optional)</label>

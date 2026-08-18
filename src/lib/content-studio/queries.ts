@@ -773,7 +773,7 @@ export async function backfillShootLinks(): Promise<number> {
 
 // ---------- video jobs (AI auto-edit) ----------
 const VIDEO_JOB_COLS =
-  `id, content_id, reference_url, reference_notes, raw_drive_id, raw_view_url, raw_name, status,
+  `id, content_id, reference_url, reference_notes, reference_meta, raw_drive_id, raw_view_url, raw_name, status,
    silence_threshold_db, min_silence_sec, edited_drive_id, edited_view_url,
    trim_start, trim_end, caption_text, caption_position, captions, export_drive_id, export_view_url,
    error, regen_count, approved, approved_at, link_analysis, transcript, edit_plan,
@@ -879,7 +879,7 @@ export async function ensureVideoJob(contentId: number): Promise<VideoJob> {
 
 export async function updateVideoJob(id: number, data: Record<string, any>): Promise<VideoJob> {
   const editable = new Set([
-    'reference_url', 'reference_notes', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
+    'reference_url', 'reference_notes', 'reference_meta', 'raw_drive_id', 'raw_view_url', 'raw_name', 'status',
     'silence_threshold_db', 'min_silence_sec', 'edited_drive_id', 'edited_view_url',
     'trim_start', 'trim_end', 'caption_text', 'caption_position', 'captions', 'export_drive_id', 'export_view_url',
     'error', 'regen_count', 'approved', 'link_analysis', 'transcript', 'edit_plan', 'clip_segments',

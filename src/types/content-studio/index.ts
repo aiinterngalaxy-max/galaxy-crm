@@ -211,6 +211,8 @@ export interface VideoJob {
   reference_url: string;
   // What the editor should take from reference_url (style, pacing, hook, etc). Optional.
   reference_notes: string;
+  // Cached getSocialPreview(reference_url) result — a JSON-stringified SocialPreview, or ''.
+  reference_meta: string;
   raw_drive_id: string;
   raw_view_url: string;
   raw_name: string;

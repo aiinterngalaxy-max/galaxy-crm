@@ -169,6 +169,9 @@ export const SCHEMA: string[] = [
      reference_url TEXT DEFAULT '',
      -- What the editor should take from reference_url (style, pacing, hook, etc).
      reference_notes TEXT DEFAULT '',
+     -- Cached getSocialPreview(reference_url) result (JSON: platform/title/description/image/url/type) — same
+     -- convention as cmo_ideas.reference_meta. Re-fetched only when reference_url changes.
+     reference_meta TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -283,6 +286,7 @@ export const MIGRATE: string[] = [
      content_id INTEGER NOT NULL,
      reference_url TEXT DEFAULT '',
      reference_notes TEXT DEFAULT '',
+     reference_meta TEXT DEFAULT '',
      raw_drive_id TEXT DEFAULT '',
      raw_view_url TEXT DEFAULT '',
      raw_name TEXT DEFAULT '',
@@ -323,6 +327,7 @@ export const MIGRATE: string[] = [
   "ALTER TABLE cmo_video_jobs ADD COLUMN caption_position TEXT DEFAULT 'bottom'",
   "ALTER TABLE cmo_video_jobs ADD COLUMN captions TEXT DEFAULT '[]'",
   "ALTER TABLE cmo_video_jobs ADD COLUMN reference_notes TEXT DEFAULT ''",
+  "ALTER TABLE cmo_video_jobs ADD COLUMN reference_meta TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN review_status TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN review_feedback TEXT DEFAULT ''",
   "ALTER TABLE cmo_video_jobs ADD COLUMN reviewed_by TEXT DEFAULT ''",
