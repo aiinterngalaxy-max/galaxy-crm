@@ -376,6 +376,136 @@ export async function joinClips(
 }
 
 /**
+ * xfade transition names this app exposes, mapped 1:1 onto ffmpeg's own
+ * xfade filter (verified present in the deployed @ffmpeg/core@0.12.6 build
+ * via a live `-filters` probe before this was written — not assumed).
+ * 'none' is our own value (not an xfade transition) meaning a hard cut.
+ */
+export type TransitionType =
+  | 'none' | 'fade' | 'dissolve'
+  | 'wipeleft' | 'wiperight' | 'wipeup' | 'wipedown'
+  | 'slideleft' | 'slideright' | 'slideup' | 'slidedown'
+  | 'circleopen' | 'circleclose' | 'radial'
+
+export const TRANSITION_TYPES: { value: TransitionType; label: string }[] = [
+  { value: 'none', label: 'Hard cut (no transition)' },
+  { value: 'fade', label: 'Fade' },
+  { value: 'dissolve', label: 'Dissolve' },
+  { value: 'circleopen', label: 'Circle open (iris)' },
+  { value: 'circleclose', label: 'Circle close (iris)' },
+  { value: 'radial', label: 'Radial' },
+  { value: 'wipeleft', label: 'Wipe left' },
+  { value: 'wiperight', label: 'Wipe right' },
+  { value: 'wipeup', label: 'Wipe up' },
+  { value: 'wipedown', label: 'Wipe down' },
+  { value: 'slideleft', label: 'Slide left' },
+  { value: 'slideright', label: 'Slide right' },
+  { value: 'slideup', label: 'Slide up' },
+  { value: 'slidedown', label: 'Slide down' },
+]
+
+export interface InsertClipOptions {
+  /** Seconds into the CURRENT video where clip 2 takes over. Everything in
+   *  the current video after this point is replaced by clip 2, not kept —
+   *  inserting clip 2 in the middle and then resuming clip 1's original tail
+   *  afterward is a distinct, larger feature this does not attempt. */
+  insertAt: number
+  newClip: Blob
+  transition: TransitionType
+  /** Seconds the transition itself takes. Clamped to insertAt (can't crossfade
+   *  longer than the lead-in that exists to fade from) and to 3s (a longer
+   *  crossfade reads as a mistake, not a stylistic choice, in a short-form clip). */
+  duration: number
+}
+
+/**
+ * Pure filter_complex builder for applyInsertClip, split out so the actual
+ * string construction (transition name mapping, offset math, the 'none'
+ * hard-cut path) is unit-testable without a real ffmpeg runtime — ffmpeg.wasm
+ * itself can't run inside Vitest.
+ */
+export function buildInsertClipFilter(
+  width: number,
+  height: number,
+  insertAt: number,
+  duration: number,
+  transition: TransitionType,
+): { filterComplex: string; clampedDuration: number } {
+  const normalize = (idx: number, label: string) =>
+    `[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[${label}];` +
+    `[${idx}:a]aresample=44100,aformat=channel_layouts=stereo[a${label.slice(1)}]`
+
+  const dur = Math.max(0.1, Math.min(duration, insertAt, 3))
+  const before =
+    `[0:v]trim=end=${insertAt},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v0];` +
+    `[0:a]atrim=end=${insertAt},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo[a0]`
+  const after = normalize(1, 'v1')
+
+  if (transition === 'none') {
+    return { filterComplex: `${before};${after};[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]`, clampedDuration: dur }
+  }
+  const offset = Math.max(0, insertAt - dur)
+  const filterComplex =
+    `${before};${after};` +
+    `[v0][v1]xfade=transition=${transition}:duration=${dur}:offset=${offset}[outv];` +
+    `[a0][a1]acrossfade=d=${dur}[outa]`
+  return { filterComplex, clampedDuration: dur }
+}
+
+/**
+ * Cuts the current video at `insertAt` and continues into a second clip from
+ * there, either as a hard cut or through one of ffmpeg's native xfade
+ * transitions (including the circle/iris wipe) — the only way to combine two
+ * separate video sources this app has, since every other AI Edit effect
+ * transforms one existing source in place. Both clips are normalized to the
+ * FIRST clip's resolution/framerate before compositing, same reasoning and
+ * same filter chain as `joinClips` above (xfade requires matching streams).
+ */
+export async function applyInsertClip(
+  file: Blob,
+  { insertAt, newClip, transition, duration }: InsertClipOptions,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'insert-base.mp4'
+  const newName = 'insert-new.mp4'
+  const outputName = 'insert-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  await ffmpeg.writeFile(newName, new Uint8Array(await newClip.arrayBuffer()))
+
+  try {
+    if (insertAt <= 0) throw new AutoEditError('The insertion point has to be after the start of the video.')
+
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const { filterComplex } = buildInsertClipFilter(width, height, insertAt, duration, transition)
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-i', newName,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '[outa]',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not insert that clip. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(newName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+/**
  * Runs the full silence-removal auto-edit and returns the edited video as a
  * Blob. Everything happens client-side; nothing here uploads anything.
  */

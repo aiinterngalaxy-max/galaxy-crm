@@ -13,8 +13,9 @@ import {
   renderFinal, renderSegments, AutoEditError,
   applyCropAspect, applyZoomPan, applyWindowedSpeed, loopVideo,
   applyBlur, applyPixelate, applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction,
+  applyInsertClip, TRANSITION_TYPES,
   analyzeFootage,
-  type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize,
+  type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize, type TransitionType,
 } from '@/lib/content-studio/autoEdit'
 import {
   interpretInstruction, targetToCenter, directionToPanPoints,
@@ -1255,6 +1256,51 @@ export function VideoEditWorkspacePage() {
     }
   }
 
+  // ---------- insert a second clip, with an optional transition ----------
+  // The only AI Edit action that combines two separate video sources — every
+  // other hard-bake effect transforms the one already-loaded clip in place.
+  const insertClipInputRef = useRef<HTMLInputElement>(null)
+  const [insertClipFile, setInsertClipFile] = useState<File | null>(null)
+  const [insertAt, setInsertAt] = useState(0)
+  const [insertTransition, setInsertTransition] = useState<TransitionType>('circleopen')
+  const [insertDuration, setInsertDuration] = useState(1)
+  const [inserting, setInserting] = useState(false)
+  const [insertProgress, setInsertProgress] = useState<AutoEditProgress | null>(null)
+  const [insertError, setInsertError] = useState('')
+
+  function pickInsertClip(f: File) {
+    setInsertClipFile(f)
+    setInsertError('')
+    // Defaults to the current playhead position — the most common case is
+    // "insert clip 2 starting right where I'm looking now."
+    setInsertAt(Math.min(curTime || 0, Math.max(0, totalDuration - 0.1)))
+  }
+
+  async function confirmInsertClip() {
+    if (!insertClipFile || !sourceBlobRef.current) return
+    setInserting(true)
+    setInsertError('')
+    setInsertProgress(null)
+    try {
+      const blob = await applyInsertClip(
+        sourceBlobRef.current,
+        { insertAt, newClip: insertClipFile, transition: insertTransition, duration: insertDuration },
+        setInsertProgress,
+      )
+      const newDuration = await probeBlobDuration(blob)
+      const label = insertTransition === 'none'
+        ? `Insert clip at ${fmtTime(insertAt)} (hard cut)`
+        : `Insert clip at ${fmtTime(insertAt)} (${TRANSITION_TYPES.find((t) => t.value === insertTransition)?.label ?? insertTransition})`
+      await commitNewSource(blob, newDuration, label)
+      setInsertClipFile(null)
+      if (insertClipInputRef.current) insertClipInputRef.current.value = ''
+    } catch (err) {
+      setInsertError(err instanceof AutoEditError ? err.message : (err instanceof Error ? err.message : 'Could not insert that clip.'))
+    } finally {
+      setInserting(false)
+    }
+  }
+
   /**
    * Executes every pending command in order. crop/zoom/pan/speed/loop are
    * "hard-bake" operations — they re-render the actual source video (same
@@ -1919,6 +1965,81 @@ export function VideoEditWorkspacePage() {
               <p className="text-[10px] text-gray-600">
                 Every instruction is turned into a specific, reviewable edit before anything runs — nothing is applied without your confirmation above.
               </p>
+            </div>
+
+            {/* ---------- insert a second clip ---------- */}
+            <div className="rounded-lg border border-gray-800 p-3 space-y-2">
+              <h3 className="text-xs font-bold text-gray-300 flex items-center gap-1.5">🎬 Insert Clip</h3>
+              <p className="text-[10px] text-gray-600">
+                Cuts the video at a chosen point and continues into a second clip, with an optional transition — including a circle/iris wipe. Everything after the cut point is replaced by the new clip.
+              </p>
+              <input
+                ref={insertClipInputRef}
+                type="file"
+                accept="video/*"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) pickInsertClip(f) }}
+              />
+              <button
+                className="btn-secondary text-xs w-full disabled:opacity-50"
+                onClick={() => insertClipInputRef.current?.click()}
+                disabled={inserting || !sourceBlobRef.current}
+              >
+                {insertClipFile ? `Selected: ${insertClipFile.name}` : 'Choose a second clip…'}
+              </button>
+              {insertClipFile && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] text-gray-600">Insert at (seconds into current video)</label>
+                    <input
+                      type="number"
+                      className="form-input text-xs"
+                      min={0}
+                      max={Math.max(0, totalDuration - 0.1)}
+                      step={0.1}
+                      value={insertAt}
+                      onChange={(e) => setInsertAt(Math.max(0, Math.min(Number(e.target.value) || 0, Math.max(0, totalDuration - 0.1))))}
+                      disabled={inserting}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-600">Transition</label>
+                    <select
+                      className="form-input text-xs"
+                      value={insertTransition}
+                      onChange={(e) => setInsertTransition(e.target.value as TransitionType)}
+                      disabled={inserting}
+                    >
+                      {TRANSITION_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {insertTransition !== 'none' && (
+                    <div>
+                      <label className="text-[10px] text-gray-600">Transition duration (seconds)</label>
+                      <input
+                        type="number"
+                        className="form-input text-xs"
+                        min={0.1}
+                        max={3}
+                        step={0.1}
+                        value={insertDuration}
+                        onChange={(e) => setInsertDuration(Math.max(0.1, Math.min(Number(e.target.value) || 0.1, 3)))}
+                        disabled={inserting}
+                      />
+                    </div>
+                  )}
+                  <button
+                    className="btn-primary text-xs w-full disabled:opacity-50"
+                    onClick={confirmInsertClip}
+                    disabled={inserting}
+                  >
+                    {inserting ? progressLabel(insertProgress, 'Inserting…') : 'Insert Clip'}
+                  </button>
+                </div>
+              )}
+              {insertError && <p className="text-[11px] text-rose-400">{insertError}</p>}
             </div>
 
             {/* ---------- text tool ---------- */}

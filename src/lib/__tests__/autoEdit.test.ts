@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSilenceLog, computeKeepSegments, atempoChain } from '../content-studio/autoEdit'
+import { parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
   it('pairs up start/end lines in ffmpeg silencedetect output', () => {
@@ -107,5 +107,49 @@ describe('atempoChain', () => {
       const product = chain.split(',').reduce((acc, part) => acc * Number(part.split('=')[1]), 1)
       expect(product).toBeCloseTo(factor, 5)
     }
+  })
+})
+
+describe('buildInsertClipFilter', () => {
+  it("builds a plain concat (no xfade) for transition 'none'", () => {
+    const { filterComplex, clampedDuration } = buildInsertClipFilter(640, 360, 4, 1, 'none')
+    expect(filterComplex).toContain('concat=n=2:v=1:a=1[outv][outa]')
+    expect(filterComplex).not.toContain('xfade')
+    expect(clampedDuration).toBe(1)
+  })
+
+  it('builds an xfade + acrossfade pair for the circle/iris transition (the original ask)', () => {
+    const { filterComplex } = buildInsertClipFilter(640, 360, 4, 2, 'circleopen')
+    expect(filterComplex).toContain('xfade=transition=circleopen:duration=2:offset=2')
+    expect(filterComplex).toContain('acrossfade=d=2')
+  })
+
+  it('trims the base clip to end exactly at insertAt', () => {
+    const { filterComplex } = buildInsertClipFilter(640, 360, 4, 1, 'fade')
+    expect(filterComplex).toContain('[0:v]trim=end=4,')
+    expect(filterComplex).toContain('[0:a]atrim=end=4,')
+  })
+
+  it('normalizes both inputs to the same width/height/fps so xfade can accept them', () => {
+    const { filterComplex } = buildInsertClipFilter(720, 1280, 5, 1, 'wipeleft')
+    expect(filterComplex).toContain('scale=720:1280:force_original_aspect_ratio=decrease')
+    expect(filterComplex.match(/fps=30/g)?.length).toBe(2) // both v0 and v1 normalized
+  })
+
+  it('clamps the transition duration to the available lead-in (cannot crossfade longer than insertAt)', () => {
+    const { filterComplex, clampedDuration } = buildInsertClipFilter(640, 360, 1.5, 5, 'fade')
+    expect(clampedDuration).toBe(1.5)
+    expect(filterComplex).toContain('duration=1.5')
+    expect(filterComplex).toContain('offset=0') // dur === insertAt, so no lead-in before the transition
+  })
+
+  it('clamps the transition duration to a 3s ceiling even with a long lead-in available', () => {
+    const { clampedDuration } = buildInsertClipFilter(640, 360, 20, 8, 'dissolve')
+    expect(clampedDuration).toBe(3)
+  })
+
+  it('never lets clampedDuration fall below 0.1s', () => {
+    const { clampedDuration } = buildInsertClipFilter(640, 360, 4, 0, 'fade')
+    expect(clampedDuration).toBe(0.1)
   })
 })
