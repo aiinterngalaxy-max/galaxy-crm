@@ -1193,7 +1193,11 @@ export function VideoEditWorkspacePage() {
   const [styleMatching, setStyleMatching] = useState(false)
   const [styleError, setStyleError] = useState('')
   const [styleVibe, setStyleVibe] = useState('')
+  const [styleImagePreviewUrl, setStyleImagePreviewUrl] = useState('')
   const styleImageInputRef = useRef<HTMLInputElement>(null)
+  const styleImagePreviewUrlRef = useRef('')
+
+  useEffect(() => () => { if (styleImagePreviewUrlRef.current) URL.revokeObjectURL(styleImagePreviewUrlRef.current) }, [])
 
   function applyStyleProfile(profile: Awaited<ReturnType<typeof analyzeReferenceStyle>>) {
     const textLayers = overlays.map((o) => ({ id: o.id, text: o.text, start: o.start, end: o.end }))
@@ -1212,6 +1216,8 @@ export function VideoEditWorkspacePage() {
     setStyleError('')
     setStyleVibe('')
     setAiPendingCommands(null)
+    if (styleImagePreviewUrlRef.current) { URL.revokeObjectURL(styleImagePreviewUrlRef.current); styleImagePreviewUrlRef.current = '' }
+    setStyleImagePreviewUrl('')
     setStyleMatching(true)
     try {
       applyStyleProfile(await analyzeReferenceStyle(url))
@@ -1232,6 +1238,12 @@ export function VideoEditWorkspacePage() {
     setStyleError('')
     setStyleVibe('')
     setAiPendingCommands(null)
+    // Shown immediately — this is the file the operator just picked, no
+    // server round-trip needed to display it, only to analyze it.
+    if (styleImagePreviewUrlRef.current) URL.revokeObjectURL(styleImagePreviewUrlRef.current)
+    const localUrl = URL.createObjectURL(file)
+    styleImagePreviewUrlRef.current = localUrl
+    setStyleImagePreviewUrl(localUrl)
     setStyleMatching(true)
     try {
       applyStyleProfile(await analyzeReferenceStyleImage(file))
@@ -1832,6 +1844,15 @@ export function VideoEditWorkspacePage() {
               >
                 {styleMatching ? 'Analyzing style…' : 'Or Upload a Screenshot of the Reel Instead'}
               </button>
+              {styleImagePreviewUrl && (
+                <div className="flex justify-center">
+                  <img
+                    src={styleImagePreviewUrl}
+                    alt="Uploaded reference cover"
+                    className="w-24 aspect-[9/16] object-cover rounded-md border border-gray-700"
+                  />
+                </div>
+              )}
               {styleError && <p className="text-[11px] text-rose-400">{styleError}</p>}
               {styleVibe && (
                 <p className="text-[11px] text-gray-500 italic">
