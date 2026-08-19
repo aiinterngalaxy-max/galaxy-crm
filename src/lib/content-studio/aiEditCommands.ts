@@ -80,6 +80,18 @@ export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: 
 export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
 export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
 export interface ReverseCommand { type: 'reverse' }
+/** A "spotlight" region effect — the frame stays normal INSIDE the shape and
+ *  is darkened OUTSIDE it, for [start,end]. There's no chroma key/background
+ *  removal in this tool, so this is the realistic version of "mask"/"circle
+ *  mask"/"rectangle mask": drawing attention to a region, not compositing a
+ *  second layer through a cutout. x/y/size/feather all default to a centered,
+ *  medium spotlight if omitted — unlike a timestamp or amount, "where" a mask
+ *  goes has a reasonable default (the middle of the frame) worth using rather
+ *  than always asking. */
+export interface MaskCommand {
+  type: 'mask'; start: number; end: number; shape: 'circle' | 'rect'
+  x?: number; y?: number; size?: number; feather?: number
+}
 /** Modifies an EXISTING text/caption overlay rather than adding one.
  *  `overlayId`/`text` are resolved by validateCommand the same way as
  *  RemoveTextCommand (never guessed by the AI) — ONLY the fields the
@@ -106,8 +118,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -119,12 +131,12 @@ export interface RemoveEffectCommand { type: 'remove_effect'; effectType: Effect
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
-  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand
+  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop',
+  'audio_volume', 'mute', 'music', 'loop', 'mask',
   'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
@@ -440,6 +452,23 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: type as 'blur' | 'pixelate', ...w, strength }
     }
 
+    case 'mask': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const shapeRaw = str(c.shape)
+      if (shapeRaw !== 'circle' && shapeRaw !== 'rect') {
+        return { error: 'Mask shape has to be "circle" or "rect".' }
+      }
+      const x = num(c.x) ?? 0.5
+      const y = num(c.y) ?? 0.5
+      const size = num(c.size) ?? 0.35
+      const feather = num(c.feather) ?? 0.12
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: 'Mask position (x/y) has to be between 0 and 1 — a fraction of the frame.' }
+      if (size < 0.05 || size > 0.9) return { error: 'Mask size has to be between 0.05 and 0.9 — a fraction of the frame.' }
+      if (feather < 0 || feather > 0.3) return { error: 'Mask feather has to be between 0 and 0.3.' }
+      return { type: 'mask', ...w, shape: shapeRaw, x, y, size, feather }
+    }
+
     case 'color': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -619,6 +648,7 @@ music       { "type": "music", "action": "volume" | "remove", "volume": number }
 loop        { "type": "loop", "times": integer }  — 2 to 10, total number of plays
 blur        { "type": "blur", "start": number, "end": number, "strength": number }  — WHOLE-FRAME blur only, strength 1-20. There is no person/object/background detection in this tool — if the instruction asks to blur only the background, only a person, or only an object (not the whole frame), you MUST use clarification instead, explaining plainly that only whole-frame blur is available and asking if they'd like that instead. Never silently apply a whole-frame blur to a "blur just the background" request.
 pixelate    { "type": "pixelate", "start": number, "end": number, "strength": number }  — same whole-frame-only rule as blur.
+mask        { "type": "mask", "start": number, "end": number, "shape": "circle" | "rect", "x"?: number, "y"?: number, "size"?: number, "feather"?: number }  — a SPOTLIGHT effect: the video stays normal INSIDE the shape and is darkened OUTSIDE it, for [start,end]. This is NOT a cutout/compositing mask — there's no chroma key, background removal, or second layer in this tool, so "cut me out and put me on a different background" or "remove the background" is NOT achievable with this command; that must be a clarification explaining plainly that only a darken-outside spotlight is available, never silently applied as if it were background removal. x/y are the CENTER of the shape as a 0-1 fraction of the frame (0.5,0.5 = middle) — default to 0.5,0.5 if not said. size is how big the shape is, 0.05 (tiny) to 0.9 (nearly full-frame), default 0.35. feather is edge softness, 0 (hard edge) to 0.3 (very soft), default 0.12. Map "spotlight the person"/"circle around the product"/"highlight the middle" to this with sensible defaults rather than asking, UNLESS the instruction gives no usable time window at all.
 color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "vignette"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter), contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated), warmth -1 (cooler/blue)..1 (warmer/orange), vignette 0 (none)..1 (strong, darkened edges). Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
 fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
@@ -628,7 +658,7 @@ text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?
 text_edit   { "type": "text_edit", "target"?: string, "text": string }  — CHANGES THE WORDING of an existing text/caption overlay (never its styling — use text_style for that). Use this for "add a 🔥 emoji to the CEO text", "change the text to say...", "add an emoji to it". "text" is the FULL new wording — if the instruction adds to existing text (e.g. an emoji) rather than replacing it outright, look up that layer's CURRENT text in the CURRENT PROJECT STATE above and compose the new full string yourself (existing text + the emoji/change), don't just send the emoji alone. "target" is the wording hint identifying which layer, same rules as text_style/remove_text — omit for "it"/"that text".
 captions_auto { "type": "captions_auto" }  — auto-generates timed captions from the video's real speech (actual transcription). Use for "add captions"/"add subtitles"/"caption this" with no text of their own given.
 audio_noise_reduction { "type": "audio_noise_reduction" }  — reduces steady background hiss/hum in the original audio.
-remove_effect { "type": "remove_effect", "effectType": "crop"|"zoom"|"pan"|"speed"|"loop"|"blur"|"pixelate"|"color"|"fade"|"rotate"|"flip"|"reverse"|"audio_noise_reduction" }  — removes a previously-applied hard-baked effect, e.g. "remove the blur"/"undo the pixelation"/"take off that color filter". Never ask for strength/start/end to do this — just identify WHICH effect type is meant from the instruction and the CURRENT PROJECT STATE above.
+remove_effect { "type": "remove_effect", "effectType": "crop"|"zoom"|"pan"|"speed"|"loop"|"blur"|"pixelate"|"color"|"fade"|"rotate"|"flip"|"reverse"|"audio_noise_reduction"|"mask" }  — removes a previously-applied hard-baked effect, e.g. "remove the blur"/"undo the pixelation"/"take off that color filter"/"remove the spotlight". Never ask for strength/start/end to do this — just identify WHICH effect type is meant from the instruction and the CURRENT PROJECT STATE above.
 
 Examples:
 "Zoom into the person from 5 to 8 seconds." → {"commands":[{"type":"zoom","start":5,"end":8,"fromScale":1,"toScale":1.5,"target":"center"}]}
@@ -798,6 +828,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'rotate': return `Rotate ${cmd.degrees}°`
     case 'flip': return `Flip ${cmd.axis}`
     case 'reverse': return 'Reverse video'
+    case 'mask': return `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} spotlight ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'text_edit': return `Edit text → "${cmd.text}"`
     case 'captions_auto': return 'Auto-generate captions from speech'
@@ -841,6 +872,11 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame (not just background/person)'] }
     case 'pixelate':
       return { title: 'Pixelate', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame'] }
+    case 'mask':
+      return {
+        title: `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} Spotlight`,
+        lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Normal inside, darkened outside'],
+      }
     case 'color': {
       const lines: string[] = []
       if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)

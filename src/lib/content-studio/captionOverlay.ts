@@ -171,3 +171,63 @@ export async function renderCaptionImage(
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not render the caption image.'))), 'image/png')
   })
 }
+
+export interface MaskImageInput {
+  shape: 'circle' | 'rect'
+  /** Center of the shape, 0-1 fraction of the frame. */
+  x: number
+  y: number
+  /** Radius (circle) or half-side (rect), as a fraction of the SHORTER
+   *  frame dimension, so a mask reads the same relative size on portrait
+   *  and landscape footage alike. */
+  size: number
+  /** Edge softness as a fraction of size — 0 is a hard edge. */
+  feather: number
+}
+
+/**
+ * A white-background, black-shape grayscale mask (feathered at the shape's
+ * edge via Canvas's own blur filter) — consumed by ffmpeg's `maskedmerge` to
+ * build a spotlight effect (verified against a live ffmpeg.wasm render:
+ * `maskedmerge` shows its BASE stream where the mask is BLACK, its OVERLAY
+ * stream where WHITE — so black-shape-on-white here means "normal video
+ * where the shape is, darkened everywhere else" when base=normal,
+ * overlay=darkened). Same "render a PNG, hand it to ffmpeg" pattern as
+ * renderCaptionImage above, reused rather than inventing a second approach.
+ */
+export async function renderMaskImage(
+  mask: MaskImageInput,
+  frameWidth: number,
+  frameHeight: number,
+): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  canvas.width = frameWidth
+  canvas.height = frameHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D is not available in this browser.')
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, frameWidth, frameHeight)
+
+  const shortSide = Math.min(frameWidth, frameHeight)
+  const cx = mask.x * frameWidth
+  const cy = mask.y * frameHeight
+  const radius = Math.max(2, mask.size * shortSide)
+  const featherPx = Math.max(0, Math.min(radius - 1, mask.feather * radius))
+
+  ctx.filter = featherPx > 0 ? `blur(${featherPx}px)` : 'none'
+  ctx.fillStyle = '#000000'
+  ctx.beginPath()
+  const inset = Math.max(1, radius - featherPx)
+  if (mask.shape === 'circle') {
+    ctx.arc(cx, cy, inset, 0, Math.PI * 2)
+  } else {
+    ctx.rect(cx - inset, cy - inset, inset * 2, inset * 2)
+  }
+  ctx.fill()
+  ctx.filter = 'none'
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not render the mask image.'))), 'image/png')
+  })
+}

@@ -336,6 +336,32 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('mask', () => {
+    it('accepts a minimal circle mask, filling in defaults', () => {
+      const result = validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle' }, ctx)
+      expect(result).toEqual({ type: 'mask', start: 0, end: 5, shape: 'circle', x: 0.5, y: 0.5, size: 0.35, feather: 0.12 })
+    })
+    it('accepts a rect mask with explicit position/size/feather', () => {
+      const result = validateCommand({ type: 'mask', start: 1, end: 4, shape: 'rect', x: 0.2, y: 0.8, size: 0.5, feather: 0 }, ctx)
+      expect(result).toMatchObject({ shape: 'rect', x: 0.2, y: 0.8, size: 0.5, feather: 0 })
+    })
+    it('rejects a missing/invalid shape rather than guessing', () => {
+      expect(validateCommand({ type: 'mask', start: 0, end: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'triangle' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle', x: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle', y: -0.1 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects size outside 0.05-0.9', () => {
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle', size: 0.01 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle', size: 1 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects feather outside 0-0.3', () => {
+      expect(validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle', feather: 0.5 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -631,6 +657,7 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'mute', muted: true },
     { type: 'music', action: 'remove' },
     { type: 'loop', times: 3 },
+    { type: 'mask', start: 1, end: 4, shape: 'circle', x: 0.5, y: 0.5, size: 0.35, feather: 0.12 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

@@ -13,7 +13,7 @@
  * A reference link is stored elsewhere purely as a note for a human editor.
  */
 import type { FFmpeg } from '@ffmpeg/ffmpeg'
-import { renderCaptionImage } from './captionOverlay'
+import { renderCaptionImage, renderMaskImage } from './captionOverlay'
 
 export class AutoEditError extends Error {}
 
@@ -1360,6 +1360,95 @@ export async function applyColorAdjust(file: Blob, opts: ColorAdjustOptions, onP
   }
   if (!parts.length) return file // nothing actually requested to change
   return runOneVideoFilter(file, parts.join(','), 'Could not adjust the color of the video.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface MaskOptions {
+  start: number
+  end: number
+  shape: 'circle' | 'rect'
+  x: number
+  y: number
+  size: number
+  feather: number
+}
+
+/**
+ * Pure filter_complex builder for applyMask, split out for the same reason
+ * as buildInsertClipFilter — unit-testable without a real ffmpeg runtime.
+ *
+ * Verified against a real render (not assumed): maskedmerge shows its BASE
+ * stream (first input) where the mask is black, its OVERLAY stream (second
+ * input) where white. The mask PNG is black-shape-on-white (see
+ * renderMaskImage), so base=normal/overlay=darkened gives "normal inside the
+ * shape, darkened outside" — the reverse pairing was tried first and
+ * produced an inverted (dark-inside) result in testing.
+ */
+export function buildMaskFilter(start: number, end: number): string {
+  return (
+    `[0:v]split=2[base][toDark];` +
+    `[toDark]eq=brightness=-0.5[dark];` +
+    `[1:v]format=gray,loop=-1:size=1[maskloop];` +
+    `[base][dark][maskloop]maskedmerge=enable='between(t\\,${start}\\,${end})'[outv]`
+  )
+}
+
+/**
+ * A "spotlight" region effect over [start,end] — normal video inside the
+ * shape, darkened outside it. Not a cutout/compositing mask (no chroma key
+ * or background removal exists in this tool); this is the realistic version
+ * of "circle mask"/"rectangle mask" given that constraint.
+ *
+ * Built on ffmpeg's `maskedmerge` filter against a static feathered shape
+ * PNG (renderMaskImage, captionOverlay.ts) — needs two video inputs (the
+ * darkened frame, the mask) plus the original, so unlike the single-`-vf`
+ * effects above this builds its own filter_complex, closer in shape to
+ * applyInsertClip than to applyBlur/applyColorAdjust.
+ */
+export async function applyMask(
+  file: Blob,
+  { start, end, shape, x, y, size, feather }: MaskOptions,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'mask-input.mp4'
+  const maskName = 'mask-shape.png'
+  const outputName = 'mask-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const maskPng = await renderMaskImage({ shape, x, y, size, feather }, width, height)
+    await ffmpeg.writeFile(maskName, new Uint8Array(await maskPng.arrayBuffer()))
+
+    const filterComplex = buildMaskFilter(start, end)
+
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-loop', '1', '-i', maskName,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      // The looped mask PNG has no natural end (that's the point — it has
+      // to cover the whole clip), so without -shortest ffmpeg never sees
+      // all inputs finish and renders forever. Caught by testing: a 4s
+      // clip ran past 6 real minutes of output before this was added.
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the mask/spotlight. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(maskName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
 }
 
 export interface VideoFadeOptions { direction: 'in' | 'out'; duration: number; durationSec: number }

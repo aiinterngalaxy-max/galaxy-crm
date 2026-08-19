@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter } from '../content-studio/autoEdit'
+import { parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
   it('pairs up start/end lines in ffmpeg silencedetect output', () => {
@@ -151,5 +151,28 @@ describe('buildInsertClipFilter', () => {
   it('never lets clampedDuration fall below 0.1s', () => {
     const { clampedDuration } = buildInsertClipFilter(640, 360, 4, 0, 'fade')
     expect(clampedDuration).toBe(0.1)
+  })
+})
+
+describe('buildMaskFilter', () => {
+  it('darkens via a split + eq=brightness stage, gated to the time window', () => {
+    const fc = buildMaskFilter(2, 5)
+    expect(fc).toContain('split=2[base][toDark]')
+    expect(fc).toContain('eq=brightness=-0.5')
+    expect(fc).toContain("between(t\\,2\\,5)")
+  })
+
+  it('base stream (normal) is the FIRST maskedmerge input, dark is second — normal shows where the mask is black', () => {
+    // Verified against a real ffmpeg render: maskedmerge shows its base
+    // (1st) stream where the mask is black, overlay (2nd) where white — the
+    // reverse order was tried first and produced an inverted (dark-inside)
+    // spotlight in testing.
+    const fc = buildMaskFilter(0, 3)
+    expect(fc).toMatch(/\[base\]\[dark\]\[maskloop\]maskedmerge/)
+  })
+
+  it('loops the single mask PNG across the whole stream so it holds for the full window', () => {
+    const fc = buildMaskFilter(0, 3)
+    expect(fc).toContain('loop=-1:size=1')
   })
 })
