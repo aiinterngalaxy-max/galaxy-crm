@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter } from '../content-studio/autoEdit'
+import {
+  parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
+  LOOK_RECIPES, hueToColorbalanceShift,
+} from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
   it('pairs up start/end lines in ffmpeg silencedetect output', () => {
@@ -174,5 +177,44 @@ describe('buildMaskFilter', () => {
   it('loops the single mask PNG across the whole stream so it holds for the full window', () => {
     const fc = buildMaskFilter(0, 3)
     expect(fc).toContain('loop=-1:size=1')
+  })
+})
+
+describe('hueToColorbalanceShift', () => {
+  it('produces a positive blue shift and negative red shift for a blue hue (200deg)', () => {
+    const { r, b } = hueToColorbalanceShift(200)
+    expect(Number(b)).toBeGreaterThan(0)
+    expect(Number(r)).toBeLessThan(0)
+  })
+  it('produces a positive red shift for a red hue (0deg)', () => {
+    const { r } = hueToColorbalanceShift(0)
+    expect(Number(r)).toBeGreaterThan(0)
+  })
+  it('wraps hues outside 0-360 the same as their in-range equivalent', () => {
+    expect(hueToColorbalanceShift(560)).toEqual(hueToColorbalanceShift(200))
+    expect(hueToColorbalanceShift(-160)).toEqual(hueToColorbalanceShift(200))
+  })
+})
+
+describe('LOOK_RECIPES', () => {
+  it('has a recipe for every LookName the command vocabulary advertises', () => {
+    const names = ['sepia', 'negative', 'tealOrange', 'vintage', 'cinematic', 'hdr', 'colorize', 'duotone', 'oldFilm', 'super8', 'polaroid', 'camcorder']
+    for (const name of names) expect(LOOK_RECIPES).toHaveProperty(name)
+  })
+  it('every recipe produces a non-empty filter string that honors the enable window it is given', () => {
+    const w = ":enable='between(t\\,1\\,3)'"
+    for (const [name, recipe] of Object.entries(LOOK_RECIPES)) {
+      const vf = recipe(w, 200)
+      expect(vf.length, `${name} produced an empty filter string`).toBeGreaterThan(0)
+      expect(vf, `${name} did not include its enable window`).toContain(w)
+    }
+  })
+  it('negative uses the negate filter (a full color invert)', () => {
+    expect(LOOK_RECIPES.negative('', 0)).toContain('negate')
+  })
+  it('colorize response changes with hueDegrees (not a fixed/ignored parameter)', () => {
+    const blue = LOOK_RECIPES.colorize('', 200)
+    const red = LOOK_RECIPES.colorize('', 0)
+    expect(blue).not.toBe(red)
   })
 })

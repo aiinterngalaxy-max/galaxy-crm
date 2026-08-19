@@ -12,7 +12,7 @@ import {
 import {
   renderFinal, renderSegments, AutoEditError,
   applyCropAspect, applyZoomPan, applyWindowedSpeed, loopVideo,
-  applyBlur, applyPixelate, applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction, applyMask,
+  applyBlur, applyPixelate, applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction, applyMask, applyLook,
   applyInsertClip, TRANSITION_TYPES,
   analyzeFootage,
   type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize, type TransitionType,
@@ -1325,8 +1325,8 @@ export function VideoEditWorkspacePage() {
     setAiEditError('')
     setAiProgress(null)
     try {
-      type HardBakeType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask'
-      const HARD_BAKE_TYPES: HardBakeType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask']
+      type HardBakeType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look'
+      const HARD_BAKE_TYPES: HardBakeType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look']
       const isHardBake = (c: EditCommand): c is Extract<EditCommand, { type: HardBakeType }> => (HARD_BAKE_TYPES as string[]).includes(c.type)
       const hardBake = commands.filter(isHardBake)
       const soft = commands.filter((c) => !isHardBake(c))
@@ -1358,7 +1358,7 @@ export function VideoEditWorkspacePage() {
         const ordered = [
           ...hardBake.filter((c) => c.type === 'crop' || c.type === 'rotate' || c.type === 'flip'),
           ...hardBake.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
-          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'pixelate' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask'),
+          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'pixelate' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask' || c.type === 'look'),
           ...hardBake.filter((c) => c.type === 'reverse'),
           ...hardBake.filter((c) => c.type === 'loop'),
         ]
@@ -1393,6 +1393,8 @@ export function VideoEditWorkspacePage() {
               start: cmd.start, end: cmd.end, shape: cmd.shape,
               x: cmd.x ?? 0.5, y: cmd.y ?? 0.5, size: cmd.size ?? 0.35, feather: cmd.feather ?? 0.12,
             }, setAiProgress)
+          } else if (cmd.type === 'look') {
+            blob = await applyLook(blob, { start: cmd.start, end: cmd.end, name: cmd.name, hueDegrees: cmd.hueDegrees }, setAiProgress)
           } else if (cmd.type === 'fade') {
             blob = await applyVideoFade(blob, { direction: cmd.direction, duration: cmd.duration, durationSec: bakedDurationSec }, setAiProgress)
           } else if (cmd.type === 'rotate') {

@@ -1405,6 +1405,73 @@ export async function applyColorAdjust(file: Blob, opts: ColorAdjustOptions, onP
   return runOneVideoFilter(file, parts.join(','), 'Could not adjust the color of the video.', onProgress, ['-c:a', 'copy'])
 }
 
+export type LookName =
+  | 'sepia' | 'negative' | 'tealOrange' | 'vintage' | 'cinematic' | 'hdr'
+  | 'colorize' | 'duotone' | 'oldFilm' | 'super8' | 'polaroid' | 'camcorder'
+
+/**
+ * One fixed filter recipe per look, built only from filters independently
+ * confirmed present in this deployed ffmpeg.wasm core (a live `-h filter=X`
+ * probe, not assumed from ffmpeg's general docs — the same discipline that
+ * caught unsharp's real msize ceiling above). `vintage`/`increase_contrast`
+ * are ffmpeg's OWN built-in `curves` presets, not hand-tuned control points.
+ * Each stage carries its own `enable=` window (`w`) rather than one shared
+ * wrapper, matching applyColorAdjust's pattern.
+ */
+/**
+ * hue (degrees) -> a colorbalance-style -1..1 RGB shift, used by 'colorize'.
+ *
+ * The first attempt used the `hue` filter's own h=/s= options (desaturate,
+ * then set hue+boost saturation) — verified WRONG by testing: `hue`'s h=
+ * ROTATES each pixel's existing hue by that many degrees, it does not set
+ * an absolute target hue, so differently-colored source pixels stayed
+ * differently colored, just all rotated — the opposite of "tint everything
+ * toward one color". Switched to the same technique 'duotone' already uses
+ * successfully (desaturate, then colorbalance's ADDITIVE per-channel shift,
+ * which is NOT dependent on existing saturation the way hue's multiplier
+ * is) — confirmed via real pixel sampling to produce a consistent single
+ * hue across differently-lit regions, unlike the first attempt.
+ */
+export function hueToColorbalanceShift(hueDegrees: number): { r: string; g: string; b: string } {
+  const h = ((hueDegrees % 360) + 360) % 360 / 60
+  const x = 1 - Math.abs((h % 2) - 1)
+  let r: number, g: number, b: number
+  if (h < 1) [r, g, b] = [1, x, 0]
+  else if (h < 2) [r, g, b] = [x, 1, 0]
+  else if (h < 3) [r, g, b] = [0, 1, x]
+  else if (h < 4) [r, g, b] = [0, x, 1]
+  else if (h < 5) [r, g, b] = [x, 0, 1]
+  else [r, g, b] = [1, 0, x]
+  const scale = 0.3
+  return { r: ((r - 0.5) * 2 * scale).toFixed(3), g: ((g - 0.5) * 2 * scale).toFixed(3), b: ((b - 0.5) * 2 * scale).toFixed(3) }
+}
+
+export const LOOK_RECIPES: Record<LookName, (w: string, hueDegrees: number) => string> = {
+  sepia: (w) => `colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131:0${w}`,
+  negative: (w) => `negate${w}`,
+  tealOrange: (w) => `colorbalance=rs=-0.15:gs=0.03:bs=0.15:rh=0.15:gh=0.02:bh=-0.15${w}`,
+  vintage: (w) => `curves=preset=vintage${w}`,
+  cinematic: (w) => `eq=contrast=1.1:saturation=0.85${w},colorbalance=rs=-0.1:bs=0.12:rh=0.12:bh=-0.08${w},vignette=angle=PI/6${w}`,
+  hdr: (w) => `curves=preset=increase_contrast${w},eq=saturation=1.3${w},unsharp=luma_msize_x=13:luma_msize_y=13:luma_amount=0.5${w}`,
+  colorize: (w, hue) => {
+    const { r, g, b } = hueToColorbalanceShift(hue)
+    return `eq=saturation=0${w},colorbalance=rs=${r}:gs=${g}:bs=${b}:rm=${r}:gm=${g}:bm=${b}:rh=${r}:gh=${g}:bh=${b}${w}`
+  },
+  duotone: (w) => `eq=saturation=0${w},colorbalance=rs=-0.2:bs=0.25:rh=0.25:gh=0.1:bh=-0.2${w}`,
+  oldFilm: (w) => `curves=preset=vintage${w},eq=contrast=1.1:saturation=0.7${w},noise=alls=15:allf=t${w},vignette=angle=PI/5${w}`,
+  super8: (w) => `eq=contrast=1.05:saturation=0.8${w},colorbalance=rs=0.1:bs=-0.08${w},noise=alls=10:allf=t${w},vignette=angle=PI/7${w}`,
+  polaroid: (w) => `eq=contrast=0.9:saturation=1.1:brightness=0.04${w},colorbalance=rh=0.08:gh=0.03${w}`,
+  camcorder: (w) => `eq=saturation=0.9:contrast=1.05${w},noise=alls=8:allf=t${w}`,
+}
+
+export interface LookOptions { start: number; end: number; name: LookName; hueDegrees?: number }
+
+export async function applyLook(file: Blob, { start, end, name, hueDegrees = 200 }: LookOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const w = windowClause(start, end)
+  const vf = LOOK_RECIPES[name](w, hueDegrees)
+  return runOneVideoFilter(file, vf, `Could not apply the ${name} look.`, onProgress, ['-c:a', 'copy'])
+}
+
 export interface MaskOptions {
   start: number
   end: number

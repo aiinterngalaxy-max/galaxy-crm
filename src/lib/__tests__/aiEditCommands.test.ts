@@ -381,6 +381,27 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('look', () => {
+    it('accepts every supported look name', () => {
+      const names = ['sepia', 'negative', 'tealOrange', 'vintage', 'cinematic', 'hdr', 'colorize', 'duotone', 'oldFilm', 'super8', 'polaroid', 'camcorder']
+      for (const name of names) {
+        expect(validateCommand({ type: 'look', start: 0, end: 5, name }, ctx)).toMatchObject({ type: 'look', name })
+      }
+    })
+    it('rejects a missing/unsupported name rather than guessing', () => {
+      expect(validateCommand({ type: 'look', start: 0, end: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'look', start: 0, end: 5, name: 'explosion' }, ctx)).toHaveProperty('error')
+    })
+    it('accepts hueDegrees for colorize', () => {
+      const result = validateCommand({ type: 'look', start: 0, end: 5, name: 'colorize', hueDegrees: 220 }, ctx)
+      expect(result).toMatchObject({ name: 'colorize', hueDegrees: 220 })
+    })
+    it('rejects hueDegrees outside 0-360', () => {
+      expect(validateCommand({ type: 'look', start: 0, end: 5, name: 'colorize', hueDegrees: 400 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'look', start: 0, end: 5, name: 'colorize', hueDegrees: -10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -677,6 +698,8 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'music', action: 'remove' },
     { type: 'loop', times: 3 },
     { type: 'mask', start: 1, end: 4, shape: 'circle', x: 0.5, y: 0.5, size: 0.35, feather: 0.12 },
+    { type: 'look', start: 1, end: 4, name: 'sepia' },
+    { type: 'look', start: 1, end: 4, name: 'colorize', hueDegrees: 220 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

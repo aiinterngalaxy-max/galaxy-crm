@@ -86,6 +86,15 @@ export interface ColorCommand {
   exposure?: number; highlights?: number; shadows?: number; tint?: number
   sharpness?: number; clarity?: number; grain?: number
 }
+export type LookName =
+  | 'sepia' | 'negative' | 'tealOrange' | 'vintage' | 'cinematic' | 'hdr'
+  | 'colorize' | 'duotone' | 'oldFilm' | 'super8' | 'polaroid' | 'camcorder'
+/** A canned color-grade preset over [start,end] — each name is a fixed
+ *  filter recipe (see LOOK_RECIPES, autoEdit.ts), not a set of individually
+ *  tunable knobs like `color` — same reasoning `RotateCommand` has no
+ *  "amount" field. hueDegrees only affects 'colorize' (0-360, the single
+ *  hue the footage is tinted toward); ignored for every other name. */
+export interface LookCommand { type: 'look'; start: number; end: number; name: LookName; hueDegrees?: number }
 export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: number }
 export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
 export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
@@ -128,8 +137,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -141,16 +150,25 @@ export interface RemoveEffectCommand { type: 'remove_effect'; effectType: Effect
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
-  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand
+  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop', 'mask',
+  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look',
   'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
 
+const LOOK_NAMES: LookName[] = [
+  'sepia', 'negative', 'tealOrange', 'vintage', 'cinematic', 'hdr',
+  'colorize', 'duotone', 'oldFilm', 'super8', 'polaroid', 'camcorder',
+]
+export const LOOK_LABELS: Record<LookName, string> = {
+  sepia: 'Sepia', negative: 'Negative / Invert', tealOrange: 'Teal & Orange',
+  vintage: 'Vintage', cinematic: 'Cinematic', hdr: 'HDR', colorize: 'Colorize',
+  duotone: 'Duotone', oldFilm: 'Old Film', super8: 'Super 8', polaroid: 'Polaroid', camcorder: 'Camcorder',
+}
 const CROP_ASPECTS: CropAspect[] = ['9:16', '1:1', '4:5', '16:9', '4:3']
 const ZOOM_TARGETS: ZoomTarget[] = ['center', 'left', 'right', 'top', 'bottom']
 const PAN_DIRECTIONS: PanDirection[] = ['left-to-right', 'right-to-left', 'top-to-bottom', 'bottom-to-top']
@@ -479,6 +497,18 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'mask', ...w, shape: shapeRaw, x, y, size, feather }
     }
 
+    case 'look': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const name = str(c.name)
+      if (!name || !LOOK_NAMES.includes(name as LookName)) {
+        return { error: `"${name}" isn't a supported look — choose one of: ${LOOK_NAMES.join(', ')}.` }
+      }
+      const hueDegrees = num(c.hueDegrees) ?? undefined
+      if (hueDegrees != null && (hueDegrees < 0 || hueDegrees > 360)) return { error: 'Hue has to be between 0 and 360 degrees.' }
+      return { type: 'look', ...w, name: name as LookName, ...(hueDegrees != null ? { hueDegrees } : {}) }
+    }
+
     case 'color': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -680,6 +710,7 @@ loop        { "type": "loop", "times": integer }  — 2 to 10, total number of p
 blur        { "type": "blur", "start": number, "end": number, "strength": number }  — WHOLE-FRAME blur only, strength 1-20. There is no person/object/background detection in this tool — if the instruction asks to blur only the background, only a person, or only an object (not the whole frame), you MUST use clarification instead, explaining plainly that only whole-frame blur is available and asking if they'd like that instead. Never silently apply a whole-frame blur to a "blur just the background" request.
 pixelate    { "type": "pixelate", "start": number, "end": number, "strength": number }  — same whole-frame-only rule as blur.
 mask        { "type": "mask", "start": number, "end": number, "shape": "circle" | "rect", "x"?: number, "y"?: number, "size"?: number, "feather"?: number }  — a SPOTLIGHT effect: the video stays normal INSIDE the shape and is darkened OUTSIDE it, for [start,end]. This is NOT a cutout/compositing mask — there's no chroma key, background removal, or second layer in this tool, so "cut me out and put me on a different background" or "remove the background" is NOT achievable with this command; that must be a clarification explaining plainly that only a darken-outside spotlight is available, never silently applied as if it were background removal. x/y are the CENTER of the shape as a 0-1 fraction of the frame (0.5,0.5 = middle) — default to 0.5,0.5 if not said. size is how big the shape is, 0.05 (tiny) to 0.9 (nearly full-frame), default 0.35. feather is edge softness, 0 (hard edge) to 0.3 (very soft), default 0.12. Map "spotlight the person"/"circle around the product"/"highlight the middle" to this with sensible defaults rather than asking, UNLESS the instruction gives no usable time window at all.
+look        { "type": "look", "start": number, "end": number, "name": "sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder", "hueDegrees"?: number }  — a fixed, canned color-grade preset (not individually tunable — use "color" instead for specific brightness/contrast/etc. adjustments). "negative" is a full color invert. "tealOrange" pushes shadows blue-green and highlights orange (the common blockbuster-movie grade). "hdr" boosts local contrast and saturation for a punchy, "HDR-look" image — not real HDR (no wider dynamic range is actually captured, just simulated). "colorize" tints the whole image toward one hue — hueDegrees (0-360, default ~200/blue if not said) is only used here, e.g. "colorize it blue" → hueDegrees near 200-220, "sepia-tone but green" → hueDegrees near 100-140. "duotone"/"oldFilm"/"super8"/"polaroid"/"camcorder" are each one fixed recipe, no extra params. Map "make it black and white sepia"/"give it a vintage look"/"cinematic color grade"/"old film effect"/"like a polaroid photo"/"camcorder look" directly to the matching name.
 color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "tint"?: number, "vignette"?: number, "exposure"?: number, "highlights"?: number, "shadows"?: number, "sharpness"?: number, "clarity"?: number, "grain"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter) is a flat offset; exposure -1..1 is a multiplicative push closer to a camera's exposure dial — use exposure for "overexposed"/"underexposed"/"more exposure", brightness for a plain "brighter"/"darker". contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated). warmth -1 (cooler/blue)..1 (warmer/orange) is the orange/blue axis; tint -1 (magenta)..1 (green) is the other color axis — "too green"/"add magenta" → tint, "too warm"/"too blue" → warmth. highlights/shadows -1..1 each lift or crush just the bright or dark end of the image, independent of overall brightness — "bring back the blown-out sky"/"recover highlight detail" → negative highlights; "brighten the shadows"/"lift the blacks" → positive shadows. vignette 0 (none)..1 (strong, darkened edges). sharpness 0 (none)..2 (strong) is a normal sharpen; clarity 0..1 is a softer, wider "punchy/textured" local-contrast sharpen — "make it crisper"/"sharpen it" → sharpness, "add texture/punch"/"make it pop" (without asking for color) → clarity. grain 0..1 adds film-grain noise. Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
 fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
@@ -860,6 +891,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'flip': return `Flip ${cmd.axis}`
     case 'reverse': return 'Reverse video'
     case 'mask': return `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} spotlight ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'look': return `${LOOK_LABELS[cmd.name]} look, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'text_edit': return `Edit text → "${cmd.text}"`
     case 'captions_auto': return 'Auto-generate captions from speech'
@@ -908,6 +940,8 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
         title: `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} Spotlight`,
         lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Normal inside, darkened outside'],
       }
+    case 'look':
+      return { title: LOOK_LABELS[cmd.name], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`] }
     case 'color': {
       const lines: string[] = []
       if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)
