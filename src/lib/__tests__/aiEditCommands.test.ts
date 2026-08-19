@@ -440,6 +440,23 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('motionfx', () => {
+    it('accepts every supported motion style, defaulting strength to 0.5', () => {
+      const styles = ['cameraShake', 'wobble', 'zoomPunch', 'motionTrail', 'speedRamp']
+      for (const style of styles) {
+        expect(validateCommand({ type: 'motionfx', start: 0, end: 5, style }, ctx)).toEqual({ type: 'motionfx', start: 0, end: 5, style, strength: 0.5 })
+      }
+    })
+    it('rejects a missing/unsupported style rather than guessing — freezeFrame is deliberately not supported', () => {
+      expect(validateCommand({ type: 'motionfx', start: 0, end: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'motionfx', start: 0, end: 5, style: 'freezeFrame' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 0-1', () => {
+      expect(validateCommand({ type: 'motionfx', start: 0, end: 5, style: 'wobble', strength: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'motionfx', start: 0, end: 5, style: 'wobble', strength: -0.1 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -740,6 +757,7 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'look', start: 1, end: 4, name: 'colorize', hueDegrees: 220 },
     { type: 'glitch', start: 1, end: 4, style: 'rgbSplit', strength: 0.5 },
     { type: 'light', start: 1, end: 4, style: 'flash', strength: 0.5 },
+    { type: 'motionfx', start: 1, end: 4, style: 'cameraShake', strength: 0.5 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

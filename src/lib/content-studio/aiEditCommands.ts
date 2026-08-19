@@ -106,6 +106,17 @@ export type LightStyle = 'flash' | 'strobe' | 'flicker' | 'glow' | 'bloom' | 'li
  *  "glow"/"bloom" brighten+blur+screen-blend the frame with itself;
  *  "lightLeak" overlays a warm color wash. Each style is a fixed recipe. */
 export interface LightCommand { type: 'light'; start: number; end: number; style: LightStyle; strength?: number }
+export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
+/** A camera-motion-style effect over [start,end] — strength 0..1 scales
+ *  intensity, default 0.5. "cameraShake"/"wobble" jitter the frame position;
+ *  "zoomPunch" is a quick zoom in and back out (reuses the existing zoom
+ *  machinery, not a new technique); "motionTrail" ghosts recent frames
+ *  together; "speedRamp" steps through a few discrete speeds across the
+ *  window rather than one continuous rate change. Freeze Frame was in the
+ *  original request but is NOT implemented — every approach tried produced
+ *  a genuinely broken result in testing (wrong duration, a "frozen" segment
+ *  that wasn't actually static), not just a rough edge worth shipping. */
+export interface MotionCommand { type: 'motionfx'; start: number; end: number; style: MotionStyle; strength?: number }
 export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: number }
 export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
 export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
@@ -148,8 +159,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -161,12 +172,12 @@ export interface RemoveEffectCommand { type: 'remove_effect'; effectType: Effect
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
-  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand
+  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light',
+  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'motionfx',
   'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
@@ -188,6 +199,10 @@ export const GLITCH_LABELS: Record<GlitchStyle, string> = {
 const LIGHT_STYLES: LightStyle[] = ['flash', 'strobe', 'flicker', 'glow', 'bloom', 'lightLeak']
 export const LIGHT_LABELS: Record<LightStyle, string> = {
   flash: 'Flash', strobe: 'Strobe', flicker: 'Flicker', glow: 'Glow', bloom: 'Bloom', lightLeak: 'Light Leak',
+}
+const MOTION_STYLES: MotionStyle[] = ['cameraShake', 'wobble', 'zoomPunch', 'motionTrail', 'speedRamp']
+export const MOTION_LABELS: Record<MotionStyle, string> = {
+  cameraShake: 'Camera Shake', wobble: 'Wobble', zoomPunch: 'Zoom Punch', motionTrail: 'Motion Trail', speedRamp: 'Speed Ramp',
 }
 const CROP_ASPECTS: CropAspect[] = ['9:16', '1:1', '4:5', '16:9', '4:3']
 const ZOOM_TARGETS: ZoomTarget[] = ['center', 'left', 'right', 'top', 'bottom']
@@ -553,6 +568,18 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'light', ...w, style: style as LightStyle, strength }
     }
 
+    case 'motionfx': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const style = str(c.style)
+      if (!style || !MOTION_STYLES.includes(style as MotionStyle)) {
+        return { error: `"${style}" isn't a supported motion style — choose one of: ${MOTION_STYLES.join(', ')}.` }
+      }
+      const strength = num(c.strength) ?? 0.5
+      if (strength < 0 || strength > 1) return { error: 'Motion strength has to be between 0 and 1.' }
+      return { type: 'motionfx', ...w, style: style as MotionStyle, strength }
+    }
+
     case 'color': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -757,6 +784,7 @@ mask        { "type": "mask", "start": number, "end": number, "shape": "circle" 
 look        { "type": "look", "start": number, "end": number, "name": "sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder", "hueDegrees"?: number }  — a fixed, canned color-grade preset (not individually tunable — use "color" instead for specific brightness/contrast/etc. adjustments). "negative" is a full color invert. "tealOrange" pushes shadows blue-green and highlights orange (the common blockbuster-movie grade). "hdr" boosts local contrast and saturation for a punchy, "HDR-look" image — not real HDR (no wider dynamic range is actually captured, just simulated). "colorize" tints the whole image toward one hue — hueDegrees (0-360, default ~200/blue if not said) is only used here, e.g. "colorize it blue" → hueDegrees near 200-220, "sepia-tone but green" → hueDegrees near 100-140. "duotone"/"oldFilm"/"super8"/"polaroid"/"camcorder" are each one fixed recipe, no extra params. Map "make it black and white sepia"/"give it a vintage look"/"cinematic color grade"/"old film effect"/"like a polaroid photo"/"camcorder look" directly to the matching name.
 glitch      { "type": "glitch", "start": number, "end": number, "style": "rgbSplit"|"tvNoise"|"screenFlicker"|"vhs"|"scanLines"|"digitalGlitch"|"signalDistortion", "strength"?: number }  — a digital-degradation effect, for [start,end]. strength 0-1, default 0.5 (a clearly-visible middle amount) — omit unless the instruction says how strong/subtle. "rgbSplit" separates the red/blue channels sideways (the classic chromatic-aberration glitch look). "tvNoise" is heavy grainy static. "screenFlicker" pulses brightness rapidly. "vhs" combines rgbSplit+noise+a slight desaturation and vignette for an old-tape look. "scanLines" darkens alternating horizontal lines like an old CRT. "digitalGlitch" is short, jittery rgbSplit/noise bursts rather than one continuous effect. "signalDistortion" is a stronger, static (non-pulsing) rgbSplit+contrast push. Map "glitch it out"/"add a glitch"/"chromatic aberration"/"VHS effect"/"old TV look"/"scan lines"/"static" directly to the matching style.
 light       { "type": "light", "start": number, "end": number, "style": "flash"|"strobe"|"flicker"|"glow"|"bloom"|"lightLeak", "strength"?: number }  — a brightness/light effect, for [start,end]. strength 0-1, default 0.5. "flash" is one bright pulse that decays quickly from the start of the window (a camera-flash moment). "strobe" is fast, sharp on/off brightness pulses. "flicker" is a slower, gentler brightness wobble (an unstable-light look). "glow"/"bloom" brighten and soft-blur the whole frame blended back over itself — bloom is the stronger/blurrier of the two. "lightLeak" washes a warm orange color glow across the frame (the light-leaking-into-camera look). Map "add a flash"/"flash effect"/"strobe light"/"flickering light"/"make it glow"/"soft glow"/"light leak effect" directly to the matching style.
+motionfx    { "type": "motionfx", "start": number, "end": number, "style": "cameraShake"|"wobble"|"zoomPunch"|"motionTrail"|"speedRamp", "strength"?: number }  — a camera-motion effect, for [start,end]. strength 0-1, default 0.5. "cameraShake" is a sharp jolt that decays quickly (a bump/impact feel). "wobble" is a slower, sustained unsteady sway (a handheld-camera feel), not decaying. "zoomPunch" is a quick zoom in and back out. "motionTrail" ghosts recent frames together for a smeared-motion look. "speedRamp" steps through a few different speeds across the window (not one smooth continuous rate change) — use the existing "speed" command instead if a single constant speed change over the window is what's actually wanted. There is no "freeze frame"/"pause on this moment" effect available — every technique tried for it produced a genuinely broken result in testing, so that must be a clarification saying it isn't available, never silently approximated. Map "add camera shake"/"shake effect"/"wobbly camera"/"zoom punch"/"punch zoom"/"motion blur trail"/"speed ramp" directly to the matching style.
 color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "tint"?: number, "vignette"?: number, "exposure"?: number, "highlights"?: number, "shadows"?: number, "sharpness"?: number, "clarity"?: number, "grain"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter) is a flat offset; exposure -1..1 is a multiplicative push closer to a camera's exposure dial — use exposure for "overexposed"/"underexposed"/"more exposure", brightness for a plain "brighter"/"darker". contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated). warmth -1 (cooler/blue)..1 (warmer/orange) is the orange/blue axis; tint -1 (magenta)..1 (green) is the other color axis — "too green"/"add magenta" → tint, "too warm"/"too blue" → warmth. highlights/shadows -1..1 each lift or crush just the bright or dark end of the image, independent of overall brightness — "bring back the blown-out sky"/"recover highlight detail" → negative highlights; "brighten the shadows"/"lift the blacks" → positive shadows. vignette 0 (none)..1 (strong, darkened edges). sharpness 0 (none)..2 (strong) is a normal sharpen; clarity 0..1 is a softer, wider "punchy/textured" local-contrast sharpen — "make it crisper"/"sharpen it" → sharpness, "add texture/punch"/"make it pop" (without asking for color) → clarity. grain 0..1 adds film-grain noise. Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
 fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
@@ -940,6 +968,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'look': return `${LOOK_LABELS[cmd.name]} look, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'glitch': return `${GLITCH_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'light': return `${LIGHT_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'motionfx': return `${MOTION_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'text_edit': return `Edit text → "${cmd.text}"`
     case 'captions_auto': return 'Auto-generate captions from speech'
@@ -994,6 +1023,8 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: GLITCH_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'light':
       return { title: LIGHT_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'motionfx':
+      return { title: MOTION_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'color': {
       const lines: string[] = []
       if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)

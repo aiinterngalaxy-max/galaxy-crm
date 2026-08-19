@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
-  LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES,
+  LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -291,5 +291,57 @@ describe('LIGHT_RECIPES', () => {
   it('flash decays from the window start (uses an exp() falloff, not a flat/constant value)', () => {
     const vf = LIGHT_RECIPES.flash!('', 0.5, 3)
     expect(vf).toContain('exp(-8*(t-3))')
+  })
+})
+
+describe('MOTION_RECIPES', () => {
+  it('has a recipe for every single-vf MotionStyle (zoomPunch/speedRamp are handled separately)', () => {
+    for (const name of ['cameraShake', 'wobble', 'motionTrail']) expect(MOTION_RECIPES).toHaveProperty(name)
+  })
+
+  it('cameraShake/wobble fold the [start,end] window into the x/y expression itself, not :enable=', () => {
+    // Caught by testing: crop fails to initialize when a time-varying x/y
+    // expression is combined with :enable= ("Error initializing filter
+    // 'crop'") — the fix bakes the window check into an if(between(...))
+    // inside the expression instead.
+    for (const name of ['cameraShake', 'wobble'] as const) {
+      const vf = MOTION_RECIPES[name]!(0.5, 1, 3)
+      expect(vf, `${name} must not use the shared :enable= clause`).not.toContain(":enable=")
+      expect(vf, `${name} must gate its shake formula with if(between(...))`).toContain('if(between(t')
+    }
+  })
+
+  it('motionTrail still uses the shared :enable= window (tmix has no conflict with it)', () => {
+    const vf = MOTION_RECIPES.motionTrail!(0.5, 1, 3)
+    expect(vf).toContain(":enable='between(t\\,1\\,3)'")
+  })
+
+  it('strength scales cameraShake/wobble amplitude', () => {
+    const low = MOTION_RECIPES.cameraShake!(0.1, 0, 1)
+    const high = MOTION_RECIPES.cameraShake!(0.9, 0, 1)
+    expect(low).not.toBe(high)
+  })
+})
+
+describe('buildSpeedRampFilter', () => {
+  it('produces 3 speed factors: slower, normal, faster', () => {
+    const { factors } = buildSpeedRampFilter(0, 3, 0.5)
+    expect(factors).toHaveLength(3)
+    expect(factors[0]).toBeLessThan(1)
+    expect(factors[1]).toBe(1)
+    expect(factors[2]).toBeGreaterThan(1)
+  })
+
+  it('clamps factors to a sane range regardless of strength', () => {
+    const { factors } = buildSpeedRampFilter(0, 3, 1)
+    expect(factors[0]).toBeGreaterThanOrEqual(0.25)
+    expect(factors[2]).toBeLessThanOrEqual(4)
+  })
+
+  it('splices in unmodified before/after segments around the ramped window', () => {
+    const { filterComplex } = buildSpeedRampFilter(2, 5, 0.5)
+    expect(filterComplex).toContain('trim=end=2')
+    expect(filterComplex).toContain('trim=start=5')
+    expect(filterComplex).toContain('concat=n=5:v=1:a=1')
   })
 })

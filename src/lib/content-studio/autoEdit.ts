@@ -1604,6 +1604,122 @@ export async function applyLight(file: Blob, { start, end, style, strength = 0.5
   }
 }
 
+export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
+
+/**
+ * Single-input recipes for the two simplest styles. zoomPunch and
+ * speedRamp are handled separately in applyMotionFx below — zoomPunch
+ * reuses the existing applyZoomPan twice (no new technique); speedRamp
+ * needs its own multi-segment concat, closer in shape to applyInsertClip
+ * than to a single filter chain.
+ *
+ * cameraShake/wobble scale the frame up first, then crop a shifting window
+ * out of the enlarged image — confirmed via testing this avoids the black
+ * borders a naive crop-then-pad-back approach produces. They do NOT use
+ * the shared `windowClause`/`enable=` mechanism every other effect in this
+ * file uses: caught by testing that `crop` with a time-varying x/y
+ * expression fails to initialize when `:enable=...` is appended
+ * ("Error initializing filter 'crop'") — the same class of "structural,
+ * not just per-pixel" parameter conflict unsharp's msize+enable already
+ * hit in an earlier sub-phase. Fixed by folding the [start,end] check
+ * directly into the x/y expression itself (`if(between(t,start,end),
+ * shakeFormula, restPosition)`) instead of relying on `enable=`.
+ */
+export const MOTION_RECIPES: Partial<Record<MotionStyle, (s: number, start: number, end: number) => string>> = {
+  cameraShake: (s, start, end) => {
+    const amp = Math.round(6 + s * 14)
+    const swing = (amp * 0.8).toFixed(1)
+    const win = `between(t\\,${start}\\,${end})`
+    const xShake = `${amp}+${swing}*exp(-3*(t-${start}))*sin(2*3.14159*5*(t-${start}))`
+    const yShake = `${amp}+${swing}*exp(-3*(t-${start}))*cos(2*3.14159*5*(t-${start}))`
+    return `scale=iw+${amp * 2}:ih+${amp * 2},crop=w=iw-${amp * 2}:h=ih-${amp * 2}:x='if(${win}\\,${xShake}\\,${amp})':y='if(${win}\\,${yShake}\\,${amp})'`
+  },
+  wobble: (s, start, end) => {
+    const amp = Math.round(4 + s * 8)
+    const swing = (amp * 0.9).toFixed(1)
+    const win = `between(t\\,${start}\\,${end})`
+    const xWobble = `${amp}+${swing}*sin(2*3.14159*1.5*(t-${start}))`
+    const yWobble = `${amp}+${swing}*cos(2*3.14159*1.2*(t-${start}))`
+    return `scale=iw+${amp * 2}:ih+${amp * 2},crop=w=iw-${amp * 2}:h=ih-${amp * 2}:x='if(${win}\\,${xWobble}\\,${amp})':y='if(${win}\\,${yWobble}\\,${amp})'`
+  },
+  motionTrail: (s, start, end) => {
+    const frames = Math.max(2, Math.min(8, Math.round(2 + s * 6)))
+    const weights = Array.from({ length: frames }, () => 1).join(' ')
+    return `tmix=frames=${frames}:weights='${weights}'${windowClause(start, end)}`
+  },
+}
+
+export interface MotionOptions { start: number; end: number; style: MotionStyle; strength?: number }
+
+export async function applyMotionFx(file: Blob, { start, end, style, strength = 0.5 }: MotionOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  if (style === 'zoomPunch') {
+    const mid = start + (end - start) / 2
+    const peak = 1 + strength * 0.4
+    const zoomedIn = await applyZoomPan(file, { start, end: mid, fromScale: 1, toScale: peak, fromX: 0.5, fromY: 0.5, toX: 0.5, toY: 0.5 }, onProgress)
+    return applyZoomPan(zoomedIn, { start: mid, end, fromScale: peak, toScale: 1, fromX: 0.5, fromY: 0.5, toX: 0.5, toY: 0.5 }, onProgress)
+  }
+  if (style === 'speedRamp') return applySteppedSpeedRamp(file, start, end, strength, onProgress)
+
+  const vf = MOTION_RECIPES[style]!(strength, start, end)
+  return runOneVideoFilter(file, vf, `Could not apply the ${style} effect.`, onProgress, ['-c:a', 'copy'])
+}
+
+/**
+ * A STEPPED speed ramp (3 discrete segments) rather than one continuously
+ * varying rate — a true frame-accurate continuous speed ramp is a much
+ * larger undertaking than this batch scoped for, the same pragmatic
+ * simplification an earlier sub-phase already made for a different effect
+ * (blur-in) once the "ideal" continuous approach turned out unsupported.
+ * Ramps slow → normal → fast, wider apart the higher the strength.
+ */
+/**
+ * Pure filter_complex builder for applySteppedSpeedRamp, split out for the
+ * same reason as buildInsertClipFilter/buildMaskFilter — unit-testable
+ * without a real ffmpeg runtime.
+ */
+export function buildSpeedRampFilter(start: number, end: number, strength: number): { filterComplex: string; factors: number[] } {
+  const dur = Math.max(0.3, end - start)
+  const stepDur = dur / 3
+  const factors = [Math.max(0.25, 1 - strength * 0.7), 1, Math.min(4, 1 + strength * 2.5)]
+  const segs: string[] = []
+  for (let i = 0; i < 3; i++) {
+    const segStart = start + i * stepDur
+    const segEnd = start + (i + 1) * stepDur
+    segs.push(`[0:v]trim=start=${segStart}:end=${segEnd},setpts=(PTS-STARTPTS)/${factors[i]}[v${i}]`)
+    segs.push(`[0:a]atrim=start=${segStart}:end=${segEnd},asetpts=PTS-STARTPTS,${atempoChain(factors[i])}[a${i}]`)
+  }
+  const before = `[0:v]trim=end=${start},setpts=PTS-STARTPTS[vBefore];[0:a]atrim=end=${start},asetpts=PTS-STARTPTS[aBefore]`
+  const after = `[0:v]trim=start=${end},setpts=PTS-STARTPTS[vAfter];[0:a]atrim=start=${end},asetpts=PTS-STARTPTS[aAfter]`
+  const refs = `[vBefore][aBefore]${[0, 1, 2].map((i) => `[v${i}][a${i}]`).join('')}[vAfter][aAfter]`
+  const filterComplex = `${before};${after};${segs.join(';')};${refs}concat=n=5:v=1:a=1[outv][outa]`
+  return { filterComplex, factors }
+}
+
+async function applySteppedSpeedRamp(
+  file: Blob, start: number, end: number, strength: number, onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'ramp-input.mp4'
+  const outputName = 'ramp-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    const { filterComplex } = buildSpeedRampFilter(start, end, strength)
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the speed ramp. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 export interface MaskOptions {
   start: number
   end: number
