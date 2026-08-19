@@ -45,6 +45,20 @@ class GroqError extends Error {
   }
 }
 
+/**
+ * Groq reports SOME TPM-limit rejections as 413 ("request too large"),
+ * not 429, even though the underlying cause is the same per-minute quota
+ * (its body still carries `"code":"rate_limit_exceeded"`) — a large system
+ * prompt (like Content Studio's AI-edit vocabulary) pushed one request's
+ * token count just over a small model's per-minute cap. Treat that the
+ * same as a 429: fall back rather than surface Groq's raw JSON body.
+ */
+function isRateLimited(err: unknown): boolean {
+  if (!(err instanceof GroqError)) return false
+  if (err.status === 429) return true
+  return err.status === 413 && err.message.includes('rate_limit_exceeded')
+}
+
 async function callGroq(
   model: string,
   messages: Array<{ role: string; content: string }>,
@@ -85,7 +99,7 @@ async function callGroqWithFallback(
         return await callGroq(model, messages, maxTokens, temperature)
       } catch (err) {
         lastErr = err
-        if (err instanceof GroqError && err.status === 429) continue
+        if (isRateLimited(err)) continue
         throw err
       }
     }
@@ -134,7 +148,7 @@ export default async function handler(req: Req, res: Res) {
     // still reported — but as a short, plain message, never the raw Groq
     // JSON body (token counts, org ids, upgrade links) a caller has no use
     // for and that reads as a broken/scary error rather than "try again".
-    if (err instanceof GroqError && err.status === 429) {
+    if (isRateLimited(err)) {
       res.status(503).json({ error: 'The AI service is busy right now — please try again in a moment.' })
       return
     }
