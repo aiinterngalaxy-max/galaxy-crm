@@ -1589,6 +1589,262 @@ export async function applyTiltShiftBlur(file: Blob, { start, end, strength, ban
   return runOneVideoFilterComplex(file, filterComplex, 'Could not apply tilt-shift blur.', onProgress)
 }
 
+// ---------- wave/ripple/warp/twirl/fisheye/bulge/squeeze/stretch/lens ----------
+// Nine geometric distortions. Unlike background_blur these need NO per-frame
+// JS/canvas — a coordinate remap is pure geometry, so every one of them is an
+// ffmpeg filter graph. Six of them (wave/ripple/warp/twirl/bulge/squeeze) have
+// no matching primitive in this build and are built with `geq`, whose p(x,y)
+// samples the source at an arbitrary computed position — the same filter
+// buildTiltShiftFilter already uses, only reading real pixels instead of
+// generating a mask. The other three map onto native filters, which are far
+// faster, so they use those: fisheye and lens_distortion are `lenscorrection`,
+// stretch is crop + scale2ref. All nine were checked against a real render of
+// a grid chart in this exact ffmpeg.wasm core (@ffmpeg/core 0.12.6), not just
+// parsed — including the barrel/pincushion sign, which is the opposite of what
+// the filter name suggests (see buildLensDistortionFilter).
+//
+// Two shared conventions across the geq builders below:
+//  - the SAME expression string is used for lum/cb/cr, and every displacement
+//    is written as a fraction of W or H rather than in pixels, so it lands
+//    identically on yuv420p's half-size chroma planes. (Working in yuv420p
+//    also means only 1.5 samples per pixel instead of gbrp's 3.)
+//  - offsets are normalized by W on BOTH axes, so a radius stays circular on
+//    a non-square frame instead of turning into an ellipse.
+//  - the sampled position is clip()ed to the frame, which smears the border
+//    pixels outward; without it, warps that reach past the edge sample black.
+
+/** geq applied identically to all three yuv420p planes — see the note above. */
+const geqAllPlanes = (expr: string) => `geq=lum='${expr}':cb='${expr}':cr='${expr}'`
+/** Samples the source at (xExpr,yExpr), clamped to the frame. */
+const sampleAt = (xExpr: string, yExpr: string) => `p(clip(${xExpr}\\,0\\,W-1)\\,clip(${yExpr}\\,0\\,H-1))`
+/** Offset from the (cx,cy) centre, as a fraction of W on both axes. */
+const ndx = (cx: number) => `((X-W*${cx})/W)`
+const ndy = (cy: number) => `((Y-H*${cy})/W)`
+const ndr = (cx: number, cy: number) => `hypot(${ndx(cx)}\\,${ndy(cy)})`
+
+export interface WaveOptions { start: number; end: number; strength: number; axis?: 'horizontal' | 'vertical' }
+
+/**
+ * Travelling sine ripple along one axis: every row slides sideways by a sine
+ * of its own Y (or every column slides vertically by a sine of its X), with
+ * the phase advancing on geq's own T so the wave actually travels rather than
+ * sitting still. Three cycles across the frame; strength 1-20 scales only the
+ * amplitude (0.7%-5.6% of the width), which keeps the wavelength readable at
+ * every setting. Confirmed on a grid render: straight lines become clean
+ * S-curves and the borders smear rather than going black.
+ */
+export function buildWaveFilter(axis: 'horizontal' | 'vertical', strength: number, start: number, end: number): string {
+  const amp = (0.004 + strength * 0.0026).toFixed(5)
+  const expr = axis === 'horizontal'
+    ? sampleAt(`X+W*${amp}*sin(2*PI*(Y/H*3-T*0.6))`, 'Y')
+    : sampleAt('X', `Y+H*${amp}*sin(2*PI*(X/W*3-T*0.6))`)
+  return `${geqAllPlanes(expr)}${windowClause(start, end)}`
+}
+
+/** Sinusoidal ripple travelling across the frame, horizontally (default) or
+ *  vertically. */
+export async function applyWave(file: Blob, { start, end, strength, axis = 'horizontal' }: WaveOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildWaveFilter(axis, strength, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the wave effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface RippleOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Concentric circular ripples: the displacement is RADIAL — each pixel moves
+ * along its own outward vector from (cx,cy) by a sine of its distance — which
+ * is what makes this read as rings spreading from a point rather than as
+ * buildWaveFilter's one-axis wave train. Eight rings across the frame, phase
+ * advancing on T so they travel outward. The radius is floored before it is
+ * divided by, so the exact centre pixel doesn't divide by zero.
+ */
+export function buildRippleFilter(strength: number, cx: number, cy: number, start: number, end: number): string {
+  const amp = (0.0015 + strength * 0.0011).toFixed(5)
+  const r = ndr(cx, cy)
+  const rSafe = `max(${r}\\,0.0005)`
+  const offset = `${amp}*sin(2*PI*(${r}*8-T*0.9))`
+  const expr = sampleAt(
+    `X+W*(${offset})*${ndx(cx)}/(${rSafe})`,
+    `Y+W*(${offset})*${ndy(cy)}/(${rSafe})`,
+  )
+  return `${geqAllPlanes(expr)}${windowClause(start, end)}`
+}
+
+/** Concentric circular ripples radiating from a point (x/y, 0-1 fraction of
+ *  frame, default centred). */
+export async function applyRipple(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: RippleOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildRippleFilter(strength, x, y, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the ripple effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface WarpOptions { start: number; end: number; strength: number }
+
+/**
+ * General smooth wobble — two low-frequency sines per axis at deliberately
+ * non-matching frequencies and drift speeds, so the pattern never repeats
+ * cleanly and the frame reads as bending/melting rather than rippling. That
+ * two-axis, aperiodic quality is the whole difference from buildWaveFilter.
+ */
+export function buildWarpFilter(strength: number, start: number, end: number): string {
+  const amp = (0.003 + strength * 0.0017).toFixed(5)
+  const dx = `${amp}*sin(2*PI*(Y/H*1.3+T*0.35))+${amp}*0.6*sin(2*PI*(X/W*0.9-T*0.22))`
+  const dy = `${amp}*cos(2*PI*(X/W*1.1+T*0.28))+${amp}*0.6*cos(2*PI*(Y/H*0.7+T*0.19))`
+  const expr = sampleAt(`X+W*(${dx})`, `Y+W*(${dy})`)
+  return `${geqAllPlanes(expr)}${windowClause(start, end)}`
+}
+
+/** Smooth whole-frame spatial warp/wobble. */
+export async function applyWarp(file: Blob, { start, end, strength }: WarpOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildWarpFilter(strength, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the warp effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface TwirlOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Spiral swirl: converts each pixel to polar coordinates about (cx,cy), adds
+ * an angle that is largest at the centre and falls to zero at the effect
+ * radius, then samples back. The falloff is SQUARED so both it and its slope
+ * reach zero together at the edge — a linear falloff leaves a visible crease
+ * ring where the twist stops. Up to ~2.9 radians of twist at strength 20.
+ */
+export function buildTwirlFilter(strength: number, cx: number, cy: number, start: number, end: number): string {
+  const maxAngle = (0.12 + strength * 0.14).toFixed(4)
+  const radius = 0.5
+  const r = ndr(cx, cy)
+  const falloff = `max(0\\,1-(${r})/${radius})`
+  const angle = `atan2(${ndy(cy)}\\,${ndx(cx)})+${maxAngle}*(${falloff})*(${falloff})`
+  const expr = sampleAt(`W*${cx}+W*(${r})*cos(${angle})`, `H*${cy}+W*(${r})*sin(${angle})`)
+  return `${geqAllPlanes(expr)}${windowClause(start, end)}`
+}
+
+/** Spiral swirl around a point (x/y, 0-1 fraction of frame, default centred)
+ *  — rotation is strongest at that point and fades out with distance. */
+export async function applyTwirl(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: TwirlOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildTwirlFilter(strength, x, y, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the twirl effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface BulgeOptions { start: number; end: number; strength: number; x?: number; y?: number }
+export interface SqueezeOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Shared builder for bulge and squeeze — the same radial rescale about
+ * (cx,cy), with `outward` flipping its sign: sampling nearer the centre than
+ * the output pixel magnifies (bulge), sampling further out shrinks (squeeze).
+ * The amount is weighted by a Gaussian in the radius, which is smooth to
+ * every order, so unlike a hard "inside radius R" cutoff there is no seam
+ * ring at the edge of the effect. The peak stays below 1 so the mapping never
+ * folds back on itself.
+ */
+export function buildRadialPinchFilter(strength: number, cx: number, cy: number, outward: boolean, start: number, end: number): string {
+  const amount = ((0.03 + strength * 0.028) * (outward ? 1 : -1)).toFixed(4)
+  const radiusSq = (0.3 * 0.3).toFixed(4)
+  const r = ndr(cx, cy)
+  const scale = `(1-${amount}*exp(-(${r})*(${r})/${radiusSq}))`
+  const expr = sampleAt(`W*${cx}+(X-W*${cx})*${scale}`, `H*${cy}+(Y-H*${cy})*${scale}`)
+  return `${geqAllPlanes(expr)}${windowClause(start, end)}`
+}
+
+/** Localized outward bulge around a point (x/y, 0-1, default centred). */
+export async function applyBulge(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: BulgeOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildRadialPinchFilter(strength, x, y, true, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the bulge effect.', onProgress, ['-c:a', 'copy'])
+}
+
+/** Localized inward pinch around a point — the same transform as bulge with
+ *  the sign inverted. */
+export async function applySqueeze(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: SqueezeOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildRadialPinchFilter(strength, x, y, false, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the squeeze effect.', onProgress, ['-c:a', 'copy'])
+}
+
+/**
+ * Shared plumbing for the three NON-geq distortions (fisheye,
+ * lens_distortion, stretch). Runs `chain` on a copy of the frame, crops the
+ * middle `cropW`x`cropH` fraction of the result and scales that back to the
+ * original size, then lays the copy over the untouched frame gated to
+ * [start,end]. Two jobs at once: the crop-and-rescale IS the effect for
+ * stretch, and for barrel distortion it is what hides the black border the
+ * lens filter leaves behind. `scale2ref` (rather than a plain `scale`) is what
+ * makes the copy land back at EXACTLY the frame's own pixel dimensions — an
+ * arithmetic `scale=iw*f` rounds and can miss by a pixel, leaving a seam of
+ * the untouched frame showing at the edge. crop/scale have no timeline
+ * support of their own, which is why the window has to be applied by the
+ * overlay instead of on the filters themselves.
+ */
+function buildZoomFillFilter(chain: string, cropW: number, cropH: number, start: number, end: number): string {
+  const w = cropW.toFixed(4)
+  const h = cropH.toFixed(4)
+  return [
+    `[0:v]split=2[main][fx]`,
+    `[fx]${chain ? `${chain},` : ''}crop=w='iw*${w}':h='ih*${h}':x='(iw-iw*${w})/2':y='(ih-ih*${h})/2'[cropped]`,
+    `[cropped][main]scale2ref=flags=bicubic[fxs][mainout]`,
+    `[mainout][fxs]overlay=x=0:y=0:enable='between(t\\,${start}\\,${end})'[outv]`,
+  ].join(';')
+}
+
+export interface FisheyeOptions { start: number; end: number; strength: number }
+export interface LensDistortionOptions { start: number; end: number; strength: number; mode: 'barrel' | 'pincushion' }
+
+/**
+ * Shared lens builder for fisheye and lens_distortion — one filter, one
+ * parameter, because the two commands genuinely are the same optical
+ * transform at different scales (fisheye is a look; lens_distortion is a
+ * correction-strength nudge in either direction).
+ *
+ * `lenscorrection` samples the source at centre + (1 + k1*r²)*(dest-centre),
+ * and the sign reads BACKWARDS from the name: measured against a rendered
+ * rectangle in this build, k1 > 0 bows straight lines OUTWARD (barrel) while
+ * pulling the whole picture inward and leaving black corners, and k1 < 0 bows
+ * them INWARD (pincushion) while expanding to fill the frame. So only the
+ * barrel side needs the zoom-fill; cropping to 1/(1+k1) is comfortably inside
+ * the point where sampling runs off the source.
+ */
+export function buildLensDistortionFilter(k1: number, start: number, end: number): string {
+  const chain = `lenscorrection=cx=0.5:cy=0.5:k1=${k1.toFixed(4)}:k2=0:i=bilinear`
+  const crop = k1 > 0 ? 1 / (1 + k1) : 1
+  return buildZoomFillFilter(chain, crop, crop, start, end)
+}
+
+/** Whole-frame barrel/fisheye bulge — the strong end of the same lens curve
+ *  lens_distortion uses, always zoomed back out to keep the frame filled. */
+export async function applyFisheye(file: Blob, { start, end, strength }: FisheyeOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildLensDistortionFilter(0.08 + strength * 0.036, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the fisheye effect.', onProgress)
+}
+
+/** Correction-scale lens distortion in either direction — "barrel" bows
+ *  straight lines outward, "pincushion" bows them inward. */
+export async function applyLensDistortion(file: Blob, { start, end, strength, mode }: LensDistortionOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const magnitude = 0.03 + strength * 0.021
+  const filterComplex = buildLensDistortionFilter(mode === 'barrel' ? magnitude : -magnitude, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the lens distortion effect.', onProgress)
+}
+
+export interface StretchOptions { start: number; end: number; strength: number; axis?: 'horizontal' | 'vertical' }
+
+/**
+ * Anisotropic stretch — crops a narrower (or shorter) centred slice and
+ * scales it back out to the full frame, which pulls the picture along that
+ * one axis while the frame keeps its size. Up to 1.4x at strength 20. No geq
+ * here: this is a plain affine scale, so the native crop/scale path is both
+ * exact and an order of magnitude faster.
+ */
+export function buildStretchFilter(axis: 'horizontal' | 'vertical', strength: number, start: number, end: number): string {
+  const inverse = 1 / (1 + strength * 0.02)
+  return axis === 'horizontal'
+    ? buildZoomFillFilter('', inverse, 1, start, end)
+    : buildZoomFillFilter('', 1, inverse, start, end)
+}
+
+/** Stretches the frame along one axis (horizontal by default), cropping the
+ *  overflow so the frame size is unchanged. */
+export async function applyStretch(file: Blob, { start, end, strength, axis = 'horizontal' }: StretchOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildStretchFilter(axis, strength, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the stretch effect.', onProgress)
+}
+
 export interface ColorAdjustOptions {
   start: number
   end: number

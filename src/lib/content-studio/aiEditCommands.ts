@@ -101,6 +101,44 @@ export interface SpinBlurCommand { type: 'spin_blur'; start: number; end: number
  *  default 0.5; bandHeight = fraction of frame height staying sharp, default
  *  0.25) stays in focus, blur increases with distance above/below it. */
 export interface TiltShiftBlurCommand { type: 'tiltshift_blur'; start: number; end: number; strength: number; bandY?: number; bandHeight?: number }
+/** Travelling sinusoidal ripple — rows slide sideways (axis 'horizontal',
+ *  default) or columns slide up/down (axis 'vertical') by a sine of the
+ *  perpendicular coordinate, animated over time. One-axis and periodic,
+ *  unlike `warp`'s two-axis wobble — see autoEdit.ts's buildWaveFilter. */
+export interface WaveCommand { type: 'wave'; start: number; end: number; strength: number; axis?: 'horizontal' | 'vertical' }
+/** Concentric circular ripples radiating out from a point (x/y, 0-1
+ *  fraction of frame, default centered — same convention as `mask` and
+ *  `radial_blur`): pond/water look, displacement is radial, not per-axis. */
+export interface RippleCommand { type: 'ripple'; start: number; end: number; strength: number; x?: number; y?: number }
+/** General smooth spatial wobble — low-frequency sines on BOTH axes at once,
+ *  so the frame drifts and bends rather than rippling in one direction the
+ *  way `wave` does. No center point; it's a whole-frame heat-haze look. */
+export interface WarpCommand { type: 'warp'; start: number; end: number; strength: number }
+/** Spiral swirl: pixels rotate progressively more the closer they are to
+ *  the center point (x/y, 0-1, default centered), fading to nothing at the
+ *  edge of the effect radius. */
+export interface TwirlCommand { type: 'twirl'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Whole-frame barrel/fisheye lens bulge — the centre swells and straight
+ *  lines bow outward, zoomed just enough to keep the frame filled. Same
+ *  lens math as `lens_distortion`'s "barrel" mode, only much stronger:
+ *  fisheye is the look, lens_distortion is the subtle correction. */
+export interface FisheyeCommand { type: 'fisheye'; start: number; end: number; strength: number }
+/** LOCALIZED outward bulge around a point (x/y, 0-1, default centered) —
+ *  a magnifying-glass blister, not the whole-frame swell `fisheye` gives. */
+export interface BulgeCommand { type: 'bulge'; start: number; end: number; strength: number; x?: number; y?: number }
+/** The exact inverse of `bulge`: a localized inward pinch around a point
+ *  (x/y, 0-1, default centered) — shares one builder, sign flipped. */
+export interface SqueezeCommand { type: 'squeeze'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Anisotropic stretch along ONE axis — content is pulled wider (axis
+ *  'horizontal', default) or taller (axis 'vertical') while the frame keeps
+ *  its original size, so the edges are cropped away. Not `zoom`, which
+ *  scales both axes together and keeps the aspect ratio. */
+export interface StretchCommand { type: 'stretch'; start: number; end: number; strength: number; axis?: 'horizontal' | 'vertical' }
+/** Lens-correction-style distortion, in whichever of the two visually
+ *  opposite directions is asked for: "barrel" bows straight lines outward,
+ *  "pincushion" bows them inward. Mode is required — the two look nothing
+ *  alike and picking one is the whole point of the command. */
+export interface LensDistortionCommand { type: 'lens_distortion'; start: number; end: number; strength: number; mode: 'barrel' | 'pincushion' }
 export interface ColorCommand {
   type: 'color'; start: number; end: number
   brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; warmth?: number; vignette?: number
@@ -197,8 +235,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -212,6 +250,7 @@ export type EditCommand =
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
   | BlurCommand | BackgroundBlurCommand | PixelateCommand
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
+  | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
   | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
@@ -219,6 +258,7 @@ export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
+  'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
   'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
@@ -629,6 +669,56 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'tiltshift_blur', ...w, strength, bandY, bandHeight }
     }
 
+    case 'wave':
+    case 'stretch': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const label = type === 'wave' ? 'Wave' : 'Stretch'
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${label} strength has to be between 1 and 20.` }
+      const axis = c.axis === undefined ? 'horizontal' : str(c.axis)
+      if (axis !== 'horizontal' && axis !== 'vertical') {
+        return { error: `${label} axis has to be "horizontal" or "vertical".` }
+      }
+      return { type: type as 'wave' | 'stretch', ...w, strength, axis }
+    }
+
+    case 'ripple':
+    case 'twirl':
+    case 'bulge':
+    case 'squeeze': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const label = { ripple: 'Ripple', twirl: 'Twirl', bulge: 'Bulge', squeeze: 'Squeeze' }[type as 'ripple' | 'twirl' | 'bulge' | 'squeeze']
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${label} strength has to be between 1 and 20.` }
+      const x = num(c.x) ?? 0.5
+      const y = num(c.y) ?? 0.5
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: `${label} position (x/y) has to be between 0 and 1 — a fraction of the frame.` }
+      return { type: type as 'ripple' | 'twirl' | 'bulge' | 'squeeze', ...w, strength, x, y }
+    }
+
+    case 'warp':
+    case 'fisheye': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${type === 'warp' ? 'Warp' : 'Fisheye'} strength has to be between 1 and 20.` }
+      return { type: type as 'warp' | 'fisheye', ...w, strength }
+    }
+
+    case 'lens_distortion': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const mode = str(c.mode)
+      if (mode !== 'barrel' && mode !== 'pincushion') {
+        return { error: 'Lens distortion needs a mode — "barrel" (lines bow outward) or "pincushion" (lines bow inward).' }
+      }
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Lens distortion strength has to be between 1 and 20.' }
+      return { type: 'lens_distortion', ...w, strength, mode }
+    }
+
     case 'mask': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -920,6 +1010,15 @@ directional_blur { "type":"directional_blur","start":number,"end":number,"angle"
 zoom_blur { "type":"zoom_blur","start":number,"end":number,"strength":number } — burst blur radiating from the CENTER of the frame, simulating a zoom without actually changing the framing (distinct from motionfx's zoomPunch, which really does zoom). strength 1-20.
 radial_blur { "type":"radial_blur","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — same burst-blur look as zoom_blur but radiating from a chosen point instead of always the center — x/y (0-1 fraction of frame, default 0.5/0.5) is the burst point. Use when the instruction names a specific spot ("radiate from the product") rather than the whole frame.
 spin_blur { "type":"spin_blur","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — rotational/swirl blur around a center point, x/y default 0.5/0.5. strength 1-20.
+wave { "type":"wave","start":number,"end":number,"strength":number,"axis"?:"horizontal"|"vertical" } — travelling sinusoidal ripple: rows slide sideways (axis "horizontal", default) or columns slide up/down (axis "vertical"). strength 1-20 (same scale as blur) sets how far the frame sways. Map "wavy"/"wobble it like a flag"/"underwater wave" here.
+ripple { "type":"ripple","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — concentric circular ripples radiating from a point, like a stone dropped in water. x/y = the ripple centre, 0-1 fraction of frame, default 0.5/0.5. Prefer this over wave whenever the instruction implies rings spreading from a spot.
+warp { "type":"warp","start":number,"end":number,"strength":number } — smooth whole-frame wobble/heat-haze: gentle low-frequency bending on BOTH axes at once, no centre point and no regular wave train. Use for "warp it"/"heat haze"/"melting"/"drunk camera".
+twirl { "type":"twirl","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — spiral swirl: pixels rotate more the closer they are to x/y (0-1, default 0.5/0.5), fading out with distance. Map "swirl"/"whirlpool"/"vortex" here — NOT rotate, which turns the whole frame rigidly.
+fisheye { "type":"fisheye","start":number,"end":number,"strength":number } — whole-frame barrel/fisheye lens bulge, centre swells and straight lines bow outward, frame stays filled. Use for "fisheye"/"GoPro lens"/"bulge the whole shot". For a bulge around one spot use bulge instead.
+bulge { "type":"bulge","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — LOCALIZED outward bulge (magnifying-glass blister) around x/y (0-1, default 0.5/0.5), rest of the frame untouched.
+squeeze { "type":"squeeze","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — exact inverse of bulge: a localized inward pinch around x/y (0-1, default 0.5/0.5). Map "pinch"/"suck it inward" here.
+stretch { "type":"stretch","start":number,"end":number,"strength":number,"axis"?:"horizontal"|"vertical" } — stretches the picture along ONE axis only (default "horizontal"), frame size unchanged so the edges crop off. Distinct from zoom, which scales both axes and keeps the aspect ratio. Map "squash it wide"/"make everyone tall and thin" here.
+lens_distortion { "type":"lens_distortion","start":number,"end":number,"strength":number,"mode":"barrel"|"pincushion" } — lens-correction-style distortion. "barrel" bows straight lines outward (a milder, correction-scale version of fisheye), "pincushion" bows them inward. mode is REQUIRED — the two look opposite, so ask for a clarification rather than guessing when neither direction is implied.
 tiltshift_blur { "type":"tiltshift_blur","start":number,"end":number,"strength":number,"bandY"?:number,"bandHeight"?:number } — miniature-photo look: a horizontal band stays sharp, blur increases with distance above/below it. bandY = vertical center of the sharp band (0-1, default 0.5); bandHeight = how much of the frame height stays sharp (0.05-0.9, default 0.25). strength 1-20 controls how strong the blur gets outside the band. Map "tilt-shift"/"miniature effect"/"toy town look" to this.
 mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/chroma-key/background-removal tool — "cut me out onto another background" must be a clarification saying only a darken-outside spotlight exists. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
@@ -960,7 +1059,12 @@ Examples:
 "Reduce background noise." → {"commands":[{"type":"audio_noise_reduction"}]}
 "Give it a tilt-shift miniature look from 0 to 5 seconds." (sharp middle band, blurred top/bottom — defaults for band position/height) → {"commands":[{"type":"tiltshift_blur","start":0,"end":5,"strength":10}]}
 "Add motion blur to the whole video, horizontal." → {"commands":[{"type":"motion_blur","start":0,"end":${ctx.durationSec.toFixed(1)},"direction":"horizontal","strength":8}]}
-"Zoom blur burst from 2 to 4 seconds." (whole-frame burst, no point named) → {"commands":[{"type":"zoom_blur","start":2,"end":4,"strength":10}]}`
+"Zoom blur burst from 2 to 4 seconds." (whole-frame burst, no point named) → {"commands":[{"type":"zoom_blur","start":2,"end":4,"strength":10}]}
+"Make it look like ripples in a pond around the middle, 1 to 4 seconds." (rings from a point, so ripple not wave) → {"commands":[{"type":"ripple","start":1,"end":4,"strength":9}]}
+"Swirl the first 3 seconds into a vortex." (rotation that fades with distance, so twirl not rotate) → {"commands":[{"type":"twirl","start":0,"end":3,"strength":12}]}
+"Add a fisheye lens look." → {"commands":[{"type":"fisheye","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
+"Pinch the middle inward from 2 to 3 seconds." (inward, so squeeze not bulge) → {"commands":[{"type":"squeeze","start":2,"end":3,"strength":10}]}
+"Stretch it out wide for the last 2 seconds." → {"commands":[{"type":"stretch","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"axis":"horizontal","strength":10}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1096,6 +1200,15 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'radial_blur': return `Radial blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'spin_blur': return `Spin blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'tiltshift_blur': return `Tilt-shift blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'wave': return `Wave (${cmd.axis ?? 'horizontal'}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'ripple': return `Ripple ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'warp': return `Warp ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'twirl': return `Twirl ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'fisheye': return `Fisheye ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'bulge': return `Bulge ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'squeeze': return `Squeeze ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'stretch': return `Stretch (${cmd.axis ?? 'horizontal'}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'lens_distortion': return `Lens distortion (${cmd.mode}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'color': return `Color adjust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'fade': return `Fade ${cmd.direction} (${cmd.duration}s)`
     case 'rotate': return `Rotate ${cmd.degrees}°`
@@ -1164,6 +1277,24 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Spin Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Center: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
     case 'tiltshift_blur':
       return { title: 'Tilt-Shift Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Sharp band: ${cmd.bandY ?? 0.5} ± ${((cmd.bandHeight ?? 0.25) / 2).toFixed(2)}`] }
+    case 'wave':
+      return { title: 'Wave', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Axis: ${cmd.axis ?? 'horizontal'}`, `Strength: ${cmd.strength}`] }
+    case 'ripple':
+      return { title: 'Ripple', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Centre: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'warp':
+      return { title: 'Warp', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, 'Whole frame'] }
+    case 'twirl':
+      return { title: 'Twirl', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Centre: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'fisheye':
+      return { title: 'Fisheye', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, 'Whole frame — lines bow outward'] }
+    case 'bulge':
+      return { title: 'Bulge', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Centre: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'squeeze':
+      return { title: 'Squeeze', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Centre: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'stretch':
+      return { title: 'Stretch', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Axis: ${cmd.axis ?? 'horizontal'}`, `Strength: ${cmd.strength}`] }
+    case 'lens_distortion':
+      return { title: 'Lens Distortion', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Mode: ${cmd.mode}`, `Strength: ${cmd.strength}`] }
     case 'mask':
       return {
         title: `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} Spotlight`,

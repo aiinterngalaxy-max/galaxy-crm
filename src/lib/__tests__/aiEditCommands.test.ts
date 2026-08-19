@@ -457,6 +457,171 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('wave (TEST: "Make it wavy" style instructions)', () => {
+    it('accepts a valid windowed wave', () => {
+      expect(validateCommand({ type: 'wave', start: 1, end: 4, strength: 10, axis: 'vertical' }, ctx))
+        .toEqual({ type: 'wave', start: 1, end: 4, strength: 10, axis: 'vertical' })
+    })
+    it('defaults the axis to horizontal when omitted', () => {
+      expect(validateCommand({ type: 'wave', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ axis: 'horizontal' })
+    })
+    it('rejects an invalid axis', () => {
+      expect(validateCommand({ type: 'wave', start: 1, end: 4, strength: 10, axis: 'diagonal' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'wave', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'wave', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'wave', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'wave', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('ripple (TEST: "Ripples spreading from the middle" style instructions)', () => {
+    it('accepts a valid windowed ripple with a custom centre', () => {
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 12, x: 0.3, y: 0.7 }, ctx))
+        .toEqual({ type: 'ripple', start: 1, end: 4, strength: 12, x: 0.3, y: 0.7 })
+    })
+    it('defaults x/y to centred when omitted', () => {
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.5, y: 0.5 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 10, x: 1.5, y: 0.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 10, x: 0.5, y: -0.2 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'ripple', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'ripple', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'ripple', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('warp (TEST: "Warp it like a heat haze" style instructions)', () => {
+    it('accepts a valid windowed warp', () => {
+      expect(validateCommand({ type: 'warp', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'warp', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'warp', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'warp', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'warp', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'warp', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'warp', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('twirl (TEST: "Swirl it into a vortex" style instructions)', () => {
+    it('accepts a valid windowed twirl with a custom centre', () => {
+      expect(validateCommand({ type: 'twirl', start: 1, end: 4, strength: 12, x: 0.4, y: 0.6 }, ctx))
+        .toEqual({ type: 'twirl', start: 1, end: 4, strength: 12, x: 0.4, y: 0.6 })
+    })
+    it('defaults x/y to centred when omitted', () => {
+      expect(validateCommand({ type: 'twirl', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.5, y: 0.5 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'twirl', start: 1, end: 4, strength: 10, x: 2, y: 0.5 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'twirl', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'twirl', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'twirl', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'twirl', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('fisheye (TEST: "Give it a fisheye lens look" style instructions)', () => {
+    it('accepts a valid windowed fisheye', () => {
+      expect(validateCommand({ type: 'fisheye', start: 1, end: 4, strength: 14 }, ctx))
+        .toEqual({ type: 'fisheye', start: 1, end: 4, strength: 14 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'fisheye', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'fisheye', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'fisheye', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'fisheye', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'fisheye', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('bulge / squeeze (TEST: "Bulge the middle out" / "Pinch it inward" style instructions)', () => {
+    it('accepts a valid windowed bulge with a custom centre', () => {
+      expect(validateCommand({ type: 'bulge', start: 1, end: 4, strength: 12, x: 0.3, y: 0.35 }, ctx))
+        .toEqual({ type: 'bulge', start: 1, end: 4, strength: 12, x: 0.3, y: 0.35 })
+    })
+    it('accepts a valid windowed squeeze', () => {
+      expect(validateCommand({ type: 'squeeze', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'squeeze', start: 1, end: 4, strength: 12, x: 0.5, y: 0.5 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'bulge', start: 1, end: 4, strength: 10, x: 1.2, y: 0.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'squeeze', start: 1, end: 4, strength: 10, x: 0.5, y: -1 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'bulge', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'squeeze', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'bulge', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'squeeze', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('stretch (TEST: "Stretch it out wide" style instructions)', () => {
+    it('accepts a valid windowed stretch', () => {
+      expect(validateCommand({ type: 'stretch', start: 1, end: 4, strength: 10, axis: 'vertical' }, ctx))
+        .toEqual({ type: 'stretch', start: 1, end: 4, strength: 10, axis: 'vertical' })
+    })
+    it('defaults the axis to horizontal when omitted', () => {
+      expect(validateCommand({ type: 'stretch', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ axis: 'horizontal' })
+    })
+    it('rejects an invalid axis', () => {
+      expect(validateCommand({ type: 'stretch', start: 1, end: 4, strength: 10, axis: 'both' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'stretch', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'stretch', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'stretch', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'stretch', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('lens_distortion (TEST: "Add some barrel distortion" style instructions)', () => {
+    it('accepts both modes', () => {
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 10, mode: 'barrel' }, ctx))
+        .toEqual({ type: 'lens_distortion', start: 1, end: 4, strength: 10, mode: 'barrel' })
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 10, mode: 'pincushion' }, ctx))
+        .toMatchObject({ mode: 'pincushion' })
+    })
+    it('rejects a missing/invalid mode', () => {
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 10, mode: 'fisheye' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 0, mode: 'barrel' }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_distortion', start: 1, end: 4, strength: 21, mode: 'barrel' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'lens_distortion', strength: 10, mode: 'barrel' }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_distortion', start: 5, end: 2, strength: 10, mode: 'barrel' }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })
