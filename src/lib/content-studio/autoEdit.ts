@@ -1327,36 +1327,79 @@ export interface ColorAdjustOptions {
   /** All optional — only the ones the instruction actually named are set,
    *  the rest pass through unaffected. Ranges: brightness -1..1 (0 = no
    *  change), contrast/saturation 0..3 (1 = no change), grayscale is a flag,
-   *  warmth -1 (cooler/blue) .. 1 (warmer/orange), vignette 0..1 (intensity). */
+   *  warmth -1 (cooler/blue) .. 1 (warmer/orange), vignette 0..1 (intensity).
+   *  exposure -1..1, highlights/shadows -1..1, tint -1 (magenta)..1 (green),
+   *  sharpness 0..2, clarity 0..1, grain 0..1. */
   brightness?: number
   contrast?: number
   saturation?: number
   grayscale?: boolean
   warmth?: number
   vignette?: number
+  exposure?: number
+  highlights?: number
+  shadows?: number
+  tint?: number
+  sharpness?: number
+  clarity?: number
+  grain?: number
 }
 
-/** Combines brightness/contrast/saturation/grayscale/warmth/vignette into
- *  one filter chain, windowed together so they all apply/release at the
- *  same times. Grayscale is done by zeroing eq's own saturation rather than
- *  a separate hue filter — one fewer filter stage. */
+/** Combines every color/tone adjustment into one filter chain, windowed
+ *  together so they all apply/release at the same times. Grayscale is done
+ *  by zeroing eq's own saturation rather than a separate hue filter — one
+ *  fewer filter stage. */
 export async function applyColorAdjust(file: Blob, opts: ColorAdjustOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
-  const { start, end, brightness = 0, contrast = 1, saturation = 1, grayscale = false, warmth = 0, vignette = 0 } = opts
+  const {
+    start, end, brightness = 0, contrast = 1, saturation = 1, grayscale = false, warmth = 0, vignette = 0,
+    exposure = 0, highlights = 0, shadows = 0, tint = 0, sharpness = 0, clarity = 0, grain = 0,
+  } = opts
   const w = windowClause(start, end)
   const parts: string[] = []
   const effSaturation = grayscale ? 0 : saturation
-  if (brightness !== 0 || contrast !== 1 || effSaturation !== 1) {
-    parts.push(`eq=brightness=${brightness}:contrast=${contrast}:saturation=${effSaturation}${w}`)
+  // exposure folds into the same eq= call as brightness/contrast/saturation
+  // (one fewer filter stage) via gamma — a multiplicative push, distinct
+  // from brightness's additive offset. 2^exposure keeps 0 neutral (gamma 1).
+  const gamma = exposure !== 0 ? Math.pow(2, exposure) : 1
+  if (brightness !== 0 || contrast !== 1 || effSaturation !== 1 || gamma !== 1) {
+    parts.push(`eq=brightness=${brightness}:contrast=${contrast}:saturation=${effSaturation}:gamma=${gamma.toFixed(4)}${w}`)
   }
-  if (warmth !== 0) {
-    // colorbalance nudges shadows/mids/highlights red-vs-blue together for a
-    // simple, uniform warm/cool push rather than a full white-balance model.
+  if (warmth !== 0 || tint !== 0) {
+    // colorbalance nudges shadows/mids/highlights together for a simple,
+    // uniform push rather than a full white-balance model — warmth on the
+    // red/blue axis (already shipped), tint on the green axis (new): a
+    // magenta push is just a negative green shift with red/blue untouched.
     const r = (warmth * 0.4).toFixed(3)
     const b = (-warmth * 0.4).toFixed(3)
-    parts.push(`colorbalance=rs=${r}:rm=${r}:rh=${r}:bs=${b}:bm=${b}:bh=${b}${w}`)
+    const g = (tint * 0.4).toFixed(3)
+    parts.push(`colorbalance=rs=${r}:rm=${r}:rh=${r}:bs=${b}:bm=${b}:bh=${b}:gs=${g}:gm=${g}:gh=${g}${w}`)
+  }
+  if (highlights !== 0 || shadows !== 0) {
+    // Two control points on the master tone curve, endpoints anchored at
+    // 0/0 and 1/1 so the curve never clips or flattens the extremes —
+    // shadows moves the quarter-tone point, highlights the three-quarter
+    // point, independent of the flat brightness/contrast/exposure above.
+    const shadowY = Math.max(0, Math.min(1, 0.25 + shadows * 0.15)).toFixed(3)
+    const highY = Math.max(0, Math.min(1, 0.75 + highlights * 0.15)).toFixed(3)
+    parts.push(`curves=master='0/0 0.25/${shadowY} 0.75/${highY} 1/1'${w}`)
   }
   if (vignette > 0) {
     parts.push(`vignette=angle=PI/${Math.max(2, Math.round(6 / Math.max(0.01, vignette)))}${w}`)
+  }
+  if (sharpness > 0) {
+    parts.push(`unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=${sharpness.toFixed(2)}${w}`)
+  }
+  if (clarity > 0) {
+    // Same unsharp filter, wider radius + gentler amount — the common
+    // "local contrast" hack: a wide-radius sharpen reads as texture/punch
+    // rather than edge-crispness. Capped at 13 (not unsharp's documented max
+    // of 23) — verified empirically that this exact ffmpeg.wasm build fails
+    // to initialize the filter at msize 15 and above ("Error reinitializing
+    // filters!"), despite the option's own docs allowing up to 23.
+    parts.push(`unsharp=luma_msize_x=13:luma_msize_y=13:luma_amount=${(clarity * 1.2).toFixed(2)}${w}`)
+  }
+  if (grain > 0) {
+    parts.push(`noise=alls=${Math.round(grain * 40)}:allf=t${w}`)
   }
   if (!parts.length) return file // nothing actually requested to change
   return runOneVideoFilter(file, parts.join(','), 'Could not adjust the color of the video.', onProgress, ['-c:a', 'copy'])

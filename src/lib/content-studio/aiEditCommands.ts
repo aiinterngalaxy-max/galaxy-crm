@@ -75,6 +75,16 @@ export interface PixelateCommand { type: 'pixelate'; start: number; end: number;
 export interface ColorCommand {
   type: 'color'; start: number; end: number
   brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; warmth?: number; vignette?: number
+  /** exposure: -1 (darker) .. 1 (brighter), a multiplicative gamma push —
+   *  distinct from brightness's additive offset, closer to a camera's own
+   *  exposure control. highlights/shadows: -1..1, lifts/lowers just the
+   *  bright or dark end of the tonal range (a `curves` push, not a flat
+   *  brightness shift). tint: -1 (magenta) .. 1 (green), same shadows/mids/
+   *  highlights push `warmth` already uses on the red/blue axis. sharpness:
+   *  0..2 (1 = a moderate sharpen, 0 = none). clarity: 0..1, a softer/wider
+   *  "local contrast" sharpen. grain: 0..1 added film-grain-style noise. */
+  exposure?: number; highlights?: number; shadows?: number; tint?: number
+  sharpness?: number; clarity?: number; grain?: number
 }
 export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: number }
 export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
@@ -478,14 +488,28 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       const warmth = num(c.warmth)
       const vignette = num(c.vignette)
       const grayscale = typeof c.grayscale === 'boolean' ? c.grayscale : undefined
-      if (brightness == null && contrast == null && saturation == null && warmth == null && vignette == null && grayscale == null) {
-        return { error: 'Missing what to adjust (brightness, contrast, saturation, warmth, vignette, or grayscale).' }
+      const exposure = num(c.exposure)
+      const highlights = num(c.highlights)
+      const shadows = num(c.shadows)
+      const tint = num(c.tint)
+      const sharpness = num(c.sharpness)
+      const clarity = num(c.clarity)
+      const grain = num(c.grain)
+      if ([brightness, contrast, saturation, warmth, vignette, grayscale, exposure, highlights, shadows, tint, sharpness, clarity, grain].every((v) => v == null)) {
+        return { error: 'Missing what to adjust (brightness, contrast, saturation, exposure, highlights, shadows, warmth, tint, vignette, sharpness, clarity, grain, or grayscale).' }
       }
       if (brightness != null && (brightness < -1 || brightness > 1)) return { error: 'Brightness has to be between -1 and 1.' }
       if (contrast != null && (contrast < 0 || contrast > 3)) return { error: 'Contrast has to be between 0 and 3.' }
       if (saturation != null && (saturation < 0 || saturation > 3)) return { error: 'Saturation has to be between 0 and 3.' }
       if (warmth != null && (warmth < -1 || warmth > 1)) return { error: 'Warmth has to be between -1 (cooler) and 1 (warmer).' }
       if (vignette != null && (vignette < 0 || vignette > 1)) return { error: 'Vignette has to be between 0 and 1.' }
+      if (exposure != null && (exposure < -1 || exposure > 1)) return { error: 'Exposure has to be between -1 and 1.' }
+      if (highlights != null && (highlights < -1 || highlights > 1)) return { error: 'Highlights has to be between -1 and 1.' }
+      if (shadows != null && (shadows < -1 || shadows > 1)) return { error: 'Shadows has to be between -1 and 1.' }
+      if (tint != null && (tint < -1 || tint > 1)) return { error: 'Tint has to be between -1 (magenta) and 1 (green).' }
+      if (sharpness != null && (sharpness < 0 || sharpness > 2)) return { error: 'Sharpness has to be between 0 and 2.' }
+      if (clarity != null && (clarity < 0 || clarity > 1)) return { error: 'Clarity has to be between 0 and 1.' }
+      if (grain != null && (grain < 0 || grain > 1)) return { error: 'Grain has to be between 0 and 1.' }
       return {
         type: 'color', ...w,
         ...(brightness != null ? { brightness } : {}),
@@ -494,6 +518,13 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
         ...(grayscale != null ? { grayscale } : {}),
         ...(warmth != null ? { warmth } : {}),
         ...(vignette != null ? { vignette } : {}),
+        ...(exposure != null ? { exposure } : {}),
+        ...(highlights != null ? { highlights } : {}),
+        ...(shadows != null ? { shadows } : {}),
+        ...(tint != null ? { tint } : {}),
+        ...(sharpness != null ? { sharpness } : {}),
+        ...(clarity != null ? { clarity } : {}),
+        ...(grain != null ? { grain } : {}),
       }
     }
 
@@ -649,7 +680,7 @@ loop        { "type": "loop", "times": integer }  — 2 to 10, total number of p
 blur        { "type": "blur", "start": number, "end": number, "strength": number }  — WHOLE-FRAME blur only, strength 1-20. There is no person/object/background detection in this tool — if the instruction asks to blur only the background, only a person, or only an object (not the whole frame), you MUST use clarification instead, explaining plainly that only whole-frame blur is available and asking if they'd like that instead. Never silently apply a whole-frame blur to a "blur just the background" request.
 pixelate    { "type": "pixelate", "start": number, "end": number, "strength": number }  — same whole-frame-only rule as blur.
 mask        { "type": "mask", "start": number, "end": number, "shape": "circle" | "rect", "x"?: number, "y"?: number, "size"?: number, "feather"?: number }  — a SPOTLIGHT effect: the video stays normal INSIDE the shape and is darkened OUTSIDE it, for [start,end]. This is NOT a cutout/compositing mask — there's no chroma key, background removal, or second layer in this tool, so "cut me out and put me on a different background" or "remove the background" is NOT achievable with this command; that must be a clarification explaining plainly that only a darken-outside spotlight is available, never silently applied as if it were background removal. x/y are the CENTER of the shape as a 0-1 fraction of the frame (0.5,0.5 = middle) — default to 0.5,0.5 if not said. size is how big the shape is, 0.05 (tiny) to 0.9 (nearly full-frame), default 0.35. feather is edge softness, 0 (hard edge) to 0.3 (very soft), default 0.12. Map "spotlight the person"/"circle around the product"/"highlight the middle" to this with sensible defaults rather than asking, UNLESS the instruction gives no usable time window at all.
-color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "vignette"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter), contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated), warmth -1 (cooler/blue)..1 (warmer/orange), vignette 0 (none)..1 (strong, darkened edges). Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
+color       { "type": "color", "start": number, "end": number, "brightness"?: number, "contrast"?: number, "saturation"?: number, "grayscale"?: boolean, "warmth"?: number, "tint"?: number, "vignette"?: number, "exposure"?: number, "highlights"?: number, "shadows"?: number, "sharpness"?: number, "clarity"?: number, "grain"?: number }  — at least one field besides start/end/type required. brightness -1 (darker)..1 (brighter) is a flat offset; exposure -1..1 is a multiplicative push closer to a camera's exposure dial — use exposure for "overexposed"/"underexposed"/"more exposure", brightness for a plain "brighter"/"darker". contrast/saturation 0..3 (1=unchanged, 0=flat/no contrast or fully desaturated). warmth -1 (cooler/blue)..1 (warmer/orange) is the orange/blue axis; tint -1 (magenta)..1 (green) is the other color axis — "too green"/"add magenta" → tint, "too warm"/"too blue" → warmth. highlights/shadows -1..1 each lift or crush just the bright or dark end of the image, independent of overall brightness — "bring back the blown-out sky"/"recover highlight detail" → negative highlights; "brighten the shadows"/"lift the blacks" → positive shadows. vignette 0 (none)..1 (strong, darkened edges). sharpness 0 (none)..2 (strong) is a normal sharpen; clarity 0..1 is a softer, wider "punchy/textured" local-contrast sharpen — "make it crisper"/"sharpen it" → sharpness, "add texture/punch"/"make it pop" (without asking for color) → clarity. grain 0..1 adds film-grain noise. Map casual wording to these fields rather than asking: "dull"/"muted"/"washed out"/"desaturated"/"flat" → lower saturation (e.g. 0.4); "vibrant"/"vivid"/"punchy"/"more colorful" → higher saturation (e.g. 1.6); "dim"/"darker"/"underexposed" → negative brightness; "brighter"/"lighter"/"overexposed look" → positive brightness; "moody"/"cinematic" (with no other detail given) is too vague on its own — ask what specifically (darker? cooler? more contrast?) rather than guessing a whole grade.
 fade        { "type": "fade", "direction": "in" | "out", "duration": number }  — video fades to/from black at the very start (in) or very end (out) of the clip, duration in seconds (default 1 if not said).
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
 flip        { "type": "flip", "axis": "horizontal" | "vertical" }
@@ -884,7 +915,14 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       if (cmd.saturation != null) lines.push(`Saturation: ${cmd.saturation}x`)
       if (cmd.grayscale) lines.push('Grayscale')
       if (cmd.warmth != null) lines.push(`Warmth: ${cmd.warmth > 0 ? '+' : ''}${cmd.warmth}`)
+      if (cmd.tint != null) lines.push(`Tint: ${cmd.tint > 0 ? '+' : ''}${cmd.tint}`)
       if (cmd.vignette != null) lines.push(`Vignette: ${cmd.vignette}`)
+      if (cmd.exposure != null) lines.push(`Exposure: ${cmd.exposure > 0 ? '+' : ''}${cmd.exposure}`)
+      if (cmd.highlights != null) lines.push(`Highlights: ${cmd.highlights > 0 ? '+' : ''}${cmd.highlights}`)
+      if (cmd.shadows != null) lines.push(`Shadows: ${cmd.shadows > 0 ? '+' : ''}${cmd.shadows}`)
+      if (cmd.sharpness != null) lines.push(`Sharpness: ${cmd.sharpness}`)
+      if (cmd.clarity != null) lines.push(`Clarity: ${cmd.clarity}`)
+      if (cmd.grain != null) lines.push(`Grain: ${cmd.grain}`)
       lines.push(`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`)
       return { title: 'Color', lines }
     }

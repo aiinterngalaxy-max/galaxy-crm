@@ -1385,6 +1385,8 @@ export function VideoEditWorkspacePage() {
             blob = await applyColorAdjust(blob, {
               start: cmd.start, end: cmd.end, brightness: cmd.brightness, contrast: cmd.contrast,
               saturation: cmd.saturation, grayscale: cmd.grayscale, warmth: cmd.warmth, vignette: cmd.vignette,
+              exposure: cmd.exposure, highlights: cmd.highlights, shadows: cmd.shadows, tint: cmd.tint,
+              sharpness: cmd.sharpness, clarity: cmd.clarity, grain: cmd.grain,
             }, setAiProgress)
           } else if (cmd.type === 'mask') {
             blob = await applyMask(blob, {

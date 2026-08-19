@@ -334,6 +334,25 @@ describe('validateCommand', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, warmth: 2 }, ctx)).toHaveProperty('error')
       expect(validateCommand({ type: 'color', start: 0, end: 5, vignette: 2 }, ctx)).toHaveProperty('error')
     })
+    it('accepts the new adjustment fields (exposure/highlights/shadows/tint/sharpness/clarity/grain)', () => {
+      const result = validateCommand(
+        { type: 'color', start: 0, end: 5, exposure: 0.3, highlights: -0.2, shadows: 0.4, tint: -0.1, sharpness: 1.2, clarity: 0.5, grain: 0.3 },
+        ctx,
+      )
+      expect(result).toEqual({
+        type: 'color', start: 0, end: 5,
+        exposure: 0.3, highlights: -0.2, shadows: 0.4, tint: -0.1, sharpness: 1.2, clarity: 0.5, grain: 0.3,
+      })
+    })
+    it('rejects out-of-range exposure/highlights/shadows/tint/sharpness/clarity/grain', () => {
+      expect(validateCommand({ type: 'color', start: 0, end: 5, exposure: 2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, highlights: -2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, shadows: 2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, tint: -2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, sharpness: 3 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, clarity: 2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'color', start: 0, end: 5, grain: 2 }, ctx)).toHaveProperty('error')
+    })
   })
 
   describe('mask', () => {
