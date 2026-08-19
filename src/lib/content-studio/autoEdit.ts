@@ -1529,6 +1529,81 @@ export async function applyGlitch(file: Blob, { start, end, style, strength = 0.
   return runOneVideoFilter(file, vf, `Could not apply the ${style} effect.`, onProgress, ['-c:a', 'copy'])
 }
 
+export type LightStyle = 'flash' | 'strobe' | 'flicker' | 'glow' | 'bloom' | 'lightLeak'
+
+/**
+ * Single-input recipes only — 'lightLeak' is handled separately below
+ * (applyLight) since it composites a second generated color source, which
+ * needs its own -i/-filter_complex, not a plain -vf chain. flash/strobe/
+ * flicker reuse eq's proven eval=frame time expression (Sub-phase 4c).
+ * glow/bloom use split+gblur+blend=screen — confirmed this works within a
+ * single -vf string (no -filter_complex needed) by testing directly, and
+ * blend's all_opacity (0-1, confirmed via a live -h filter=blend probe) is
+ * what scales strength, not the blur radius, since radius controls
+ * softness, not intensity.
+ */
+export const LIGHT_RECIPES: Partial<Record<LightStyle, (w: string, s: number, start: number) => string>> = {
+  flash: (w, s, start) => `eq=brightness='${(s * 0.9).toFixed(2)}*exp(-8*(t-${start}))':eval=frame${w}`,
+  strobe: (w, s, start) => `eq=brightness='${(s * 0.7).toFixed(2)}*abs(sin(2*3.14159*10*(t-${start})))':eval=frame${w}`,
+  flicker: (w, s, start) => `eq=brightness='${(s * 0.35).toFixed(2)}*sin(2*3.14159*3*(t-${start}))':eval=frame${w}`,
+  glow: (w, s) => `split[gA][gB];[gB]gblur=sigma=${(4 + s * 8).toFixed(1)}[gBl];[gA][gBl]blend=all_mode=screen:all_opacity=${(0.4 + s * 0.4).toFixed(2)}${w}`,
+  bloom: (w, s) => `split[bA][bB];[bB]eq=brightness=0.2,gblur=sigma=${(10 + s * 14).toFixed(1)}[bBl];[bA][bBl]blend=all_mode=screen:all_opacity=${(0.5 + s * 0.4).toFixed(2)}${w}`,
+}
+
+export interface LightOptions { start: number; end: number; style: LightStyle; strength?: number }
+
+export async function applyLight(file: Blob, { start, end, style, strength = 0.5 }: LightOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  if (style !== 'lightLeak') {
+    const w = windowClause(start, end)
+    const vf = LIGHT_RECIPES[style]!(w, strength, start)
+    return runOneVideoFilter(file, vf, `Could not apply the ${style} effect.`, onProgress, ['-c:a', 'copy'])
+  }
+
+  // lightLeak washes a warm color over the frame — needs a SECOND source
+  // (a plain generated color, not a Canvas-drawn PNG like mask/captions),
+  // so it goes through its own filter_complex + explicit -map, same shape
+  // as applyMask. The color= source has no natural end (infinite, no
+  // duration given) — confirmed by testing that omitting -shortest here
+  // hangs the render indefinitely, the same class of bug the mask sub-phase
+  // already found with a looped PNG.
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'light-input.mp4'
+  const outputName = 'light-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const w = windowClause(start, end)
+    const opacity = (0.25 + strength * 0.35).toFixed(2)
+    // overlay needs an explicit key=value BEFORE the enable clause — a bare
+    // "overlay:enable=..." fails to parse ("No such filter: 'overlay:enable'",
+    // caught by testing), unlike every other overlay call in this file which
+    // already had x=/y= as its first param for unrelated reasons.
+    const filterComplex =
+      `[1:v]format=yuva420p,colorchannelmixer=aa=${opacity}[leak];` +
+      `[0:v][leak]overlay=x=0:y=0${w}[outv]`
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-f', 'lavfi', '-i', `color=c=0xFFA050:s=${width}x${height}`,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the light leak effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 export interface MaskOptions {
   start: number
   end: number

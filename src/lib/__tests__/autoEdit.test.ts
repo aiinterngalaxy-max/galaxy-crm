@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
-  LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES,
+  LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -261,5 +261,35 @@ describe('GLITCH_RECIPES', () => {
     const lowShift = Number(low.match(/rh=(\d+)/)?.[1])
     const highShift = Number(high.match(/rh=(\d+)/)?.[1])
     expect(highShift).toBeGreaterThan(lowShift)
+  })
+})
+
+describe('LIGHT_RECIPES', () => {
+  const singleVfStyles = ['flash', 'strobe', 'flicker', 'glow', 'bloom'] as const
+
+  it('has a recipe for every single-vf LightStyle (lightLeak is handled separately via filter_complex)', () => {
+    for (const name of singleVfStyles) expect(LIGHT_RECIPES).toHaveProperty(name)
+  })
+
+  it('every recipe produces a non-empty filter string that honors the enable window it is given', () => {
+    const w = ":enable='between(t\\,1\\,3)'"
+    for (const name of singleVfStyles) {
+      const vf = LIGHT_RECIPES[name]!(w, 0.5, 1)
+      expect(vf.length, `${name} produced an empty filter string`).toBeGreaterThan(0)
+      expect(vf, `${name} did not include its enable window`).toContain(w)
+    }
+  })
+
+  it('glow/bloom use blend=screen with an opacity that scales with strength, not a fixed value', () => {
+    const low = LIGHT_RECIPES.glow!('', 0.1, 0)
+    const high = LIGHT_RECIPES.glow!('', 0.9, 0)
+    const lowOpacity = Number(low.match(/all_opacity=([\d.]+)/)?.[1])
+    const highOpacity = Number(high.match(/all_opacity=([\d.]+)/)?.[1])
+    expect(highOpacity).toBeGreaterThan(lowOpacity)
+  })
+
+  it('flash decays from the window start (uses an exp() falloff, not a flat/constant value)', () => {
+    const vf = LIGHT_RECIPES.flash!('', 0.5, 3)
+    expect(vf).toContain('exp(-8*(t-3))')
   })
 })
