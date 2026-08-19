@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
   LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
+  AUDIO_RECIPES,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -343,5 +344,41 @@ describe('buildSpeedRampFilter', () => {
     expect(filterComplex).toContain('trim=end=2')
     expect(filterComplex).toContain('trim=start=5')
     expect(filterComplex).toContain('concat=n=5:v=1:a=1')
+  })
+})
+
+describe('AUDIO_RECIPES', () => {
+  const styles = ['equalizer', 'reverb', 'echo', 'distortion', 'bassBoost', 'pitch', 'mono', 'fadeIn', 'fadeOut'] as const
+
+  it('has a recipe for every AudioStyle the command vocabulary advertises', () => {
+    for (const style of styles) expect(AUDIO_RECIPES).toHaveProperty(style)
+  })
+
+  it('pitch shifts sample rate up for "up" and down for "down", each compensated by the inverse atempo', () => {
+    const up = AUDIO_RECIPES.pitch(0.5, 'up', 1)
+    const down = AUDIO_RECIPES.pitch(0.5, 'down', 1)
+    const upRate = Number(up.match(/asetrate=44100\*([\d.]+)/)?.[1])
+    const downRate = Number(down.match(/asetrate=44100\*([\d.]+)/)?.[1])
+    expect(upRate).toBeGreaterThan(1)
+    expect(downRate).toBeLessThan(1)
+    // atempo must be the exact inverse of the rate multiplier, or duration drifts
+    const upTempo = Number(up.match(/atempo=([\d.]+)/)?.[1])
+    expect(upTempo * upRate).toBeCloseTo(1, 2)
+  })
+
+  it('reverb layers multiple aecho taps (pipe-separated delays/decays), not a single echo', () => {
+    const vf = AUDIO_RECIPES.reverb(0.5, 'up', 1)
+    expect(vf).toContain('aecho=')
+    expect(vf.split('|').length).toBeGreaterThanOrEqual(3) // at least 3 delay taps
+  })
+
+  it('mono ignores strength — same output regardless', () => {
+    expect(AUDIO_RECIPES.mono(0.1, 'up', 1)).toBe(AUDIO_RECIPES.mono(0.9, 'up', 1))
+  })
+
+  it('bassBoost gain scales with strength', () => {
+    const low = Number(AUDIO_RECIPES.bassBoost(0.1, 'up', 1).match(/g=([\d.]+)/)?.[1])
+    const high = Number(AUDIO_RECIPES.bassBoost(0.9, 'up', 1).match(/g=([\d.]+)/)?.[1])
+    expect(high).toBeGreaterThan(low)
   })
 })
