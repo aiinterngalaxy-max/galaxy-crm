@@ -316,6 +316,24 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('background_blur (TEST: "Blur the background from 2 to 5 seconds" style instructions)', () => {
+    it('accepts a valid windowed background blur', () => {
+      expect(validateCommand({ type: 'background_blur', start: 2, end: 5, strength: 8 }, ctx))
+        .toEqual({ type: 'background_blur', start: 2, end: 5, strength: 8 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'background_blur', start: 2, end: 5 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'background_blur', start: 0, end: 1, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'background_blur', start: 0, end: 1, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'background_blur', strength: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'background_blur', start: 5, end: 2, strength: 5 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })

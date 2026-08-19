@@ -13,6 +13,7 @@
  * A reference link is stored elsewhere purely as a note for a human editor.
  */
 import type { FFmpeg } from '@ffmpeg/ffmpeg'
+import type { SelfieSegmentation as SelfieSegmentationType, Results as SelfieSegmentationResults } from '@mediapipe/selfie_segmentation'
 import { renderCaptionImage, renderMaskImage } from './captionOverlay'
 
 export class AutoEditError extends Error {}
@@ -1253,12 +1254,15 @@ export async function loopVideo(
 // ---------- AI-instructable operations, batch 2: blur / pixelate / color /
 // fade / rotate / flip / reverse / noise reduction ----------
 //
-// All whole-FRAME effects — there is no person/object/background
-// segmentation or tracking anywhere in this codebase (no such library is a
-// dependency), so "blur the background but keep the person sharp" cannot be
-// done here; only whole-frame blur/pixelate is offered, and the AI layer
-// (aiEditCommands.ts) is instructed to say so plainly rather than silently
-// applying a whole-frame blur to a person-only request.
+// All whole-FRAME effects. blur/pixelate/color/fade/rotate/flip/reverse/
+// mask/look/glitch/light/motionfx/audiofx below have no idea what a "person"
+// or "background" is — they're plain ffmpeg filters over pixels or time, so
+// "blur the background but keep the person sharp" cannot be done with any of
+// them; the AI layer (aiEditCommands.ts) knows this and keeps `blur`
+// documented as whole-frame-only. That specific request now has a real
+// answer, though — see `applyBackgroundBlur` further down, which brings in
+// an actual in-browser ML segmentation model (not an ffmpeg filter) to tell
+// person pixels from background pixels before blurring only the latter.
 //
 // Time-windowed ones use the SAME filter's own `enable='between(t,s,e)'`
 // clause (escaped the same way the rest of this file already does for
@@ -1954,6 +1958,266 @@ export async function applyAudioFx(file: Blob, { style, strength = 0.5, directio
   } finally {
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+// ---------- Background-only blur ----------
+//
+// Everything else in this file is a plain ffmpeg filter — cheap, but blind
+// to *what's in the frame*. Blurring only the background while keeping a
+// person sharp needs an actual model that can tell the two apart, which
+// ffmpeg does not have. This brings in MediaPipe's SelfieSegmentation — a
+// small (~12MB, fetched once and cached by the browser), WebGL-accelerated
+// in-browser model that does exactly that, per frame — runs it over just the
+// requested [start,end] window, composites each frame on a canvas (sharp
+// subject over a CSS-blurred background), then hands the composited frames
+// back to ffmpeg to re-encode and splice into the untouched rest of the clip.
+// Reachable only via the AI instruction path (`background_blur`, see
+// aiEditCommands.ts) — no manual UI button, same as every other AI Edit
+// effect in this file.
+
+let segmenterSingleton: SelfieSegmentationType | null = null
+
+/** Loaded once per page session, same "load once, reuse" reasoning as
+ *  loadFFmpeg — re-downloading and re-initializing the model per clip would
+ *  be wasteful, and nothing about the model itself is per-video state. */
+async function loadSegmenter(): Promise<SelfieSegmentationType> {
+  if (segmenterSingleton) return segmenterSingleton
+  const { SelfieSegmentation } = await import('@mediapipe/selfie_segmentation')
+  const seg = new SelfieSegmentation({
+    // The npm package ships the model/wasm files, but they're not part of
+    // this app's own build output — fetched from the same package's CDN
+    // build instead, the standard way to point this library at its assets
+    // without bundling ~12MB of binary model weights into the app itself.
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
+  })
+  // modelSelection 1 = the "landscape" model: faster, tuned for wider shots
+  // (more typical of video footage than the default's tight portrait crop).
+  seg.setOptions({ modelSelection: 1 })
+  await seg.initialize()
+  segmenterSingleton = seg
+  return seg
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not encode a composited frame.'))), 'image/png')
+  })
+}
+
+/**
+ * Runs one frame through the segmentation model and composites the result.
+ * This is MediaPipe's own reference compositing recipe for "blur the
+ * background" (drawImage the mask, `source-in` to keep only the masked
+ * subject pixels from the sharp frame, `destination-atop` to fill everything
+ * still-transparent with a CSS-blurred copy of the same frame) — not a
+ * technique invented here, since getting the compositing math right by trial
+ * and error would risk exactly the kind of "assumed, not verified" mistake
+ * this file's other filters (see the `hue`/`unsharp` comments above) were
+ * written to avoid.
+ */
+async function segmentAndBlurFrame(
+  seg: SelfieSegmentationType,
+  sourceCanvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  radiusPx: number,
+): Promise<Blob> {
+  const results = await new Promise<SelfieSegmentationResults>((resolve) => {
+    seg.onResults((r) => resolve(r))
+    void seg.send({ image: sourceCanvas })
+  })
+
+  // The model's own mask edge is feathered a little further here — same
+  // "soften the boundary rather than a hard cutout" idea the static `mask`
+  // spotlight effect gets from its own PNG feather (captionOverlay.ts),
+  // applied to a per-frame ML mask instead of a fixed shape.
+  const maskCanvas = document.createElement('canvas')
+  maskCanvas.width = width
+  maskCanvas.height = height
+  const maskCtx = maskCanvas.getContext('2d')
+  if (!maskCtx) throw new Error('Canvas 2D is not available in this browser.')
+  maskCtx.filter = 'blur(3px)'
+  maskCtx.drawImage(results.segmentationMask, 0, 0, width, height)
+
+  const outCanvas = document.createElement('canvas')
+  outCanvas.width = width
+  outCanvas.height = height
+  const outCtx = outCanvas.getContext('2d')
+  if (!outCtx) throw new Error('Canvas 2D is not available in this browser.')
+
+  outCtx.drawImage(maskCanvas, 0, 0, width, height)
+  outCtx.globalCompositeOperation = 'source-in'
+  outCtx.drawImage(results.image, 0, 0, width, height)
+  outCtx.globalCompositeOperation = 'destination-atop'
+  outCtx.filter = `blur(${radiusPx}px)`
+  outCtx.drawImage(results.image, 0, 0, width, height)
+  outCtx.filter = 'none'
+  outCtx.globalCompositeOperation = 'source-over'
+
+  return canvasToPngBlob(outCanvas)
+}
+
+export interface BackgroundBlurOptions { start: number; end: number; strength: number }
+
+/**
+ * Background-only blur over [start,end] — the subject stays sharp, only the
+ * rest of the frame blurs. Strength 1-20, same range and same meaning
+ * (higher = blurrier) as applyBlur's whole-frame version, just applied
+ * selectively instead of to every pixel.
+ *
+ * Pipeline: extract the windowed section as a PNG frame sequence + its own
+ * audio, run every frame through segmentAndBlurFrame, re-encode the
+ * composited frames into a short clip, then splice
+ * [unchanged before] + [processed middle] + [unchanged after] back into one
+ * video via the same trim+concat filter_complex idiom used elsewhere in this
+ * file (autoEditRemoveSilence/renderSegments/applyWindowedSpeed) — the
+ * "changed" segment here comes from a second input file (the re-encoded
+ * middle clip) rather than a retimed slice of the first, which is the only
+ * structural difference from applyWindowedSpeed's three-segment split.
+ *
+ * Genuinely slower than every other effect in this file — a real per-frame
+ * model pass, not one ffmpeg filter — and the model itself is an extra
+ * ~12MB download the first time it runs in a session. Both are accepted,
+ * explicit tradeoffs for a background-only result being possible at all
+ * without a server.
+ */
+export async function applyBackgroundBlur(
+  file: Blob,
+  { start, end, strength }: BackgroundBlurOptions,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  const seg = await loadSegmenter()
+
+  const inputName = 'bgblur-input.mp4'
+  const audioName = 'bgblur-audio.aac'
+  const midName = 'bgblur-mid.mp4'
+  const outputName = 'bgblur-output.mp4'
+  const frameNames: string[] = []
+  const outFrameNames: string[] = []
+
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const duration = await probeDuration(ffmpeg, inputName)
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const fps = Math.min(30, await probeFps(ffmpeg, inputName)) // cap: a per-frame ML pass at 60fps would take twice as long for no visible benefit on a blurred background
+
+    const winStart = Math.max(0, start)
+    const winEnd = Math.min(duration, end)
+    const dur = winEnd - winStart
+    if (dur < 0.1) throw new AutoEditError('That time window is too short to background-blur.')
+
+    const radiusPx = Math.max(1, Math.min(20, Math.round(strength)))
+
+    // 1. Pull the windowed section as a PNG frame sequence...
+    await ffmpeg.exec([
+      '-ss', String(winStart), '-i', inputName, '-t', String(dur),
+      '-vf', `fps=${fps}`, '-start_number', '1', 'bgblur-frame-%04d.png',
+    ])
+
+    // ...and its audio, separately — falls back to a silent track if the
+    // clip (or just this window) has no audio, same "the video read fine,
+    // audio failing almost always means no track" reasoning analyzeFootage
+    // already uses, rather than failing the whole effect over it.
+    try {
+      await ffmpeg.exec(['-ss', String(winStart), '-i', inputName, '-t', String(dur), '-vn', '-c:a', 'aac', audioName])
+    } catch {
+      await ffmpeg.exec(['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(dur), '-c:a', 'aac', audioName])
+    }
+
+    // 2. Segment + blur every extracted frame. +5 is slack for fps rounding
+    //    (e.g. dur*fps landing just under a whole frame) — the loop stops
+    //    the moment a frame is actually missing, so this only bounds how far
+    //    it's willing to look, not how many frames get processed.
+    const maxFrames = Math.ceil(dur * fps) + 5
+    let i = 1
+    while (i <= maxFrames) {
+      const frameName = `bgblur-frame-${String(i).padStart(4, '0')}.png`
+      let data: Uint8Array
+      try {
+        data = (await ffmpeg.readFile(frameName)) as Uint8Array
+      } catch {
+        break
+      }
+      frameNames.push(frameName)
+
+      const bitmap = await createImageBitmap(new Blob([new Uint8Array(data).buffer], { type: 'image/png' }))
+      // MediaPipe's InputImage type is HTMLVideoElement | HTMLImageElement |
+      // HTMLCanvasElement — no ImageBitmap — so the decoded frame is drawn
+      // onto a canvas first and that canvas is what's actually sent in.
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = width
+      sourceCanvas.height = height
+      const sourceCtx = sourceCanvas.getContext('2d')
+      if (!sourceCtx) throw new Error('Canvas 2D is not available in this browser.')
+      sourceCtx.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+
+      const outBlob = await segmentAndBlurFrame(seg, sourceCanvas, width, height, radiusPx)
+
+      const outName = `bgblur-out-${String(i).padStart(4, '0')}.png`
+      await ffmpeg.writeFile(outName, new Uint8Array(await outBlob.arrayBuffer()))
+      outFrameNames.push(outName)
+
+      onProgress?.({ phase: 'analyzing', fraction: i / maxFrames })
+      i++
+    }
+    if (!outFrameNames.length) throw new AutoEditError('Could not extract any frames from that time window.')
+
+    // 3. Re-encode the processed middle section from the composited frames.
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-start_number', '1', '-framerate', String(fps), '-i', 'bgblur-out-%04d.png',
+      '-i', audioName,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', midName,
+    ])
+
+    // 4. Splice unchanged-before + processed-middle + unchanged-after.
+    const filters: string[] = []
+    const segRefs: string[] = []
+    let segIdx = 0
+    if (winStart > 0.05) {
+      filters.push(`[0:v]trim=start=0:end=${winStart},setpts=PTS-STARTPTS[v${segIdx}]`)
+      filters.push(`[0:a]atrim=start=0:end=${winStart},asetpts=PTS-STARTPTS[a${segIdx}]`)
+      segRefs.push(`[v${segIdx}][a${segIdx}]`)
+      segIdx++
+    }
+    filters.push(`[1:v]setpts=PTS-STARTPTS[v${segIdx}]`)
+    filters.push(`[1:a]asetpts=PTS-STARTPTS[a${segIdx}]`)
+    segRefs.push(`[v${segIdx}][a${segIdx}]`)
+    segIdx++
+    if (duration - winEnd > 0.05) {
+      filters.push(`[0:v]trim=start=${winEnd}:end=${duration},setpts=PTS-STARTPTS[v${segIdx}]`)
+      filters.push(`[0:a]atrim=start=${winEnd}:end=${duration},asetpts=PTS-STARTPTS[a${segIdx}]`)
+      segRefs.push(`[v${segIdx}][a${segIdx}]`)
+      segIdx++
+    }
+    const filterComplex = `${filters.join(';')};${segRefs.join('')}concat=n=${segIdx}:v=1:a=1[outv][outa]`
+
+    await ffmpeg.exec([
+      '-i', inputName, '-i', midName,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '[outa]',
+      outputName,
+    ])
+
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not blur the background. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(audioName).catch(() => {})
+    await ffmpeg.deleteFile(midName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+    for (const n of frameNames) await ffmpeg.deleteFile(n).catch(() => {})
+    for (const n of outFrameNames) await ffmpeg.deleteFile(n).catch(() => {})
   }
 }
 

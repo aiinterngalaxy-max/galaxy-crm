@@ -71,6 +71,12 @@ export interface MuteCommand { type: 'mute'; muted: boolean }
 export interface MusicCommand { type: 'music'; action: 'volume' | 'remove'; volume?: number }
 export interface LoopCommand { type: 'loop'; times: number }
 export interface BlurCommand { type: 'blur'; start: number; end: number; strength: number }
+/** Background-ONLY blur — the subject stays sharp, unlike `blur` which hits
+ *  every pixel. Only possible because of an actual ML segmentation model
+ *  (autoEdit.ts's applyBackgroundBlur), not an ffmpeg filter — see that
+ *  file's comment for why `blur` alone can't do this. Same [start,end] +
+ *  strength 1-20 shape as `blur`/`pixelate`. */
+export interface BackgroundBlurCommand { type: 'background_blur'; start: number; end: number; strength: number }
 export interface PixelateCommand { type: 'pixelate'; start: number; end: number; strength: number }
 export interface ColorCommand {
   type: 'color'; start: number; end: number
@@ -168,8 +174,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -181,13 +187,13 @@ export interface RemoveEffectCommand { type: 'remove_effect'; effectType: Effect
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
-  | BlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
+  | BlurCommand | BackgroundBlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx',
-  'blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
+  'blur', 'background_blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
 
@@ -521,12 +527,15 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
     }
 
     case 'blur':
+    case 'background_blur':
     case 'pixelate': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
       const strength = num(c.strength) ?? 8
-      if (strength < 1 || strength > 20) return { error: `${type === 'blur' ? 'Blur' : 'Pixelate'} strength has to be between 1 and 20.` }
-      return { type: type as 'blur' | 'pixelate', ...w, strength }
+      if (strength < 1 || strength > 20) {
+        return { error: `${type === 'blur' ? 'Blur' : type === 'background_blur' ? 'Background blur' : 'Pixelate'} strength has to be between 1 and 20.` }
+      }
+      return { type: type as 'blur' | 'background_blur' | 'pixelate', ...w, strength }
     }
 
     case 'mask': {
@@ -812,7 +821,8 @@ audio_volume { "type":"audio_volume","volume":number } — 0-3, 1=unchanged
 mute { "type":"mute","muted":boolean }
 music { "type":"music","action":"volume"|"remove","volume":number } — volume (0-1) only with action "volume", only if music track exists
 loop { "type":"loop","times":integer } — 2-10 total plays
-blur { "type":"blur","start":number,"end":number,"strength":number } — WHOLE-FRAME only, strength 1-20. No person/object detection exists — "blur just the background/person" MUST be a clarification explaining that, never silently applied to the whole frame.
+blur { "type":"blur","start":number,"end":number,"strength":number } — WHOLE-FRAME only, strength 1-20. For "blur just the background/person", use background_blur instead — never silently apply a whole-frame blur to that request.
+background_blur { "type":"background_blur","start":number,"end":number,"strength":number } — blurs ONLY the background, keeping the person/subject sharp, strength 1-20 same meaning as blur. Uses real ML segmentation, not a guess — use for "blur the background but keep me/the person sharp", "portrait blur", "bokeh effect behind me".
 pixelate { "type":"pixelate","start":number,"end":number,"strength":number } — same whole-frame-only rule as blur.
 mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/chroma-key/background-removal tool — "cut me out onto another background" must be a clarification saying only a darken-outside spotlight exists. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
@@ -846,7 +856,8 @@ Examples:
 "Change the font from Times New Roman to any other." (no specific font named — clarification with the options spelled out) → {"clarification":"Which font would you like instead — one of: ${FONT_FAMILIES.join(', ')}?"}
 "Make the Galaxy Home Automation text bigger." (only size named, rest stays as-is) → {"commands":[{"type":"text_style","target":"Galaxy Home Automation","size":"lg"}]}
 "Remove the blur." (only valid if blur really is the single most recent change) → {"commands":[{"type":"remove_effect","effectType":"blur"}]}
-"Blur the background but keep the person sharp." (no person/background detection exists) → {"clarification":"I can only blur the whole frame, not just the background — there's no person/background detection in this editor. Want me to blur the whole frame instead, and for which time range?"}
+"Blur the background but keep the person sharp." (no section named but whole-video IS determinable, not a clarification — real segmentation exists via background_blur) → {"commands":[{"type":"background_blur","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":8}]}
+"Blur the background from 2 to 5 seconds." → {"commands":[{"type":"background_blur","start":2,"end":5,"strength":8}]}
 "Add captions with a white font and black outline." (auto-transcribed, then styled) → {"commands":[{"type":"captions_auto"},{"type":"text_style","color":"white","outlineColor":"black","outlineWidth":3}]}
 "Slow down the middle section." (determinable — literal middle third) → {"commands":[{"type":"speed","start":${(ctx.durationSec / 3).toFixed(1)},"end":${(ctx.durationSec * 2 / 3).toFixed(1)},"factor":0.5}]}
 "Reduce background noise." → {"commands":[{"type":"audio_noise_reduction"}]}`
@@ -977,6 +988,7 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'music': return cmd.action === 'remove' ? 'Remove background music' : `Music volume → ${cmd.volume}`
     case 'loop': return `Loop ${cmd.times}x`
     case 'blur': return `Blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
+    case 'background_blur': return `Blur background ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'pixelate': return `Pixelate ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
     case 'color': return `Color adjust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'fade': return `Fade ${cmd.direction} (${cmd.duration}s)`
@@ -1030,6 +1042,8 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Loop', lines: [`Video now plays ${cmd.times} times`] }
     case 'blur':
       return { title: 'Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame (not just background/person)'] }
+    case 'background_blur':
+      return { title: 'Background Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Background only — subject stays sharp'] }
     case 'pixelate':
       return { title: 'Pixelate', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame'] }
     case 'mask':
