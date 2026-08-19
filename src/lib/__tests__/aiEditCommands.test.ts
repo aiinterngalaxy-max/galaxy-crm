@@ -457,6 +457,33 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('audiofx', () => {
+    it('accepts every supported audio style, defaulting strength to 0.5', () => {
+      const styles = ['equalizer', 'reverb', 'echo', 'distortion', 'bassBoost', 'mono']
+      for (const style of styles) {
+        expect(validateCommand({ type: 'audiofx', style }, ctx)).toEqual({ type: 'audiofx', style, strength: 0.5 })
+      }
+    })
+    it('defaults pitch direction to up and accepts down', () => {
+      expect(validateCommand({ type: 'audiofx', style: 'pitch' }, ctx)).toEqual({ type: 'audiofx', style: 'pitch', strength: 0.5, direction: 'up' })
+      expect(validateCommand({ type: 'audiofx', style: 'pitch', direction: 'down' }, ctx)).toEqual({ type: 'audiofx', style: 'pitch', strength: 0.5, direction: 'down' })
+    })
+    it('defaults fadeIn/fadeOut duration to 1s and validates range', () => {
+      expect(validateCommand({ type: 'audiofx', style: 'fadeIn' }, ctx)).toEqual({ type: 'audiofx', style: 'fadeIn', duration: 1 })
+      expect(validateCommand({ type: 'audiofx', style: 'fadeOut', duration: 3 }, ctx)).toEqual({ type: 'audiofx', style: 'fadeOut', duration: 3 })
+      expect(validateCommand({ type: 'audiofx', style: 'fadeIn', duration: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'audiofx', style: 'fadeIn', duration: 11 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing/unsupported style', () => {
+      expect(validateCommand({ type: 'audiofx' }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'audiofx', style: 'beatSync' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 0-1', () => {
+      expect(validateCommand({ type: 'audiofx', style: 'reverb', strength: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'audiofx', style: 'reverb', strength: -0.1 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -758,6 +785,9 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'glitch', start: 1, end: 4, style: 'rgbSplit', strength: 0.5 },
     { type: 'light', start: 1, end: 4, style: 'flash', strength: 0.5 },
     { type: 'motionfx', start: 1, end: 4, style: 'cameraShake', strength: 0.5 },
+    { type: 'audiofx', style: 'reverb', strength: 0.5 },
+    { type: 'audiofx', style: 'pitch', strength: 0.5, direction: 'down' },
+    { type: 'audiofx', style: 'fadeOut', duration: 2 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

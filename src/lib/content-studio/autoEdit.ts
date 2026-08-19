@@ -1889,3 +1889,71 @@ export async function applyNoiseReduction(file: Blob, onProgress?: (p: AutoEditP
   }
 }
 
+export type AudioStyle = 'equalizer' | 'reverb' | 'echo' | 'distortion' | 'bassBoost' | 'pitch' | 'mono' | 'fadeIn' | 'fadeOut'
+
+/**
+ * One audio filter chain per style, all built from filters independently
+ * confirmed present in this deployed ffmpeg.wasm core. 'pitch' uses the
+ * standard asetrate+atempo trick (change sample rate to shift pitch, then
+ * atempo to compensate the resulting speed change back to normal) —
+ * verified via testing that the output duration matches the input's, i.e.
+ * the compensation is actually correct, not just that the command runs.
+ * 'reverb' is intentionally NOT true convolution reverb — this build has
+ * no such filter (not in its configure flags) — it's layered `aecho` taps
+ * standing in for one, and is described to the user as approximate.
+ */
+export const AUDIO_RECIPES: Record<AudioStyle, (s: number, direction: 'up' | 'down', duration: number) => string> = {
+  equalizer: (s) => `equalizer=f=1000:width_type=o:width=2:g=${(s * 12).toFixed(1)}`,
+  reverb: (s) => `aecho=0.8:0.88:60|150|250:${(0.15 + s * 0.3).toFixed(2)}|${(0.1 + s * 0.2).toFixed(2)}|${(0.08 + s * 0.15).toFixed(2)}`,
+  echo: (s) => `aecho=0.8:0.9:${Math.round(300 + s * 700)}:${(0.3 + s * 0.4).toFixed(2)}`,
+  distortion: (s) => `acrusher=bits=${Math.max(2, Math.round(16 - s * 13))}:mix=${(0.3 + s * 0.6).toFixed(2)}`,
+  bassBoost: (s) => `bass=g=${(s * 15).toFixed(1)}`,
+  pitch: (s, direction) => {
+    const ratio = direction === 'down' ? 1 - s * 0.3 : 1 + s * 0.5
+    return `asetrate=44100*${ratio.toFixed(3)},aresample=44100,atempo=${(1 / ratio).toFixed(4)}`
+  },
+  mono: () => `pan=mono|c0=0.5*c0+0.5*c1`,
+  fadeIn: (_s, _d, duration) => `afade=t=in:st=0:d=${duration}`,
+  fadeOut: () => '', // computed inline in applyAudioFx — needs the clip's real total duration
+}
+
+export interface AudioFxOptions {
+  style: AudioStyle
+  strength?: number
+  direction?: 'up' | 'down'
+  /** Seconds — only meaningful for fadeIn/fadeOut. For fadeOut this is the
+   *  fade's own length; the clip's real total duration is probed from the
+   *  file itself. */
+  duration?: number
+}
+
+export async function applyAudioFx(file: Blob, { style, strength = 0.5, direction = 'up', duration = 1 }: AudioFxOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'audiofx-input.mp4'
+  const outputName = 'audiofx-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    let af: string
+    if (style === 'fadeOut') {
+      onProgress?.({ phase: 'analyzing' })
+      const totalDur = await probeDuration(ffmpeg, inputName)
+      af = `afade=t=out:st=${Math.max(0, totalDur - duration)}:d=${duration}`
+    } else {
+      af = AUDIO_RECIPES[style](strength, direction, duration)
+    }
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-af', af, '-c:v', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the ${style} audio effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
