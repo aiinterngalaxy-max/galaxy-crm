@@ -78,6 +78,29 @@ export interface BlurCommand { type: 'blur'; start: number; end: number; strengt
  *  strength 1-20 shape as `blur`/`pixelate`. */
 export interface BackgroundBlurCommand { type: 'background_blur'; start: number; end: number; strength: number }
 export interface PixelateCommand { type: 'pixelate'; start: number; end: number; strength: number }
+/** Directional streak blur (camera/subject motion) along the frame's own
+ *  horizontal or vertical axis. Distinct from `blur` (isotropic, no
+ *  direction) — see autoEdit.ts's buildDirectionalBlurFilter. */
+export interface MotionBlurCommand { type: 'motion_blur'; start: number; end: number; direction: 'horizontal' | 'vertical'; strength: number }
+/** Same streak-blur technique as `motion_blur`, generalized to an arbitrary
+ *  angle instead of just horizontal/vertical — kept as its own command
+ *  since "blur it at a 45 degree angle" is a distinct enough phrase from
+ *  "motion blur horizontally", though both share the same builder. */
+export interface DirectionalBlurCommand { type: 'directional_blur'; start: number; end: number; angle: number; strength: number }
+/** Burst/radial-zoom blur look, ALWAYS centered — simulates a zoom without
+ *  changing framing. For a movable burst point use `radial_blur` instead. */
+export interface ZoomBlurCommand { type: 'zoom_blur'; start: number; end: number; strength: number }
+/** Same zoom-burst technique as `zoom_blur`, but radiating from a movable
+ *  center point (x/y, 0-1 fraction of frame, default centered) — that
+ *  movable center is the one real difference between the two commands. */
+export interface RadialBlurCommand { type: 'radial_blur'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Rotational (swirl) blur around a center point (x/y, 0-1, default
+ *  centered) — visually distinct from the burst look of zoom_blur/radial_blur. */
+export interface SpinBlurCommand { type: 'spin_blur'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Miniature-photo look — a horizontal band (bandY = vertical center 0-1,
+ *  default 0.5; bandHeight = fraction of frame height staying sharp, default
+ *  0.25) stays in focus, blur increases with distance above/below it. */
+export interface TiltShiftBlurCommand { type: 'tiltshift_blur'; start: number; end: number; strength: number; bandY?: number; bandHeight?: number }
 export interface ColorCommand {
   type: 'color'; start: number; end: number
   brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; warmth?: number; vignette?: number
@@ -174,8 +197,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -187,13 +210,16 @@ export interface RemoveEffectCommand { type: 'remove_effect'; effectType: Effect
 export type EditCommand =
   | TrimCommand | CropCommand | ZoomCommand | PanCommand | SpeedCommand
   | TextCommand | CaptionCommand | RemoveTextCommand | AudioVolumeCommand | MuteCommand | MusicCommand | LoopCommand
-  | BlurCommand | BackgroundBlurCommand | PixelateCommand | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
+  | BlurCommand | BackgroundBlurCommand | PixelateCommand
+  | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
+  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx',
-  'blur', 'background_blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse',
+  'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
+  'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
 
@@ -538,6 +564,71 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: type as 'blur' | 'background_blur' | 'pixelate', ...w, strength }
     }
 
+    case 'motion_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const direction = str(c.direction)
+      if (direction !== 'horizontal' && direction !== 'vertical') {
+        return { error: 'Motion blur needs a direction — "horizontal" or "vertical".' }
+      }
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Motion blur strength has to be between 1 and 20.' }
+      return { type: 'motion_blur', ...w, direction, strength }
+    }
+
+    case 'directional_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const angle = num(c.angle)
+      if (angle === null) return { error: "Missing the blur angle (I won't guess a direction)." }
+      if (angle < 0 || angle > 360) return { error: 'Directional blur angle has to be between 0 and 360 degrees.' }
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Directional blur strength has to be between 1 and 20.' }
+      return { type: 'directional_blur', ...w, angle, strength }
+    }
+
+    case 'zoom_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Zoom blur strength has to be between 1 and 20.' }
+      return { type: 'zoom_blur', ...w, strength }
+    }
+
+    case 'radial_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Radial blur strength has to be between 1 and 20.' }
+      const x = num(c.x) ?? 0.5
+      const y = num(c.y) ?? 0.5
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: 'Radial blur position (x/y) has to be between 0 and 1 — a fraction of the frame.' }
+      return { type: 'radial_blur', ...w, strength, x, y }
+    }
+
+    case 'spin_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Spin blur strength has to be between 1 and 20.' }
+      const x = num(c.x) ?? 0.5
+      const y = num(c.y) ?? 0.5
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: 'Spin blur position (x/y) has to be between 0 and 1 — a fraction of the frame.' }
+      return { type: 'spin_blur', ...w, strength, x, y }
+    }
+
+    case 'tiltshift_blur': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Tilt-shift blur strength has to be between 1 and 20.' }
+      const bandY = num(c.bandY) ?? 0.5
+      const bandHeight = num(c.bandHeight) ?? 0.25
+      if (bandY < 0 || bandY > 1) return { error: 'Tilt-shift band position (bandY) has to be between 0 and 1 — a fraction of the frame.' }
+      if (bandHeight < 0.05 || bandHeight > 0.9) return { error: 'Tilt-shift band height has to be between 0.05 and 0.9 — a fraction of the frame.' }
+      return { type: 'tiltshift_blur', ...w, strength, bandY, bandHeight }
+    }
+
     case 'mask': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -824,6 +915,12 @@ loop { "type":"loop","times":integer } — 2-10 total plays
 blur { "type":"blur","start":number,"end":number,"strength":number } — WHOLE-FRAME only, strength 1-20. For "blur just the background/person", use background_blur instead — never silently apply a whole-frame blur to that request.
 background_blur { "type":"background_blur","start":number,"end":number,"strength":number } — blurs ONLY the background, keeping the person/subject sharp, strength 1-20 same meaning as blur. Uses real ML segmentation, not a guess — use for "blur the background but keep me/the person sharp", "portrait blur", "bokeh effect behind me".
 pixelate { "type":"pixelate","start":number,"end":number,"strength":number } — same whole-frame-only rule as blur.
+motion_blur { "type":"motion_blur","start":number,"end":number,"direction":"horizontal"|"vertical","strength":number } — directional streaking blur simulating camera/subject motion, strength 1-20 (same scale as blur). Use for "motion blur"/"speed streak"/"motion trail look" with a clear horizontal or vertical direction.
+directional_blur { "type":"directional_blur","start":number,"end":number,"angle":number,"strength":number } — same streak blur as motion_blur but at an arbitrary angle (0-360°, 0=horizontal, 90=vertical) — use when a specific angle is named, e.g. "blur it at a 45 degree angle".
+zoom_blur { "type":"zoom_blur","start":number,"end":number,"strength":number } — burst blur radiating from the CENTER of the frame, simulating a zoom without actually changing the framing (distinct from motionfx's zoomPunch, which really does zoom). strength 1-20.
+radial_blur { "type":"radial_blur","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — same burst-blur look as zoom_blur but radiating from a chosen point instead of always the center — x/y (0-1 fraction of frame, default 0.5/0.5) is the burst point. Use when the instruction names a specific spot ("radiate from the product") rather than the whole frame.
+spin_blur { "type":"spin_blur","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — rotational/swirl blur around a center point, x/y default 0.5/0.5. strength 1-20.
+tiltshift_blur { "type":"tiltshift_blur","start":number,"end":number,"strength":number,"bandY"?:number,"bandHeight"?:number } — miniature-photo look: a horizontal band stays sharp, blur increases with distance above/below it. bandY = vertical center of the sharp band (0-1, default 0.5); bandHeight = how much of the frame height stays sharp (0.05-0.9, default 0.25). strength 1-20 controls how strong the blur gets outside the band. Map "tilt-shift"/"miniature effect"/"toy town look" to this.
 mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/chroma-key/background-removal tool — "cut me out onto another background" must be a clarification saying only a darken-outside spotlight exists. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
 glitch { "type":"glitch","start":number,"end":number,"style":"rgbSplit"|"tvNoise"|"screenFlicker"|"vhs"|"scanLines"|"digitalGlitch"|"signalDistortion","strength"?:number } — digital-degradation effect. strength 0-1, default 0.5, omit unless strength is specified. rgbSplit=chromatic-aberration channel shift. tvNoise=heavy static. screenFlicker=rapid brightness pulse. vhs=rgbSplit+noise+desaturation+vignette. scanLines=darkened alternating CRT lines. digitalGlitch=short jittery rgbSplit/noise bursts. signalDistortion=stronger static rgbSplit+contrast push. Map "glitch it"/"chromatic aberration"/"VHS effect"/"old TV look"/"static" to the matching style.
@@ -860,7 +957,10 @@ Examples:
 "Blur the background from 2 to 5 seconds." → {"commands":[{"type":"background_blur","start":2,"end":5,"strength":8}]}
 "Add captions with a white font and black outline." (auto-transcribed, then styled) → {"commands":[{"type":"captions_auto"},{"type":"text_style","color":"white","outlineColor":"black","outlineWidth":3}]}
 "Slow down the middle section." (determinable — literal middle third) → {"commands":[{"type":"speed","start":${(ctx.durationSec / 3).toFixed(1)},"end":${(ctx.durationSec * 2 / 3).toFixed(1)},"factor":0.5}]}
-"Reduce background noise." → {"commands":[{"type":"audio_noise_reduction"}]}`
+"Reduce background noise." → {"commands":[{"type":"audio_noise_reduction"}]}
+"Give it a tilt-shift miniature look from 0 to 5 seconds." (sharp middle band, blurred top/bottom — defaults for band position/height) → {"commands":[{"type":"tiltshift_blur","start":0,"end":5,"strength":10}]}
+"Add motion blur to the whole video, horizontal." → {"commands":[{"type":"motion_blur","start":0,"end":${ctx.durationSec.toFixed(1)},"direction":"horizontal","strength":8}]}
+"Zoom blur burst from 2 to 4 seconds." (whole-frame burst, no point named) → {"commands":[{"type":"zoom_blur","start":2,"end":4,"strength":10}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -990,6 +1090,12 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'blur': return `Blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
     case 'background_blur': return `Blur background ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'pixelate': return `Pixelate ${fmtTime(cmd.start)}–${fmtTime(cmd.end)} (whole frame)`
+    case 'motion_blur': return `Motion blur (${cmd.direction}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'directional_blur': return `Directional blur (${cmd.angle}°) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'zoom_blur': return `Zoom blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'radial_blur': return `Radial blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'spin_blur': return `Spin blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'tiltshift_blur': return `Tilt-shift blur ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'color': return `Color adjust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'fade': return `Fade ${cmd.direction} (${cmd.duration}s)`
     case 'rotate': return `Rotate ${cmd.degrees}°`
@@ -1046,6 +1152,18 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Background Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Background only — subject stays sharp'] }
     case 'pixelate':
       return { title: 'Pixelate', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Whole frame'] }
+    case 'motion_blur':
+      return { title: 'Motion Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Direction: ${cmd.direction}`, `Strength: ${cmd.strength}`] }
+    case 'directional_blur':
+      return { title: 'Directional Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Angle: ${cmd.angle}°`, `Strength: ${cmd.strength}`] }
+    case 'zoom_blur':
+      return { title: 'Zoom Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'radial_blur':
+      return { title: 'Radial Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Center: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'spin_blur':
+      return { title: 'Spin Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Center: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
+    case 'tiltshift_blur':
+      return { title: 'Tilt-Shift Blur', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Sharp band: ${cmd.bandY ?? 0.5} ± ${((cmd.bandHeight ?? 0.25) / 2).toFixed(2)}`] }
     case 'mask':
       return {
         title: `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} Spotlight`,

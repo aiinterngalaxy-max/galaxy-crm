@@ -12,7 +12,9 @@ import {
 import {
   renderFinal, renderSegments, AutoEditError,
   applyCropAspect, applyZoomPan, applyWindowedSpeed, loopVideo,
-  applyBlur, applyBackgroundBlur, applyPixelate, applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction, applyMask, applyLook, applyGlitch, applyLight, applyMotionFx, applyAudioFx,
+  applyBlur, applyBackgroundBlur, applyPixelate,
+  applyMotionBlur, applyDirectionalBlur, applyZoomBlur, applyRadialBlur, applySpinBlur, applyTiltShiftBlur,
+  applyColorAdjust, applyVideoFade, applyRotate, applyFlip, applyReverse, applyNoiseReduction, applyMask, applyLook, applyGlitch, applyLight, applyMotionFx, applyAudioFx,
   applyInsertClip, TRANSITION_TYPES,
   analyzeFootage,
   type AutoEditProgress, type SegmentTrim, type TimedCaption, type CaptionPosition, type CaptionSize, type TransitionType,
@@ -1325,8 +1327,8 @@ export function VideoEditWorkspacePage() {
     setAiEditError('')
     setAiProgress(null)
     try {
-      type HardBakeType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
-      const HARD_BAKE_TYPES: HardBakeType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
+      type HardBakeType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
+      const HARD_BAKE_TYPES: HardBakeType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
       const isHardBake = (c: EditCommand): c is Extract<EditCommand, { type: HardBakeType }> => (HARD_BAKE_TYPES as string[]).includes(c.type)
       const hardBake = commands.filter(isHardBake)
       const soft = commands.filter((c) => !isHardBake(c))
@@ -1358,7 +1360,7 @@ export function VideoEditWorkspacePage() {
         const ordered = [
           ...hardBake.filter((c) => c.type === 'crop' || c.type === 'rotate' || c.type === 'flip'),
           ...hardBake.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
-          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'background_blur' || c.type === 'pixelate' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask' || c.type === 'look' || c.type === 'glitch' || c.type === 'light' || c.type === 'motionfx' || c.type === 'audiofx'),
+          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'background_blur' || c.type === 'pixelate' || c.type === 'motion_blur' || c.type === 'directional_blur' || c.type === 'zoom_blur' || c.type === 'radial_blur' || c.type === 'spin_blur' || c.type === 'tiltshift_blur' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask' || c.type === 'look' || c.type === 'glitch' || c.type === 'light' || c.type === 'motionfx' || c.type === 'audiofx'),
           ...hardBake.filter((c) => c.type === 'reverse'),
           ...hardBake.filter((c) => c.type === 'loop'),
         ]
@@ -1383,6 +1385,18 @@ export function VideoEditWorkspacePage() {
             blob = await applyBackgroundBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength }, setAiProgress)
           } else if (cmd.type === 'pixelate') {
             blob = await applyPixelate(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'motion_blur') {
+            blob = await applyMotionBlur(blob, { start: cmd.start, end: cmd.end, direction: cmd.direction, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'directional_blur') {
+            blob = await applyDirectionalBlur(blob, { start: cmd.start, end: cmd.end, angle: cmd.angle, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'zoom_blur') {
+            blob = await applyZoomBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength }, setAiProgress)
+          } else if (cmd.type === 'radial_blur') {
+            blob = await applyRadialBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength, x: cmd.x, y: cmd.y }, setAiProgress)
+          } else if (cmd.type === 'spin_blur') {
+            blob = await applySpinBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength, x: cmd.x, y: cmd.y }, setAiProgress)
+          } else if (cmd.type === 'tiltshift_blur') {
+            blob = await applyTiltShiftBlur(blob, { start: cmd.start, end: cmd.end, strength: cmd.strength, bandY: cmd.bandY, bandHeight: cmd.bandHeight }, setAiProgress)
           } else if (cmd.type === 'color') {
             blob = await applyColorAdjust(blob, {
               start: cmd.start, end: cmd.end, brightness: cmd.brightness, contrast: cmd.contrast,

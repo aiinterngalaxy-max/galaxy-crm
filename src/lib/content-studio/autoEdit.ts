@@ -1300,6 +1300,43 @@ async function runOneVideoFilter(
   }
 }
 
+/**
+ * Same shape as runOneVideoFilter, but for effects that need `-filter_complex`
+ * (multiple labelled filter nodes — split/overlay/maskedmerge chains) instead
+ * of a single `-vf` chain, which can't express a split. Used by the six
+ * blur-variant builders below (motion/directional/radial/zoom/spin/tiltshift)
+ * — none of them are expressible as a single ffmpeg filter, all of them are
+ * pure ffmpeg (no per-frame JS), same performance profile as blur/pixelate.
+ */
+async function runOneVideoFilterComplex(
+  file: Blob,
+  filterComplex: string,
+  errorContext: string,
+  onProgress?: (p: AutoEditProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+
+  const inputName = 'vfc-input.mp4'
+  const outputName = 'vfc-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+
+  try {
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`${errorContext} (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 const windowClause = (start: number, end: number) => `:enable='between(t\\,${start}\\,${end})'`
 
 export interface BlurOptions { start: number; end: number; strength: number }
@@ -1323,6 +1360,233 @@ export async function applyPixelate(file: Blob, { start, end, strength }: Pixela
   const w = windowClause(start, end)
   const vf = `scale=iw/${factor}:ih/${factor}${w},scale=iw*${factor}:ih*${factor}:flags=neighbor${w}`
   return runOneVideoFilter(file, vf, 'Could not pixelate the video.', onProgress, ['-c:a', 'copy'])
+}
+
+// ---------- motion/directional/radial/zoom/spin/tiltshift blur ----------
+// Six distinct blur-variant effects, all pure ffmpeg filter_complex (no
+// per-frame JS/canvas — that's only needed by applyBackgroundBlur below,
+// which requires real ML segmentation; a directional streak, a burst, a
+// spin, or a static vertical gradient don't). None of these has a single
+// matching ffmpeg filter in this build (confirmed: this file's own filter
+// inventory has no motion-blur/radial-blur/tilt-shift primitive — only
+// isotropic boxblur/gblur and tmix, which blends REAL consecutive frames,
+// not a synthetic direction/radius/rotation). All six instead layer several
+// translucent, transformed copies of the SAME frame back onto itself via
+// `overlay` — the same "duplicate + format=yuva420p + colorchannelmixer=aa=
+// opacity + overlay" technique applyLight's lightLeak already uses for a
+// generated color layer, just with a transformed copy of the frame itself
+// instead of a generated source. Every one of these was verified against a
+// real ffmpeg render (not assumed) before being written this way.
+
+export interface MotionBlurOptions { start: number; end: number; direction: 'horizontal' | 'vertical'; strength: number }
+export interface DirectionalBlurOptions { start: number; end: number; angle: number; strength: number }
+
+/**
+ * Shared streak-blur builder for motion_blur (horizontal/vertical only) and
+ * directional_blur (arbitrary angle) — motion_blur just calls this with
+ * angle 0 or 90. Layers several copies of the frame, offset along
+ * (cos(angle),sin(angle)) by increasing amounts, symmetric on both sides of
+ * zero (steps run from -half to +half, skipping 0) so the result reads as a
+ * blur centered on the sharp frame rather than a ghost dragged one way.
+ * Strength 1-20 scales both how many offset steps there are and how far the
+ * outermost one reaches. Confirmed via a real render: color-boundary edges
+ * stretch cleanly along the requested angle.
+ */
+export function buildDirectionalBlurFilter(angleDeg: number, strength: number, start: number, end: number): string {
+  const rad = (angleDeg * Math.PI) / 180
+  const dx = Math.cos(rad)
+  const dy = Math.sin(rad)
+  const half = Math.max(2, Math.min(4, Math.round(2 + strength * 0.1)))
+  const steps: number[] = []
+  for (let i = -half; i <= half; i++) if (i !== 0) steps.push(i)
+  const maxOffset = 0.007 + strength * 0.0035
+  const w = windowClause(start, end)
+  const splitLabels = steps.map((_, i) => `[s${i}]`).join('')
+  const parts: string[] = [`[0:v]split=${steps.length + 1}[base]${splitLabels}`]
+  let cur = '[base]'
+  steps.forEach((step, i) => {
+    const off = ((maxOffset * step) / half).toFixed(5)
+    const opacity = (0.5 / (Math.abs(step) + 1)).toFixed(3)
+    const ox = `main_w*(${off})*${dx.toFixed(4)}`
+    const oy = `main_h*(${off})*${dy.toFixed(4)}`
+    parts.push(`[s${i}]format=yuva420p,colorchannelmixer=aa=${opacity}[a${i}]`)
+    const isLast = i === steps.length - 1
+    const next = isLast ? '[outv]' : `[m${i}]`
+    parts.push(`${cur}[a${i}]overlay=x='${ox}':y='${oy}'${w}${next}`)
+    cur = next
+  })
+  return parts.join(';')
+}
+
+/** Directional streak blur simulating camera/subject motion, along the
+ *  frame's horizontal or vertical axis. */
+export async function applyMotionBlur(file: Blob, { start, end, direction, strength }: MotionBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const angle = direction === 'horizontal' ? 0 : 90
+  const filterComplex = buildDirectionalBlurFilter(angle, strength, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply motion blur.', onProgress)
+}
+
+/** Same streak-blur technique as motion_blur, but along an arbitrary angle
+ *  (0-360°) rather than just horizontal/vertical. */
+export async function applyDirectionalBlur(file: Blob, { start, end, angle, strength }: DirectionalBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildDirectionalBlurFilter(angle, strength, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply directional blur.', onProgress)
+}
+
+export interface ZoomBlurOptions { start: number; end: number; strength: number }
+export interface RadialBlurOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Shared zoom-burst blur builder for zoom_blur (always centered) and
+ * radial_blur (movable center via x/y) — the one real difference between
+ * the two commands is whether a custom center is exposed. Layers several
+ * progressively-more-zoomed-in translucent copies on top of the original:
+ * each layer crops a smaller, centered-on-(cx,cy) window out of the frame
+ * then scales it back up to full size (same crop-then-scale-to-fill
+ * technique applyZoomPan's zoompan already uses for its own crop window,
+ * just with static numbers instead of an animated per-frame expression, and
+ * the same clip()-based centering math to keep the crop window on-frame
+ * near an edge). Confirmed via a real render: produces streaks radiating
+ * outward from the center point — genuinely different from the linear
+ * streak buildDirectionalBlurFilter produces.
+ */
+export function buildZoomBurstBlurFilter(strength: number, cx: number, cy: number, start: number, end: number): string {
+  const layers = Math.max(3, Math.min(6, Math.round(3 + strength * 0.15)))
+  const maxZoomExtra = 0.06 + strength * 0.03
+  const w = windowClause(start, end)
+  const splitLabels = Array.from({ length: layers }, (_, i) => `[s${i}]`).join('')
+  const parts: string[] = [`[0:v]split=${layers + 1}[base]${splitLabels}`]
+  let cur = '[base]'
+  for (let i = 0; i < layers; i++) {
+    const frac = (i + 1) / layers
+    const zf = (1 + maxZoomExtra * frac).toFixed(4)
+    const cropW = `iw/${zf}`
+    const cropH = `ih/${zf}`
+    const cropX = `clip(iw*(${cx})-(${cropW})/2\\,0\\,iw-(${cropW}))`
+    const cropY = `clip(ih*(${cy})-(${cropH})/2\\,0\\,ih-(${cropH}))`
+    const opacity = (0.6 / (i + 1)).toFixed(3)
+    parts.push(`[s${i}]crop=w='${cropW}':h='${cropH}':x='${cropX}':y='${cropY}',scale=w='iw*${zf}':h='ih*${zf}',format=yuva420p,colorchannelmixer=aa=${opacity}[a${i}]`)
+    const isLast = i === layers - 1
+    const next = isLast ? '[outv]' : `[m${i}]`
+    parts.push(`${cur}[a${i}]overlay=x=0:y=0${w}${next}`)
+    cur = next
+  }
+  return parts.join(';')
+}
+
+/** Burst/radial-zoom blur look — simulates a zoom without changing framing
+ *  (the output frame stays put; only the blend of scales moves). Always
+ *  centered — for a movable burst point, use radial_blur instead. */
+export async function applyZoomBlur(file: Blob, { start, end, strength }: ZoomBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildZoomBurstBlurFilter(strength, 0.5, 0.5, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply zoom blur.', onProgress)
+}
+
+/** Same zoom-burst technique as zoom_blur, but radiating from a movable
+ *  center point (x/y, 0-1 fraction of frame, default centered). */
+export async function applyRadialBlur(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: RadialBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildZoomBurstBlurFilter(strength, x, y, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply radial blur.', onProgress)
+}
+
+export interface SpinBlurOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Rotational blur around a center point — layers several small-angle
+ * rotated translucent copies (symmetric +/- angle steps, same reasoning as
+ * buildDirectionalBlurFilter) on top of the original. ffmpeg's `rotate`
+ * filter only ever rotates around the CENTER of its input frame, so an
+ * off-center pivot (custom x/y) is faked by padding the frame first so the
+ * requested point sits exactly at the padded canvas's center, rotating
+ * there, then cropping back out the original region — pad/crop amounts are
+ * plain numbers computed here in JS (cx/cy are fixed per call, not animated),
+ * expressed via ffmpeg's iw/ih symbols so no dimension probe is needed.
+ * Confirmed via a real render, both centered and off-center: produces a
+ * curved/rotational smear around the pivot, visually distinct from the
+ * linear (motion/directional) and radial (zoom/radial) streaks above.
+ */
+export function buildSpinBlurFilter(strength: number, cx: number, cy: number, start: number, end: number): string {
+  const half = Math.max(2, Math.min(4, Math.round(2 + strength * 0.1)))
+  const steps: number[] = []
+  for (let i = -half; i <= half; i++) if (i !== 0) steps.push(i)
+  const maxAngle = 0.03 + strength * 0.012
+  const w = windowClause(start, end)
+  const kx = Math.max(cx, 1 - cx)
+  const ky = Math.max(cy, 1 - cy)
+  const padW = (2 * kx).toFixed(4)
+  const padH = (2 * ky).toFixed(4)
+  const padX = (kx - cx).toFixed(4)
+  const padY = (ky - cy).toFixed(4)
+  const cropWDiv = (2 * kx).toFixed(4)
+  const cropHDiv = (2 * ky).toFixed(4)
+  const cropXFrac = ((kx - cx) / (2 * kx)).toFixed(4)
+  const cropYFrac = ((ky - cy) / (2 * ky)).toFixed(4)
+  const splitLabels = steps.map((_, i) => `[s${i}]`).join('')
+  const parts: string[] = [`[0:v]split=${steps.length + 1}[base]${splitLabels}`]
+  let cur = '[base]'
+  steps.forEach((step, i) => {
+    const angle = ((maxAngle * step) / half).toFixed(5)
+    const opacity = (0.55 / (Math.abs(step) + 1)).toFixed(3)
+    const chain =
+      `format=yuva420p,` +
+      `pad=w='iw*${padW}':h='ih*${padH}':x='iw*${padX}':y='ih*${padY}':color=black@0,` +
+      `rotate=${angle}:ow=iw:oh=ih:c=black@0,` +
+      `crop=w='iw/${cropWDiv}':h='ih/${cropHDiv}':x='iw*${cropXFrac}':y='ih*${cropYFrac}',` +
+      `colorchannelmixer=aa=${opacity}`
+    parts.push(`[s${i}]${chain}[a${i}]`)
+    const isLast = i === steps.length - 1
+    const next = isLast ? '[outv]' : `[m${i}]`
+    parts.push(`${cur}[a${i}]overlay=x=0:y=0${w}${next}`)
+    cur = next
+  })
+  return parts.join(';')
+}
+
+/** Rotational blur around a center point (x/y, 0-1 fraction of frame,
+ *  default centered) — a swirl/spin smear, distinct from the burst look of
+ *  zoom_blur/radial_blur. */
+export async function applySpinBlur(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: SpinBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildSpinBlurFilter(strength, x, y, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply spin blur.', onProgress)
+}
+
+export interface TiltShiftBlurOptions { start: number; end: number; strength: number; bandY?: number; bandHeight?: number }
+
+/**
+ * Miniature-photo tilt-shift look — a horizontal band across the middle
+ * stays sharp, blur increases with distance from it above and below. Unlike
+ * the five effects above, this genuinely needs a spatial gradient, not just
+ * layered translucent copies — built with `geq` generating a synthetic
+ * vertical-gradient mask (0 inside the sharp band, ramping to 255 outside
+ * it, using geq's own Y/H position variables — no source pixel data
+ * involved, just position, so this doesn't need an external PNG asset the
+ * way applyMask's spotlight does), then `maskedmerge` blends a `gblur`'d
+ * copy against the sharp original through that mask — the exact same
+ * maskedmerge pairing (base=sharp shows where mask is black, overlay=blurred
+ * shows where mask is white) buildMaskFilter already verified works in this
+ * build. Confirmed via a real render: the requested band stays crisp while
+ * top/bottom blur increases smoothly with distance.
+ */
+export function buildTiltShiftFilter(strength: number, bandY: number, bandHeight: number, start: number, end: number): string {
+  const sigma = (3 + strength * 1.6).toFixed(2)
+  const half = (bandHeight / 2).toFixed(4)
+  const feather = 0.14
+  const w = windowClause(start, end)
+  const maskExpr = `255*clip((abs(Y/H-${bandY})-${half})/${feather}\\,0\\,1)`
+  return [
+    `[0:v]split=3[base][toBlur][toMask]`,
+    `[toBlur]gblur=sigma=${sigma}${w}[blur]`,
+    `[toMask]geq=lum='${maskExpr}':cb=128:cr=128[mask]`,
+    `[base][blur][mask]maskedmerge=enable='between(t\\,${start}\\,${end})'[outv]`,
+  ].join(';')
+}
+
+/** Keeps a horizontal band across the middle sharp (bandY = vertical center
+ *  0-1, default 0.5; bandHeight = fraction of frame height that stays sharp,
+ *  default 0.25) and blurs top/bottom with increasing distance from it. */
+export async function applyTiltShiftBlur(file: Blob, { start, end, strength, bandY = 0.5, bandHeight = 0.25 }: TiltShiftBlurOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildTiltShiftFilter(strength, bandY, bandHeight, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply tilt-shift blur.', onProgress)
 }
 
 export interface ColorAdjustOptions {

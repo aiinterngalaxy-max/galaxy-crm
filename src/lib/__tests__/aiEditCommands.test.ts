@@ -334,6 +334,129 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('motion_blur (TEST: "Add motion blur horizontally" style instructions)', () => {
+    it('accepts a valid windowed motion blur', () => {
+      expect(validateCommand({ type: 'motion_blur', start: 1, end: 4, direction: 'horizontal', strength: 10 }, ctx))
+        .toEqual({ type: 'motion_blur', start: 1, end: 4, direction: 'horizontal', strength: 10 })
+    })
+    it('rejects a missing/invalid direction', () => {
+      expect(validateCommand({ type: 'motion_blur', start: 1, end: 4, strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'motion_blur', start: 1, end: 4, direction: 'diagonal', strength: 10 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'motion_blur', start: 1, end: 4, direction: 'vertical', strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'motion_blur', start: 1, end: 4, direction: 'vertical', strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'motion_blur', direction: 'horizontal', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'motion_blur', start: 5, end: 2, direction: 'horizontal', strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('directional_blur (TEST: "Blur it at a 45 degree angle" style instructions)', () => {
+    it('accepts a valid windowed directional blur', () => {
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, angle: 45, strength: 10 }, ctx))
+        .toEqual({ type: 'directional_blur', start: 1, end: 4, angle: 45, strength: 10 })
+    })
+    it('rejects a missing/invalid angle', () => {
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, angle: 400, strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, angle: -10, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, angle: 45, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'directional_blur', start: 1, end: 4, angle: 45, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'directional_blur', angle: 45, strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'directional_blur', start: 5, end: 2, angle: 45, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('zoom_blur (TEST: "Zoom blur burst" style instructions)', () => {
+    it('accepts a valid windowed zoom blur', () => {
+      expect(validateCommand({ type: 'zoom_blur', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'zoom_blur', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'zoom_blur', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'zoom_blur', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'zoom_blur', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'zoom_blur', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'zoom_blur', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('radial_blur (TEST: "Radial blur from the product" style instructions)', () => {
+    it('accepts a valid windowed radial blur with a custom center', () => {
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 12, x: 0.3, y: 0.7 }, ctx))
+        .toEqual({ type: 'radial_blur', start: 1, end: 4, strength: 12, x: 0.3, y: 0.7 })
+    })
+    it('defaults x/y to centered when omitted', () => {
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.5, y: 0.5 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 10, x: 1.5, y: 0.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 10, x: 0.5, y: -0.2 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'radial_blur', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'radial_blur', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'radial_blur', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('spin_blur (TEST: "Add a spin blur" style instructions)', () => {
+    it('accepts a valid windowed spin blur with a custom center', () => {
+      expect(validateCommand({ type: 'spin_blur', start: 1, end: 4, strength: 12, x: 0.4, y: 0.6 }, ctx))
+        .toEqual({ type: 'spin_blur', start: 1, end: 4, strength: 12, x: 0.4, y: 0.6 })
+    })
+    it('defaults x/y to centered when omitted', () => {
+      expect(validateCommand({ type: 'spin_blur', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.5, y: 0.5 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'spin_blur', start: 1, end: 4, strength: 10, x: 2, y: 0.5 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'spin_blur', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'spin_blur', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'spin_blur', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'spin_blur', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('tiltshift_blur (TEST: "Give it a tilt-shift miniature look" style instructions)', () => {
+    it('accepts a valid windowed tilt-shift blur with custom band', () => {
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10, bandY: 0.4, bandHeight: 0.3 }, ctx))
+        .toEqual({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10, bandY: 0.4, bandHeight: 0.3 })
+    })
+    it('defaults bandY/bandHeight when omitted', () => {
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ bandY: 0.5, bandHeight: 0.25 })
+    })
+    it('rejects bandY outside 0-1 and bandHeight outside 0.05-0.9', () => {
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10, bandY: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10, bandHeight: 0.01 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 10, bandHeight: 0.95 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'tiltshift_blur', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'tiltshift_blur', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'tiltshift_blur', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })
