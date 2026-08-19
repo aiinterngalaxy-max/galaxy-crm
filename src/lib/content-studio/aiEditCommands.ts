@@ -45,11 +45,17 @@ export interface TextStyleFields {
   outlineColor?: string; outlineWidth?: number; fontFamily?: string
   backgroundColor?: string; backgroundOpacity?: number
   /** How the text enters at its own start time — 'slide-down' comes from
-   *  above, 'slide-up' from below, 'fade' opacity-ins in place. Omitted =
-   *  appears instantly. Only meaningful with a real (non-whole-video) time
-   *  window — there's no "entrance" to animate on text shown throughout. */
-  animation?: 'slide-down' | 'slide-up' | 'fade'
+   *  above, 'slide-up' from below, 'fade' opacity-ins in place, 'bounce'
+   *  drops in and settles with a couple of diminishing overshoots, 'shake'
+   *  rattles side-to-side and settles, 'blur-in' starts out of focus and
+   *  sharpens. Omitted = appears instantly. Only meaningful with a real
+   *  (non-whole-video) time window — there's no "entrance" to animate on
+   *  text shown throughout. */
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
   animationDuration?: number
+  /** A persistent glow around the text ("neon" look) — not an entrance, a
+   *  standing style, so it lives here rather than in `animation`. */
+  glow?: boolean
 }
 export interface TextCommand extends TextStyleFields { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
 export interface CaptionCommand extends TextStyleFields { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
@@ -140,7 +146,7 @@ export const FONT_FAMILIES = [
 ] as const
 
 /** Entrance animations text/captions can appear with — see TextStyleFields.animation. */
-export const ANIMATIONS = ['slide-down', 'slide-up', 'fade'] as const
+export const ANIMATIONS = ['slide-down', 'slide-up', 'fade', 'bounce', 'shake', 'blur-in'] as const
 
 /** A named zoom/pan target as a fraction-of-frame center point. */
 export function targetToCenter(target: string): { x: number; y: number } {
@@ -213,6 +219,7 @@ function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | Val
   const italic = typeof c.italic === 'boolean' ? c.italic : undefined
   const underline = typeof c.underline === 'boolean' ? c.underline : undefined
   const strikethrough = typeof c.strikethrough === 'boolean' ? c.strikethrough : undefined
+  const glow = typeof c.glow === 'boolean' ? c.glow : undefined
   const outlineColor = str(c.outlineColor) ?? undefined
   const outlineWidth = num(c.outlineWidth) ?? undefined
   if (outlineWidth != null && (outlineWidth < 0 || outlineWidth > 20)) return { error: 'Outline width has to be between 0 and 20.' }
@@ -241,6 +248,7 @@ function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | Val
     ...(italic != null ? { italic } : {}),
     ...(underline != null ? { underline } : {}),
     ...(strikethrough != null ? { strikethrough } : {}),
+    ...(glow != null ? { glow } : {}),
     ...(outlineColor != null ? { outlineColor } : {}),
     ...(outlineWidth != null ? { outlineWidth } : {}),
     ...(fontFamily != null ? { fontFamily } : {}),
@@ -602,7 +610,7 @@ crop        { "type": "crop", "aspect": "9:16" | "1:1" | "4:5" | "16:9" | "4:3" 
 zoom        { "type": "zoom", "start": number, "end": number, "fromScale": number, "toScale": number, "target": "center" | "left" | "right" | "top" | "bottom" }  — fromScale defaults to 1 if omitted; scales are 0.5-4
 pan         { "type": "pan", "start": number, "end": number, "direction": "left-to-right" | "right-to-left" | "top-to-bottom" | "bottom-to-top", "scale": number }  — scale (how zoomed in while panning) defaults to 1.3, range 1-4
 speed       { "type": "speed", "start": number, "end": number, "factor": number }  — factor > 1 is faster, < 1 is slower, range 0.25-4
-text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number, "animation"?: "slide-down"|"slide-up"|"fade", "animationDuration"?: number }  — "text" fully supports real emoji characters (🔥🎉🚀 etc.) written directly in the string — this editor renders text via the browser's own font stack (Canvas), which draws color emoji correctly; never spell out an emoji's name in words or omit an emoji the instruction asked for, just include the literal character. start:0, end:0 means "shown for the whole video", not "missing". ALL styling fields are optional — set any of them the instruction asks for RIGHT HERE when adding text that doesn't exist yet (e.g. "add 'Galaxy' in red, Times New Roman, italic and underlined" is one single text command with color/fontFamily/italic/underline all included — never a separate text_style for text being added in the same instruction, since text_style only works on text that's already on the video). fontFamily must be one of: ${FONT_FAMILIES.join(', ')}. backgroundColor is the color of the box behind the text (default black); backgroundOpacity is 0 (invisible box)..1 (solid), default 0.6. animation is how the text ENTERS at its start time — "slide-down" (comes down from above into place, like a reel-style intro), "slide-up" (comes up from below), "fade" (fades in in place); omit for an instant, non-animated appearance (the default); only meaningful with a real start/end window, not "whole video". animationDuration is how long the entrance takes in seconds (0-3, default 0.4) — omit unless a speed is explicitly asked for ("slide in slowly"/"quick pop in"). For "text lines coming in one by one" (a sequence, e.g. a name/title/role each appearing after the last), use SEVERAL separate text commands with staggered start/end times and the same animation, not one command — see the multi-line example below. Omit anything not asked for rather than guessing.
+text        { "type": "text", "text": string, "start": number, "end": number, "position": "top"|"bottom"|"left"|"right"|"center", "size": "sm"|"md"|"lg", "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "glow"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number, "animation"?: "slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in", "animationDuration"?: number }  — "text" fully supports real emoji characters (🔥🎉🚀 etc.) written directly in the string — this editor renders text via the browser's own font stack (Canvas), which draws color emoji correctly; never spell out an emoji's name in words or omit an emoji the instruction asked for, just include the literal character. start:0, end:0 means "shown for the whole video", not "missing". ALL styling fields are optional — set any of them the instruction asks for RIGHT HERE when adding text that doesn't exist yet (e.g. "add 'Galaxy' in red, Times New Roman, italic and underlined" is one single text command with color/fontFamily/italic/underline all included — never a separate text_style for text being added in the same instruction, since text_style only works on text that's already on the video). fontFamily must be one of: ${FONT_FAMILIES.join(', ')}. backgroundColor is the color of the box behind the text (default black); backgroundOpacity is 0 (invisible box)..1 (solid), default 0.6. glow is a standing neon-style glow around the text (not an entrance) — "make it neon"/"give it a glow" → glow:true. animation is how the text ENTERS at its start time — "slide-down" (comes down from above into place, like a reel-style intro), "slide-up" (comes up from below), "fade" (fades in in place), "bounce" (drops in and settles with a couple of diminishing overshoots), "shake" (rattles side-to-side and settles), "blur-in" (starts out of focus and sharpens into place); omit for an instant, non-animated appearance (the default); only meaningful with a real start/end window, not "whole video". animationDuration is how long the entrance takes in seconds (0-3, default 0.4) — omit unless a speed is explicitly asked for ("slide in slowly"/"quick pop in"). For "text lines coming in one by one" (a sequence, e.g. a name/title/role each appearing after the last), use SEVERAL separate text commands with staggered start/end times and the same animation, not one command — see the multi-line example below. Omit anything not asked for rather than guessing.
 caption     { "type": "caption", ...same fields as text }
 remove_text { "type": "remove_text", "text"?: string, "start"?: number, "end"?: number }  — REMOVES an existing text/caption overlay; use this whenever the instruction says to remove/delete/take out/get rid of an on-screen text, never the "text"/"caption" type (those only ADD text). ALL fields optional: "text" is the wording mentioned in the instruction (e.g. "Galaxy Home Automation") if any is given — include it if named, omit it for "remove the text"/"remove it" with no wording. "start"/"end" are optional too, only useful if the instruction names a time range to disambiguate multiple similar layers. Do NOT ask the user for start/end/text just to fill these in — omit what wasn't given.
 audio_volume{ "type": "audio_volume", "volume": number }  — 0 to 3, 1 = unchanged
@@ -616,7 +624,7 @@ fade        { "type": "fade", "direction": "in" | "out", "duration": number }  �
 rotate      { "type": "rotate", "degrees": 90 | 180 | 270 }
 flip        { "type": "flip", "axis": "horizontal" | "vertical" }
 reverse     { "type": "reverse" }  — plays the whole video backwards.
-text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "position"?: "top"|"bottom"|"left"|"right"|"center", "size"?: "sm"|"md"|"lg", "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number, "animation"?: "slide-down"|"slide-up"|"fade", "animationDuration"?: number }  — MODIFIES an existing text/caption overlay (never adds a new one — use "text"/"caption" to add). "target" is the wording of the text to restyle if named (e.g. "Galaxy Home Automation"); omit target entirely for "it"/"that text" with nothing else to go on — layer lookup happens outside of you, you don't need to resolve it yourself. Set ONLY the style field(s) the instruction actually asked to change — never include a field the instruction didn't mention, that would overwrite something the user wants kept as-is. color/outlineColor/backgroundColor are CSS colors (e.g. "white", "#ffcc00", "red"). italic/underline/strikethrough are booleans — "make it italic"/"underline it"/"strike it through" each set exactly one, "remove the underline"/"un-italicize it" sets it back to false, don't touch the others. backgroundOpacity is 0 (invisible)..1 (solid); "remove the background box"/"make the background transparent" → backgroundOpacity:0. fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — a request for a font outside this list should be a clarification saying so, not a guess at the closest match.
+text_style  { "type": "text_style", "target"?: string, "color"?: string, "bold"?: boolean, "italic"?: boolean, "underline"?: boolean, "strikethrough"?: boolean, "glow"?: boolean, "outlineColor"?: string, "outlineWidth"?: number, "position"?: "top"|"bottom"|"left"|"right"|"center", "size"?: "sm"|"md"|"lg", "fontFamily"?: string, "backgroundColor"?: string, "backgroundOpacity"?: number, "animation"?: "slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in", "animationDuration"?: number }  — MODIFIES an existing text/caption overlay (never adds a new one — use "text"/"caption" to add). "target" is the wording of the text to restyle if named (e.g. "Galaxy Home Automation"); omit target entirely for "it"/"that text" with nothing else to go on — layer lookup happens outside of you, you don't need to resolve it yourself. Set ONLY the style field(s) the instruction actually asked to change — never include a field the instruction didn't mention, that would overwrite something the user wants kept as-is. color/outlineColor/backgroundColor are CSS colors (e.g. "white", "#ffcc00", "red"). italic/underline/strikethrough are booleans — "make it italic"/"underline it"/"strike it through" each set exactly one, "remove the underline"/"un-italicize it" sets it back to false, don't touch the others. backgroundOpacity is 0 (invisible)..1 (solid); "remove the background box"/"make the background transparent" → backgroundOpacity:0. fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — a request for a font outside this list should be a clarification saying so, not a guess at the closest match.
 text_edit   { "type": "text_edit", "target"?: string, "text": string }  — CHANGES THE WORDING of an existing text/caption overlay (never its styling — use text_style for that). Use this for "add a 🔥 emoji to the CEO text", "change the text to say...", "add an emoji to it". "text" is the FULL new wording — if the instruction adds to existing text (e.g. an emoji) rather than replacing it outright, look up that layer's CURRENT text in the CURRENT PROJECT STATE above and compose the new full string yourself (existing text + the emoji/change), don't just send the emoji alone. "target" is the wording hint identifying which layer, same rules as text_style/remove_text — omit for "it"/"that text".
 captions_auto { "type": "captions_auto" }  — auto-generates timed captions from the video's real speech (actual transcription). Use for "add captions"/"add subtitles"/"caption this" with no text of their own given.
 audio_noise_reduction { "type": "audio_noise_reduction" }  — reduces steady background hiss/hum in the original audio.
@@ -744,6 +752,7 @@ function styleSummary(cmd: TextStyleFields): string {
   if (cmd.italic) parts.push('italic')
   if (cmd.underline) parts.push('underline')
   if (cmd.strikethrough) parts.push('strikethrough')
+  if (cmd.glow) parts.push('glow')
   if (cmd.animation) parts.push(`${cmd.animation} in`)
   return parts.length ? `, ${parts.join(', ')}` : ''
 }
@@ -759,6 +768,7 @@ function styleCardLines(cmd: TextStyleFields): string[] {
   if (cmd.italic != null) lines.push(cmd.italic ? 'Italic' : 'Not italic')
   if (cmd.underline != null) lines.push(cmd.underline ? 'Underlined' : 'No underline')
   if (cmd.strikethrough != null) lines.push(cmd.strikethrough ? 'Strikethrough' : 'No strikethrough')
+  if (cmd.glow != null) lines.push(cmd.glow ? 'Neon glow' : 'No glow')
   if (cmd.outlineColor || cmd.outlineWidth) lines.push(`Outline: ${cmd.outlineColor ?? 'black'}${cmd.outlineWidth ? `, ${cmd.outlineWidth}px` : ''}`)
   if (cmd.backgroundColor || cmd.backgroundOpacity != null) {
     lines.push(`Background: ${cmd.backgroundColor ?? 'black'}${cmd.backgroundOpacity != null ? `, ${Math.round(cmd.backgroundOpacity * 100)}% opacity` : ''}`)

@@ -75,6 +75,8 @@ interface Overlay {
   italic?: boolean
   underline?: boolean
   strikethrough?: boolean
+  /** A standing neon glow, in the text's own color — not an entrance. */
+  glow?: boolean
   outlineColor?: string
   outlineWidth?: number
   /** One of FONT_FAMILIES (aiEditCommands.ts) — omitted means the default sans-serif look. */
@@ -84,7 +86,7 @@ interface Overlay {
   /** How this overlay enters at its own start time — omitted means appears
    *  instantly, the original behavior. See TimedCaption in autoEdit.ts for
    *  the actual rendering (a time-varying overlay position/alpha). */
-  animation?: 'slide-down' | 'slide-up' | 'fade'
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
   animationDuration?: number
 }
 
@@ -93,7 +95,7 @@ function overlayToTimedCaption(o: Overlay): TimedCaption {
     text: o.text, start: o.start, end: o.end, position: o.position, size: o.size, kind: o.kind,
     color: o.color, bold: o.bold, outlineColor: o.outlineColor, outlineWidth: o.outlineWidth,
     fontFamily: o.fontFamily, italic: o.italic, underline: o.underline, strikethrough: o.strikethrough,
-    backgroundColor: o.backgroundColor, backgroundOpacity: o.backgroundOpacity,
+    backgroundColor: o.backgroundColor, backgroundOpacity: o.backgroundOpacity, glow: o.glow,
     animation: o.animation, animationDuration: o.animationDuration,
   }
 }
@@ -1589,6 +1591,20 @@ export function VideoEditWorkspacePage() {
                     @keyframes ov-slide-down { from { transform: translateY(-40px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
                     @keyframes ov-slide-up { from { transform: translateY(40px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
                     @keyframes ov-fade { from { opacity: 0 } to { opacity: 1 } }
+                    @keyframes ov-bounce {
+                      0% { transform: translateY(-40px); opacity: 0 }
+                      55% { transform: translateY(8px); opacity: 1 }
+                      75% { transform: translateY(-4px) }
+                      100% { transform: translateY(0) }
+                    }
+                    @keyframes ov-shake {
+                      0%, 100% { transform: translateX(0) }
+                      20% { transform: translateX(-10px) }
+                      40% { transform: translateX(8px) }
+                      60% { transform: translateX(-5px) }
+                      80% { transform: translateX(3px) }
+                    }
+                    @keyframes ov-blur-in { from { filter: blur(8px); opacity: 0 } to { filter: blur(0); opacity: 1 } }
                   `}</style>
                   {overlays.filter((o) => o.text.trim() && isOverlayActive(o, curTime)).map((o) => (
                     <div
@@ -1607,6 +1623,9 @@ export function VideoEditWorkspacePage() {
                         textDecoration: [o.underline && 'underline', o.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
                         backgroundColor: (o.backgroundColor || o.backgroundOpacity != null)
                           ? `color-mix(in srgb, ${o.backgroundColor ?? '#000000'} ${Math.round((o.backgroundOpacity ?? 0.6) * 100)}%, transparent)`
+                          : undefined,
+                        textShadow: o.glow
+                          ? [0.9, 0.5, 0.25].map((r) => `0 0 ${r * 20}px ${o.color ?? '#ffffff'}`).join(', ')
                           : undefined,
                         animation: o.animation ? `ov-${o.animation} ${o.animationDuration ?? 0.4}s ease-out` : undefined,
                       }}
@@ -2377,6 +2396,33 @@ function OverlayForm({
           <button type="button" onClick={() => setForm({ ...form, italic: !form.italic })} className={toggleBtn(!!form.italic)} style={{ fontStyle: 'italic' }}>I</button>
           <button type="button" onClick={() => setForm({ ...form, underline: !form.underline })} className={toggleBtn(!!form.underline)} style={{ textDecoration: 'underline' }}>U</button>
           <button type="button" onClick={() => setForm({ ...form, strikethrough: !form.strikethrough })} className={toggleBtn(!!form.strikethrough)} style={{ textDecoration: 'line-through' }}>S</button>
+          <button type="button" onClick={() => setForm({ ...form, glow: !form.glow })} className={toggleBtn(!!form.glow)} style={{ textShadow: '0 0 4px currentColor' }}>Glow</button>
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] text-gray-600">Entrance</label>
+        <div className="grid grid-cols-2 gap-2 mt-0.5">
+          <select
+            className="form-input py-1 text-xs"
+            value={form.animation ?? ''}
+            onChange={(e) => setForm({ ...form, animation: (e.target.value || undefined) as Overlay['animation'] })}
+          >
+            <option value="">Instant (no animation)</option>
+            <option value="slide-down">Slide down</option>
+            <option value="slide-up">Slide up</option>
+            <option value="fade">Fade</option>
+            <option value="bounce">Bounce</option>
+            <option value="shake">Shake</option>
+            <option value="blur-in">Blur in</option>
+          </select>
+          <input
+            type="number" min="0.1" max="3" step="0.1"
+            className="form-input py-1 text-xs"
+            placeholder="Duration (s)"
+            value={form.animationDuration ?? ''}
+            onChange={(e) => setForm({ ...form, animationDuration: e.target.value ? Number(e.target.value) : undefined })}
+            disabled={!form.animation}
+          />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">

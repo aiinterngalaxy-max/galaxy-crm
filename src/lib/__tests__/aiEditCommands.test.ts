@@ -176,13 +176,20 @@ describe('validateCommand', () => {
         const result = validateCommand({ type: 'text', text: 'Hey', start: 0, end: 1.2, animation: 'slide-down' }, ctx)
         expect(result).toMatchObject({ animation: 'slide-down' })
       })
-      it('accepts slide-up and fade too', () => {
+      it('accepts slide-up, fade, bounce, shake and blur-in too', () => {
         expect(validateCommand({ type: 'text', text: 'Hi', animation: 'slide-up' }, ctx)).toMatchObject({ animation: 'slide-up' })
         expect(validateCommand({ type: 'text', text: 'Hi', animation: 'fade' }, ctx)).toMatchObject({ animation: 'fade' })
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'bounce' }, ctx)).toMatchObject({ animation: 'bounce' })
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'shake' }, ctx)).toMatchObject({ animation: 'shake' })
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'blur-in' }, ctx)).toMatchObject({ animation: 'blur-in' })
       })
       it('rejects an unrecognized animation rather than silently dropping it', () => {
-        const result = validateCommand({ type: 'text', text: 'Hi', animation: 'bounce' }, ctx)
-        expect(result).toEqual({ error: expect.stringContaining('bounce') })
+        const result = validateCommand({ type: 'text', text: 'Hi', animation: 'spin' }, ctx)
+        expect(result).toEqual({ error: expect.stringContaining('spin') })
+      })
+      it('accepts a standing glow, independent of animation', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', glow: true }, ctx)).toMatchObject({ glow: true })
+        expect(validateCommand({ type: 'text', text: 'Hi', glow: false }, ctx)).toMatchObject({ glow: false })
       })
       it('accepts a custom animationDuration', () => {
         const result = validateCommand({ type: 'text', text: 'Hi', animation: 'fade', animationDuration: 1.5 }, ctx)
@@ -617,6 +624,9 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'speed', start: 2, end: 5, factor: 2 },
     { type: 'text', text: 'Galaxy Home Automation', start: 0, end: 0, position: 'bottom', size: 'md' },
     { type: 'caption', text: 'Hello', start: 1, end: 4, position: 'top', size: 'sm' },
+    { type: 'text', text: 'Neon Sign', start: 0, end: 2, position: 'center', size: 'lg', glow: true, animation: 'bounce', animationDuration: 0.6 },
+    { type: 'text', text: 'Rattle', start: 0, end: 2, position: 'center', size: 'lg', animation: 'shake' },
+    { type: 'text', text: 'Coming Into Focus', start: 0, end: 2, position: 'center', size: 'lg', animation: 'blur-in' },
     { type: 'audio_volume', volume: 0.3 },
     { type: 'mute', muted: true },
     { type: 'music', action: 'remove' },

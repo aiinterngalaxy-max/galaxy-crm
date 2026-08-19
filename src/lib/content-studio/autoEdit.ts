@@ -601,6 +601,9 @@ export interface TimedCaption {
   strikethrough?: boolean
   outlineColor?: string
   outlineWidth?: number
+  /** A standing neon glow — baked into the PNG itself by renderCaptionImage,
+   *  not an export-time filter, since it doesn't change over time. */
+  glow?: boolean
   /** One of FONT_FAMILIES (see aiEditCommands.ts) — omitted means the
    *  original fixed sans-serif look. */
   fontFamily?: string
@@ -608,10 +611,12 @@ export interface TimedCaption {
   backgroundOpacity?: number
   /** How the caption enters at its own `start` — 'slide-down' comes from
    *  above into its resting position, 'slide-up' from below, 'fade' just
-   *  opacity-ins in place. Omitted/undefined = appears instantly, the
+   *  opacity-ins in place, 'bounce' drops in and settles with diminishing
+   *  overshoots, 'shake' rattles side-to-side and settles, 'blur-in' starts
+   *  out of focus and sharpens. Omitted/undefined = appears instantly, the
    *  original behavior. Has no effect on a caption with no start/end
    *  window (shown for the whole video — there's no "entrance" to animate). */
-  animation?: 'slide-down' | 'slide-up' | 'fade'
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
   /** Seconds the entrance animation takes — default 0.4 if animation is set. */
   animationDuration?: number
 }
@@ -646,7 +651,7 @@ async function planCaptionOverlays(
       text: cap.text, position: cap.position, size: cap.size,
       color: cap.color, bold: cap.bold, outlineColor: cap.outlineColor, outlineWidth: cap.outlineWidth,
       fontFamily: cap.fontFamily, italic: cap.italic, underline: cap.underline, strikethrough: cap.strikethrough,
-      backgroundColor: cap.backgroundColor, backgroundOpacity: cap.backgroundOpacity,
+      backgroundColor: cap.backgroundColor, backgroundOpacity: cap.backgroundOpacity, glow: cap.glow,
     }, width, height)
     const name = `capimg-${pngInputsFrom + i}.png`
     await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))
@@ -670,6 +675,7 @@ async function planCaptionOverlays(
     // Only meaningful with a real time window — a caption shown for the
     // whole video has no "entrance" moment to animate.
     let source = `[${idx}:v]`
+    let x = '0'
     let y = '0'
     if (windowed && cap.animation) {
       const animDur = cap.animationDuration && cap.animationDuration > 0 ? cap.animationDuration : 0.4
@@ -680,11 +686,41 @@ async function planCaptionOverlays(
         const faded = `[capfade${idx}]`
         filterLines.push(`[${idx}:v]format=yuva420p,fade=t=in:st=${start}:d=${animDur}:alpha=1${faded}`)
         source = faded
+      } else if (cap.animation === 'bounce') {
+        // A damped oscillator dropping in from above — same offset as
+        // slide-down, but overshoots and settles instead of easing in once.
+        // Clamped to exactly 0 once animDur elapses (rather than letting the
+        // decay asymptote forever) so the caption is pixel-still afterward.
+        const offset = -Math.round(height * 0.25)
+        y = `'if(lt(t-${start}\\,${animDur})\\,(${offset})*exp(-4*(t-${start})/${animDur})*cos(2*3.14159*2.5*(t-${start})/${animDur})\\,0)'`
+      } else if (cap.animation === 'shake') {
+        // Same decaying-oscillation shape as bounce, but horizontal and
+        // faster — a rattle rather than a drop — with no vertical motion.
+        const offset = Math.round(width * 0.05)
+        x = `'if(lt(t-${start}\\,${animDur})\\,(${offset})*exp(-4*(t-${start})/${animDur})*sin(2*3.14159*6*(t-${start})/${animDur})\\,0)'`
+      } else if (cap.animation === 'blur-in') {
+        // gblur's sigma is a fixed value in this build, not a per-frame
+        // expression (confirmed via a live `-h filter=gblur` probe — no
+        // command/eval support on sigma, only the shared `enable=` timeline
+        // gate every filter gets) — verified BEFORE writing this, since the
+        // first attempt assumed eval=frame support that turned out not to
+        // exist and failed outright. Approximates the ramp with 3 gblur
+        // stages at decreasing sigma, each enabled only for its own
+        // sub-window of animDur, landing on fully sharp (no 4th stage
+        // needed) once the last window ends.
+        const blurred = `[capblur${idx}]`
+        const steps = [8, 5, 2]
+        const stepDur = animDur / (steps.length + 1)
+        const chain = steps
+          .map((sigma, i) => `gblur=sigma=${sigma}:enable='between(t\\,${start + i * stepDur}\\,${start + (i + 1) * stepDur})'`)
+          .join(',')
+        filterLines.push(`[${idx}:v]${chain}${blurred}`)
+        source = blurred
       }
     }
 
     const next = `[capout${idx}]`
-    filterLines.push(`${cur}${source}overlay=x=0:y=${y}${enable}${next}`)
+    filterLines.push(`${cur}${source}overlay=x=${x}:y=${y}${enable}${next}`)
     cur = next
   }
   return { loadArgs, filterLines, videoLabel: cur }

@@ -30,6 +30,11 @@ export interface CaptionImageInput {
   strikethrough?: boolean
   outlineColor?: string
   outlineWidth?: number
+  /** A neon-style glow around the text, in the text's own color. Rendered
+   *  directly here (stacked blurred passes via Canvas shadowBlur) rather
+   *  than as an ffmpeg export step, since this is a static per-caption
+   *  look, not something that changes frame to frame. */
+  glow?: boolean
   /** One of FONT_FAMILIES (see aiEditCommands.ts) — undefined/unrecognized
    *  falls back to the original sans-serif look. */
   fontFamily?: string
@@ -140,6 +145,18 @@ export async function renderCaptionImage(
     const lx = boxX + (boxWidth - lineWidth) / 2
     const ly = boxY + padY + lineHeight * i + lineHeight / 2
     if (caption.outlineWidth && caption.outlineWidth > 0) ctx.strokeText(l, lx, ly)
+    if (caption.glow) {
+      // Canvas draws the shadow BEHIND the fill, so three passes at growing
+      // blur radii build up a real halo instead of one faint ring — a
+      // single pass reads as barely-there next to the opaque fill on top.
+      ctx.save()
+      ctx.shadowColor = caption.color ?? '#ffffff'
+      for (const blur of [fontSize * 0.9, fontSize * 0.5, fontSize * 0.25]) {
+        ctx.shadowBlur = blur
+        ctx.fillText(l, lx, ly)
+      }
+      ctx.restore()
+    }
     ctx.fillText(l, lx, ly)
     if (caption.underline) {
       const uy = ly + fontSize * 0.38
