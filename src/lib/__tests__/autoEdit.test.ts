@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
-  LOOK_RECIPES, hueToColorbalanceShift,
+  LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -216,5 +216,50 @@ describe('LOOK_RECIPES', () => {
     const blue = LOOK_RECIPES.colorize('', 200)
     const red = LOOK_RECIPES.colorize('', 0)
     expect(blue).not.toBe(red)
+  })
+})
+
+describe('GLITCH_RECIPES', () => {
+  const names = ['rgbSplit', 'tvNoise', 'screenFlicker', 'vhs', 'scanLines', 'digitalGlitch', 'signalDistortion'] as const
+
+  it('has a recipe for every GlitchStyle the command vocabulary advertises', () => {
+    for (const name of names) expect(GLITCH_RECIPES).toHaveProperty(name)
+  })
+
+  it('every non-burst style produces a non-empty filter string that honors its enable window', () => {
+    const w = ":enable='between(t\\,1\\,3)'"
+    for (const name of names) {
+      if (name === 'digitalGlitch') continue // burst style — checked separately, its OWN sub-windows differ from w
+      const vf = GLITCH_RECIPES[name](w, 0.5, 1, 3)
+      expect(vf.length, `${name} produced an empty filter string`).toBeGreaterThan(0)
+      expect(vf, `${name} did not include its enable window`).toContain(w)
+    }
+  })
+
+  it('rgbSplit shifts red and blue in opposite directions (the actual "split" look)', () => {
+    const vf = GLITCH_RECIPES.rgbSplit('', 0.5, 0, 1)
+    const rh = Number(vf.match(/rh=(-?\d+)/)?.[1])
+    const bh = Number(vf.match(/bh=(-?\d+)/)?.[1])
+    expect(rh).toBeGreaterThan(0)
+    expect(bh).toBeLessThan(0)
+    expect(rh).toBe(-bh)
+  })
+
+  it('digitalGlitch builds several short burst sub-windows inside [start,end], not one continuous effect', () => {
+    const vf = GLITCH_RECIPES.digitalGlitch('', 0.5, 10, 20)
+    const windows = [...vf.matchAll(/between\(t\\,([\d.]+)\\,([\d.]+)\)/g)].map((m) => [Number(m[1]), Number(m[2])])
+    expect(windows.length).toBeGreaterThanOrEqual(3)
+    for (const [bStart, bEnd] of windows) {
+      expect(bStart).toBeGreaterThanOrEqual(10)
+      expect(bEnd).toBeLessThanOrEqual(20)
+    }
+  })
+
+  it('strength scales intensity (higher strength shifts pixels further / adds more noise)', () => {
+    const low = GLITCH_RECIPES.rgbSplit('', 0.1, 0, 1)
+    const high = GLITCH_RECIPES.rgbSplit('', 0.9, 0, 1)
+    const lowShift = Number(low.match(/rh=(\d+)/)?.[1])
+    const highShift = Number(high.match(/rh=(\d+)/)?.[1])
+    expect(highShift).toBeGreaterThan(lowShift)
   })
 })

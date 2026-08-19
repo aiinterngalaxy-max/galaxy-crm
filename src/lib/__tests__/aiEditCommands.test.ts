@@ -402,6 +402,27 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('glitch', () => {
+    it('accepts every supported glitch style, defaulting strength to 0.5', () => {
+      const styles = ['rgbSplit', 'tvNoise', 'screenFlicker', 'vhs', 'scanLines', 'digitalGlitch', 'signalDistortion']
+      for (const style of styles) {
+        expect(validateCommand({ type: 'glitch', start: 0, end: 5, style }, ctx)).toEqual({ type: 'glitch', start: 0, end: 5, style, strength: 0.5 })
+      }
+    })
+    it('accepts an explicit strength', () => {
+      const result = validateCommand({ type: 'glitch', start: 0, end: 5, style: 'rgbSplit', strength: 0.9 }, ctx)
+      expect(result).toMatchObject({ strength: 0.9 })
+    })
+    it('rejects a missing/unsupported style rather than guessing', () => {
+      expect(validateCommand({ type: 'glitch', start: 0, end: 5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'glitch', start: 0, end: 5, style: 'explosion' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 0-1', () => {
+      expect(validateCommand({ type: 'glitch', start: 0, end: 5, style: 'rgbSplit', strength: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'glitch', start: 0, end: 5, style: 'rgbSplit', strength: -0.1 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -700,6 +721,7 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'mask', start: 1, end: 4, shape: 'circle', x: 0.5, y: 0.5, size: 0.35, feather: 0.12 },
     { type: 'look', start: 1, end: 4, name: 'sepia' },
     { type: 'look', start: 1, end: 4, name: 'colorize', hueDegrees: 220 },
+    { type: 'glitch', start: 1, end: 4, style: 'rgbSplit', strength: 0.5 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

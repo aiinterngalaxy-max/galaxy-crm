@@ -1472,6 +1472,63 @@ export async function applyLook(file: Blob, { start, end, name, hueDegrees = 200
   return runOneVideoFilter(file, vf, `Could not apply the ${name} look.`, onProgress, ['-c:a', 'copy'])
 }
 
+export type GlitchStyle = 'rgbSplit' | 'tvNoise' | 'screenFlicker' | 'vhs' | 'scanLines' | 'digitalGlitch' | 'signalDistortion'
+
+/**
+ * One filter recipe per glitch style, strength 0..1. Verified against a
+ * live render before writing this: rgbashift's rh/bh are plain ints (no
+ * per-frame expression support, unlike eq's string-typed options), so
+ * 'digitalGlitch' — the one style that needs to look like short, repeated
+ * bursts rather than one continuous effect — is built from several
+ * SEPARATE rgbashift stages, each gated to its own short enable sub-window
+ * of [start,end], rather than one filter with a time-varying offset.
+ * eq's brightness (a string-typed option) DOES accept a `t`-based
+ * expression with eval=frame, confirmed by testing brightness actually
+ * oscillates frame-to-frame — that's what drives 'screenFlicker'.
+ */
+export const GLITCH_RECIPES: Record<GlitchStyle, (w: string, strength: number, start: number, end: number) => string> = {
+  rgbSplit: (w, s) => {
+    const px = Math.max(1, Math.round(s * 14))
+    return `rgbashift=rh=${px}:bh=-${px}${w}`
+  },
+  tvNoise: (w, s) => `noise=alls=${Math.round(20 + s * 50)}:allf=t+u${w},eq=saturation=${(1 - s * 0.4).toFixed(2)}${w}`,
+  screenFlicker: (w, s) => `eq=brightness='${(s * 0.5).toFixed(2)}*sin(2*3.14159*8*t)':eval=frame${w}`,
+  vhs: (w, s) => {
+    const px = Math.max(1, Math.round(s * 6))
+    return `rgbashift=rh=${px}:bh=-${px}${w},noise=alls=${Math.round(s * 20)}:allf=t${w},eq=saturation=${(1 - s * 0.2).toFixed(2)}${w},vignette=angle=PI/6${w}`
+  },
+  scanLines: (w, s) => {
+    const depth = 0.3 + s * 0.4
+    return `geq=lum='lum(X\\,Y)*(${(1 - depth).toFixed(2)}+${depth.toFixed(2)}*mod(Y\\,4)/4)':cb='cb(X\\,Y)':cr='cr(X\\,Y)'${w}`
+  },
+  digitalGlitch: (w, s, start, end) => {
+    const dur = Math.max(0.1, end - start)
+    const burst = Math.min(0.15, dur * 0.15)
+    const px = Math.max(2, Math.round(s * 16))
+    const parts: string[] = []
+    for (const frac of [0.15, 0.5, 0.8]) {
+      const bStart = start + dur * frac
+      const bEnd = Math.min(end, bStart + burst)
+      const bw = `:enable='between(t\\,${bStart.toFixed(2)}\\,${bEnd.toFixed(2)})'`
+      parts.push(`rgbashift=rh=${px}:bh=-${px}${bw}`)
+    }
+    parts.push(`noise=alls=${Math.round(s * 30)}:allf=t${w}`)
+    return parts.join(',')
+  },
+  signalDistortion: (w, s) => {
+    const px = Math.max(2, Math.round(s * 20))
+    return `rgbashift=rh=${px}:bh=-${Math.round(px * 0.6)}${w},eq=contrast=${(1 + s * 0.3).toFixed(2)}${w}`
+  },
+}
+
+export interface GlitchOptions { start: number; end: number; style: GlitchStyle; strength?: number }
+
+export async function applyGlitch(file: Blob, { start, end, style, strength = 0.5 }: GlitchOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const w = windowClause(start, end)
+  const vf = GLITCH_RECIPES[style](w, strength, start, end)
+  return runOneVideoFilter(file, vf, `Could not apply the ${style} effect.`, onProgress, ['-c:a', 'copy'])
+}
+
 export interface MaskOptions {
   start: number
   end: number
