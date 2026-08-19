@@ -755,7 +755,7 @@ describe('interpretInstruction', () => {
     await interpretInstruction('loop it', { durationSec: 42.3, hasMusic: true })
     const systemPromptSent = callClaude.mock.calls[0][1] as string
     expect(systemPromptSent).toContain('42.3')
-    expect(systemPromptSent).toContain('already has a background music track')
+    expect(systemPromptSent).toContain('already has background music')
   })
 })
 
