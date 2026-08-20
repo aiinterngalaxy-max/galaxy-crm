@@ -605,6 +605,14 @@ export interface TimedCaption {
   /** A standing neon glow — baked into the PNG itself by renderCaptionImage,
    *  not an export-time filter, since it doesn't change over time. */
   glow?: boolean
+  /** A standing offset+blurred drop shadow, also baked into the PNG — same
+   *  reasoning as glow, but an offset shadow instead of a centered halo. */
+  dropShadow?: boolean
+  /** Paired with `color` (the gradient's start) for a left-to-right linear
+   *  gradient text fill, baked into the PNG. Omitted = solid `color` fill. */
+  gradientTo?: string
+  /** Extra spacing between characters in pixels, baked into the PNG. */
+  letterSpacing?: number
   /** One of FONT_FAMILIES (see aiEditCommands.ts) — omitted means the
    *  original fixed sans-serif look. */
   fontFamily?: string
@@ -614,10 +622,12 @@ export interface TimedCaption {
    *  above into its resting position, 'slide-up' from below, 'fade' just
    *  opacity-ins in place, 'bounce' drops in and settles with diminishing
    *  overshoots, 'shake' rattles side-to-side and settles, 'blur-in' starts
-   *  out of focus and sharpens. Omitted/undefined = appears instantly, the
+   *  out of focus and sharpens, 'typewriter' reveals the text character by
+   *  character via a widening crop rather than moving/fading the whole
+   *  already-formed image. Omitted/undefined = appears instantly, the
    *  original behavior. Has no effect on a caption with no start/end
    *  window (shown for the whole video — there's no "entrance" to animate). */
-  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in' | 'typewriter'
   /** Seconds the entrance animation takes — default 0.4 if animation is set. */
   animationDuration?: number
 }
@@ -648,11 +658,12 @@ async function planCaptionOverlays(
   let cur = startLabel
   for (let i = 0; i < active.length; i++) {
     const cap = active[i]
-    const png = await renderCaptionImage({
+    const { blob: png, boxX, boxWidth } = await renderCaptionImage({
       text: cap.text, position: cap.position, size: cap.size,
       color: cap.color, bold: cap.bold, outlineColor: cap.outlineColor, outlineWidth: cap.outlineWidth,
       fontFamily: cap.fontFamily, italic: cap.italic, underline: cap.underline, strikethrough: cap.strikethrough,
       backgroundColor: cap.backgroundColor, backgroundOpacity: cap.backgroundOpacity, glow: cap.glow,
+      dropShadow: cap.dropShadow, gradientTo: cap.gradientTo, letterSpacing: cap.letterSpacing,
     }, width, height)
     const name = `capimg-${pngInputsFrom + i}.png`
     await ffmpeg.writeFile(name, new Uint8Array(await png.arrayBuffer()))
@@ -717,6 +728,20 @@ async function planCaptionOverlays(
           .join(',')
         filterLines.push(`[${idx}:v]${chain}${blurred}`)
         source = blurred
+      } else if (cap.animation === 'typewriter') {
+        // Reveals the ALREADY-DRAWN text image progressively left to right,
+        // by zeroing the PNG's own alpha channel to the right of a moving
+        // edge, rather than a crop/resize — a resized overlay would need its
+        // own x position recomputed to stay anchored, and get that wrong for
+        // anything but a left-aligned box. Anchored to the box's OWN x/width
+        // (from renderCaptionImage, not the whole canvas) so center/right-
+        // positioned text starts revealing immediately instead of showing
+        // nothing until the edge reaches a centered box partway through.
+        const revealed = `[captype${idx}]`
+        const progress = `clip((T-${start})/${animDur}\\,0\\,1)`
+        const edge = `(${boxX.toFixed(1)}+${boxWidth.toFixed(1)}*${progress})`
+        filterLines.push(`[${idx}:v]format=rgba,geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='if(lt(X\\,${edge})\\,alpha(X\\,Y)\\,0)',format=yuva420p${revealed}`)
+        source = revealed
       }
     }
 

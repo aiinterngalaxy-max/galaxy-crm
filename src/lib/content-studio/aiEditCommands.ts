@@ -51,11 +51,21 @@ export interface TextStyleFields {
    *  sharpens. Omitted = appears instantly. Only meaningful with a real
    *  (non-whole-video) time window — there's no "entrance" to animate on
    *  text shown throughout. */
-  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in' | 'typewriter'
   animationDuration?: number
   /** A persistent glow around the text ("neon" look) — not an entrance, a
    *  standing style, so it lives here rather than in `animation`. */
   glow?: boolean
+  /** A standing drop shadow (offset + blurred), distinct from `glow` (a
+   *  centered halo with no offset). */
+  dropShadow?: boolean
+  /** Paired with `color` (the gradient's start) — set together, the text
+   *  fill becomes a left-to-right linear gradient from color to gradientTo
+   *  instead of a solid fill. Omitted = solid `color` fill, unchanged. */
+  gradientTo?: string
+  /** Extra spacing between characters in pixels, 0-30. Omitted/0 = normal
+   *  spacing. */
+  letterSpacing?: number
 }
 export interface TextCommand extends TextStyleFields { type: 'text'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
 export interface CaptionCommand extends TextStyleFields { type: 'caption'; text: string; start: number; end: number; position: CaptionPosition; size: CaptionSize }
@@ -447,7 +457,7 @@ export const FONT_FAMILIES = [
 ] as const
 
 /** Entrance animations text/captions can appear with — see TextStyleFields.animation. */
-export const ANIMATIONS = ['slide-down', 'slide-up', 'fade', 'bounce', 'shake', 'blur-in'] as const
+export const ANIMATIONS = ['slide-down', 'slide-up', 'fade', 'bounce', 'shake', 'blur-in', 'typewriter'] as const
 
 /** A named zoom/pan target as a fraction-of-frame center point. */
 export function targetToCenter(target: string): { x: number; y: number } {
@@ -543,6 +553,12 @@ function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | Val
   if (animationDuration != null && (animationDuration <= 0 || animationDuration > 3)) {
     return { error: 'Animation duration has to be between 0 and 3 seconds.' }
   }
+  const dropShadow = typeof c.dropShadow === 'boolean' ? c.dropShadow : undefined
+  const gradientTo = str(c.gradientTo) ?? undefined
+  const letterSpacing = num(c.letterSpacing) ?? undefined
+  if (letterSpacing != null && (letterSpacing < 0 || letterSpacing > 30)) {
+    return { error: 'Letter spacing has to be between 0 and 30 pixels.' }
+  }
   return {
     ...(color != null ? { color } : {}),
     ...(bold != null ? { bold } : {}),
@@ -557,6 +573,9 @@ function parseTextStyleFields(c: Record<string, unknown>): TextStyleFields | Val
     ...(backgroundOpacity != null ? { backgroundOpacity } : {}),
     ...(animation != null ? { animation } : {}),
     ...(animationDuration != null ? { animationDuration } : {}),
+    ...(dropShadow != null ? { dropShadow } : {}),
+    ...(gradientTo != null ? { gradientTo } : {}),
+    ...(letterSpacing != null ? { letterSpacing } : {}),
   }
 }
 
@@ -1275,7 +1294,7 @@ crop { "type":"crop","aspect":"9:16"|"1:1"|"4:5"|"16:9"|"4:3" }
 zoom { "type":"zoom","start":number,"end":number,"fromScale":number,"toScale":number,"target":"center"|"left"|"right"|"top"|"bottom" } — fromScale defaults 1; scales 0.5-4
 pan { "type":"pan","start":number,"end":number,"direction":"left-to-right"|"right-to-left"|"top-to-bottom"|"bottom-to-top","scale":number } — scale defaults 1.3, range 1-4
 speed { "type":"speed","start":number,"end":number,"factor":number } — >1 faster, <1 slower, range 0.25-4
-text { "type":"text","text":string,"start":number,"end":number,"position":"top"|"bottom"|"left"|"right"|"center","size":"sm"|"md"|"lg","color"?:string,"bold"?:boolean,"italic"?:boolean,"underline"?:boolean,"strikethrough"?:boolean,"glow"?:boolean,"outlineColor"?:string,"outlineWidth"?:number,"fontFamily"?:string,"backgroundColor"?:string,"backgroundOpacity"?:number,"animation"?:"slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in","animationDuration"?:number } — supports real emoji chars (🔥🎉🚀) written directly, never spelled out in words. start:0,end:0 = whole video. ALL style fields optional — set any the instruction asks for right here when adding new text (never a separate text_style for text added in the same instruction). fontFamily must be one of: ${FONT_FAMILIES.join(', ')}. backgroundColor is the box behind the text (default black); backgroundOpacity 0 (invisible)..1 (solid), default 0.6. glow = standing neon glow ("make it neon"→glow:true). animation is the entrance at start time: slide-down/slide-up/fade/bounce (settles with overshoot)/shake/blur-in; omit for instant appearance. animationDuration 0-3s, default 0.4. For staggered "lines coming in one by one", use SEVERAL text commands with staggered start/end sharing the same animation.
+text { "type":"text","text":string,"start":number,"end":number,"position":"top"|"bottom"|"left"|"right"|"center","size":"sm"|"md"|"lg","color"?:string,"bold"?:boolean,"italic"?:boolean,"underline"?:boolean,"strikethrough"?:boolean,"glow"?:boolean,"dropShadow"?:boolean,"gradientTo"?:string,"letterSpacing"?:number,"outlineColor"?:string,"outlineWidth"?:number,"fontFamily"?:string,"backgroundColor"?:string,"backgroundOpacity"?:number,"animation"?:"slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in"|"typewriter","animationDuration"?:number } — supports real emoji chars (🔥🎉🚀) written directly, never spelled out in words. start:0,end:0 = whole video. ALL style fields optional — set any the instruction asks for right here when adding new text (never a separate text_style for text added in the same instruction). fontFamily must be one of: ${FONT_FAMILIES.join(', ')}. backgroundColor is the box behind the text (default black); backgroundOpacity 0 (invisible)..1 (solid), default 0.6. glow = standing neon halo ("make it neon"→glow:true); dropShadow = an offset blurred shadow instead, distinct from glow (no offset). gradientTo, paired with "color" as the start, fills the text with a left-to-right gradient instead of solid color — "gradient from pink to blue" → color:pink, gradientTo:blue. letterSpacing (0-30px) widens the gaps between characters — "spaced out"/"more letter spacing". animation is the entrance at start time: slide-down/slide-up/fade/bounce (settles with overshoot)/shake/blur-in/typewriter (types out character by character, not a pre-formed reveal); omit for instant appearance. animationDuration 0-3s, default 0.4. For staggered "lines coming in one by one", use SEVERAL text commands with staggered start/end sharing the same animation.
 caption { "type":"caption", ...same fields as text }
 remove_text { "type":"remove_text","text"?:string,"start"?:number,"end"?:number } — REMOVES an existing overlay (never "text"/"caption"). All fields optional — only include what was actually named.
 audio_volume { "type":"audio_volume","volume":number } — 0-3, 1=unchanged
@@ -1332,7 +1351,7 @@ fade { "type":"fade","direction":"in"|"out","duration":number } — fades to/fro
 rotate { "type":"rotate","degrees":90|180|270 }
 flip { "type":"flip","axis":"horizontal"|"vertical" }
 reverse { "type":"reverse" } — plays the whole video backwards.
-text_style { "type":"text_style","target"?:string,"color"?:string,"bold"?:boolean,"italic"?:boolean,"underline"?:boolean,"strikethrough"?:boolean,"glow"?:boolean,"outlineColor"?:string,"outlineWidth"?:number,"position"?:"top"|"bottom"|"left"|"right"|"center","size"?:"sm"|"md"|"lg","fontFamily"?:string,"backgroundColor"?:string,"backgroundOpacity"?:number,"animation"?:"slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in","animationDuration"?:number } — MODIFIES existing text/caption (never adds). "target" is the wording if named; omit for "it". Set ONLY the field(s) actually asked to change. fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — outside this list is a clarification, never a guess.
+text_style { "type":"text_style","target"?:string,"color"?:string,"bold"?:boolean,"italic"?:boolean,"underline"?:boolean,"strikethrough"?:boolean,"glow"?:boolean,"dropShadow"?:boolean,"gradientTo"?:string,"letterSpacing"?:number,"outlineColor"?:string,"outlineWidth"?:number,"position"?:"top"|"bottom"|"left"|"right"|"center","size"?:"sm"|"md"|"lg","fontFamily"?:string,"backgroundColor"?:string,"backgroundOpacity"?:number,"animation"?:"slide-down"|"slide-up"|"fade"|"bounce"|"shake"|"blur-in"|"typewriter","animationDuration"?:number } — MODIFIES existing text/caption (never adds). "target" is the wording if named; omit for "it". Set ONLY the field(s) actually asked to change. fontFamily must be one of: ${FONT_FAMILIES.join(', ')} — outside this list is a clarification, never a guess. dropShadow/gradientTo/letterSpacing same meaning as on "text".
 text_edit { "type":"text_edit","target"?:string,"text":string } — CHANGES WORDING only (text_style for looks). "text" is the FULL new wording — compose existing text + the change yourself using CURRENT PROJECT STATE, don't send just the addition.
 captions_auto { "type":"captions_auto" } — auto-transcribes real speech into timed captions.
 audio_noise_reduction { "type":"audio_noise_reduction" } — reduces steady background hiss/hum.
@@ -1345,6 +1364,8 @@ Examples:
 "Zoom into the product." (no timing) → {"clarification":"Which part of the video should I zoom into — what start and end time?"}
 "Reel intro — 'Hey', then 'I'm the CEO of Galaxy', sliding down one after another." (staggered — separate text commands, same animation) → {"commands":[{"type":"text","text":"Hey","start":0,"end":1.2,"position":"center","size":"lg","animation":"slide-down"},{"type":"text","text":"I'm the CEO of Galaxy","start":1,"end":3.5,"position":"center","size":"lg","animation":"slide-down"}]}
 "Add 'Galaxy' at the bottom, 0-5s, Times New Roman, red." (new text + its own styling in one breath — ONE command, not a follow-up text_style) → {"commands":[{"type":"text","text":"Galaxy","start":0,"end":5,"position":"bottom","size":"md","color":"red","fontFamily":"Times New Roman"}]}
+"Type out 'Welcome' letter by letter at the start." (typewriter, not slide/fade) → {"commands":[{"type":"text","text":"Welcome","start":0,"end":3,"position":"center","size":"lg","animation":"typewriter","animationDuration":1.2}]}
+"Give the title a gradient from pink to blue." (color = gradient start) → {"commands":[{"type":"text_style","color":"#ff2fd6","gradientTo":"#2f9fff"}]}
 "Remove the Galaxy Home Automation text." (wording alone identifies it, no timing needed) → {"commands":[{"type":"remove_text","text":"Galaxy Home Automation"}]}
 "Add a fire emoji to the CEO text." (existing layer says "I'm the CEO of Galaxy" — compose the full new wording) → {"commands":[{"type":"text_edit","target":"CEO","text":"I'm the CEO of Galaxy 🔥"}]}
 "Change the font from Times New Roman to any other." (no specific font named — clarification with options spelled out) → {"clarification":"Which font would you like instead — one of: ${FONT_FAMILIES.join(', ')}?"}
@@ -1448,6 +1469,9 @@ function styleSummary(cmd: TextStyleFields): string {
   if (cmd.underline) parts.push('underline')
   if (cmd.strikethrough) parts.push('strikethrough')
   if (cmd.glow) parts.push('glow')
+  if (cmd.dropShadow) parts.push('drop shadow')
+  if (cmd.gradientTo) parts.push(`gradient to ${cmd.gradientTo}`)
+  if (cmd.letterSpacing) parts.push(`${cmd.letterSpacing}px spacing`)
   if (cmd.animation) parts.push(`${cmd.animation} in`)
   return parts.length ? `, ${parts.join(', ')}` : ''
 }
@@ -1464,6 +1488,9 @@ function styleCardLines(cmd: TextStyleFields): string[] {
   if (cmd.underline != null) lines.push(cmd.underline ? 'Underlined' : 'No underline')
   if (cmd.strikethrough != null) lines.push(cmd.strikethrough ? 'Strikethrough' : 'No strikethrough')
   if (cmd.glow != null) lines.push(cmd.glow ? 'Neon glow' : 'No glow')
+  if (cmd.dropShadow != null) lines.push(cmd.dropShadow ? 'Drop shadow' : 'No drop shadow')
+  if (cmd.gradientTo) lines.push(`Gradient: ${cmd.color ?? 'default'} → ${cmd.gradientTo}`)
+  if (cmd.letterSpacing != null) lines.push(`Letter spacing: ${cmd.letterSpacing}px`)
   if (cmd.outlineColor || cmd.outlineWidth) lines.push(`Outline: ${cmd.outlineColor ?? 'black'}${cmd.outlineWidth ? `, ${cmd.outlineWidth}px` : ''}`)
   if (cmd.backgroundColor || cmd.backgroundOpacity != null) {
     lines.push(`Background: ${cmd.backgroundColor ?? 'black'}${cmd.backgroundOpacity != null ? `, ${Math.round(cmd.backgroundOpacity * 100)}% opacity` : ''}`)

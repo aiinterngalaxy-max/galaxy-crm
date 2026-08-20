@@ -42,6 +42,29 @@ export interface CaptionImageInput {
    *  original fixed look (black, 60% opaque). */
   backgroundColor?: string
   backgroundOpacity?: number
+  /** A standing offset+blurred drop shadow, distinct from `glow` (a
+   *  centered halo with no offset). Rendered here (Canvas shadowOffset),
+   *  same reasoning as glow — a static per-caption look, not a per-frame
+   *  ffmpeg step. */
+  dropShadow?: boolean
+  /** Paired with `color` (the gradient's start) — when set, the text fill
+   *  becomes a left-to-right CanvasGradient from color to gradientTo
+   *  instead of a solid fillStyle. Omitted = solid `color` fill. */
+  gradientTo?: string
+  /** Extra spacing between characters in pixels, via Canvas's own
+   *  `letterSpacing` property (real per-glyph spacing, not manual
+   *  per-character draws) — 0/omitted = normal spacing. */
+  letterSpacing?: number
+}
+
+export interface CaptionImageResult {
+  blob: Blob
+  /** The drawn text box's actual position/size in pixels — needed by the
+   *  'typewriter' entrance animation to anchor its reveal edge to where
+   *  the text ACTUALLY starts (which varies by position: 'center' text is
+   *  horizontally centered, not at x=0) rather than the whole canvas. */
+  boxX: number
+  boxWidth: number
 }
 
 const SIZE_SCALE: Record<CaptionSize, number> = { sm: 0.72, md: 1, lg: 1.35 }
@@ -73,7 +96,7 @@ export async function renderCaptionImage(
   caption: CaptionImageInput,
   frameWidth: number,
   frameHeight: number,
-): Promise<Blob> {
+): Promise<CaptionImageResult> {
   const canvas = document.createElement('canvas')
   canvas.width = frameWidth
   canvas.height = frameHeight
@@ -90,6 +113,10 @@ export async function renderCaptionImage(
   const fonts = fontStack(caption.fontFamily)
   ctx.font = `${style} ${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
+  // Set BEFORE the wrapping measurements below, not just before drawing —
+  // letterSpacing changes each line's measured width, so wrapping has to
+  // account for it or lines could wrap wider than the box actually fits.
+  if (caption.letterSpacing) ctx.letterSpacing = `${caption.letterSpacing}px`
 
   const maxTextWidth = frameWidth * 0.86
   const words = text.split(/\s+/)
@@ -133,12 +160,24 @@ export async function renderCaptionImage(
 
   ctx.font = `${style} ${weight} ${fontSize}px ${fonts}`
   ctx.textBaseline = 'middle'
+  if (caption.letterSpacing) ctx.letterSpacing = `${caption.letterSpacing}px`
   if (caption.outlineWidth && caption.outlineWidth > 0) {
     ctx.lineWidth = caption.outlineWidth
     ctx.strokeStyle = caption.outlineColor ?? '#000000'
     ctx.lineJoin = 'round'
   }
-  ctx.fillStyle = caption.color ?? '#ffffff'
+  // gradientTo pairs with `color` as the gradient's start — a fixed
+  // left-to-right span across the whole text BOX (not each line
+  // individually), so multi-line text reads as one continuous gradient
+  // rather than each line restarting it.
+  if (caption.gradientTo) {
+    const gradient = ctx.createLinearGradient(boxX, 0, boxX + boxWidth, 0)
+    gradient.addColorStop(0, caption.color ?? '#ffffff')
+    gradient.addColorStop(1, caption.gradientTo)
+    ctx.fillStyle = gradient
+  } else {
+    ctx.fillStyle = caption.color ?? '#ffffff'
+  }
   const decorationThickness = Math.max(1, Math.round(fontSize * 0.06))
   lines.forEach((l, i) => {
     const lineWidth = ctx.measureText(l).width
@@ -157,6 +196,20 @@ export async function renderCaptionImage(
       }
       ctx.restore()
     }
+    if (caption.dropShadow) {
+      // A single offset+blurred pass (not glow's repeated growing-radius
+      // stack — an offset shadow reads as one shape, unlike a halo which
+      // needs several radii to look solid) drawn once here; the final
+      // unconditional fillText below then draws the crisp foreground glyph
+      // on top at the true (unshadowed) position.
+      ctx.save()
+      ctx.shadowColor = 'rgba(0,0,0,0.65)'
+      ctx.shadowBlur = fontSize * 0.18
+      ctx.shadowOffsetX = fontSize * 0.07
+      ctx.shadowOffsetY = fontSize * 0.11
+      ctx.fillText(l, lx, ly)
+      ctx.restore()
+    }
     ctx.fillText(l, lx, ly)
     if (caption.underline) {
       const uy = ly + fontSize * 0.38
@@ -168,7 +221,7 @@ export async function renderCaptionImage(
   })
 
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not render the caption image.'))), 'image/png')
+    canvas.toBlob((blob) => (blob ? resolve({ blob, boxX, boxWidth }) : reject(new Error('Could not render the caption image.'))), 'image/png')
   })
 }
 

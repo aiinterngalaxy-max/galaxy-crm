@@ -191,6 +191,21 @@ describe('validateCommand', () => {
         expect(validateCommand({ type: 'text', text: 'Hi', glow: true }, ctx)).toMatchObject({ glow: true })
         expect(validateCommand({ type: 'text', text: 'Hi', glow: false }, ctx)).toMatchObject({ glow: false })
       })
+      it('accepts the typewriter entrance', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', animation: 'typewriter' }, ctx)).toMatchObject({ animation: 'typewriter' })
+      })
+      it('accepts a standing drop shadow, independent of glow', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', dropShadow: true }, ctx)).toMatchObject({ dropShadow: true })
+      })
+      it('accepts a gradient fill via color + gradientTo', () => {
+        const result = validateCommand({ type: 'text', text: 'Hi', color: '#ff2fd6', gradientTo: '#2f9fff' }, ctx)
+        expect(result).toMatchObject({ color: '#ff2fd6', gradientTo: '#2f9fff' })
+      })
+      it('accepts letterSpacing and rejects it outside 0-30', () => {
+        expect(validateCommand({ type: 'text', text: 'Hi', letterSpacing: 8 }, ctx)).toMatchObject({ letterSpacing: 8 })
+        expect(validateCommand({ type: 'text', text: 'Hi', letterSpacing: -1 }, ctx)).toHaveProperty('error')
+        expect(validateCommand({ type: 'text', text: 'Hi', letterSpacing: 31 }, ctx)).toHaveProperty('error')
+      })
       it('accepts a custom animationDuration', () => {
         const result = validateCommand({ type: 'text', text: 'Hi', animation: 'fade', animationDuration: 1.5 }, ctx)
         expect(result).toMatchObject({ animationDuration: 1.5 })
@@ -1180,6 +1195,11 @@ describe('validateCommand', () => {
     it('accepts a custom background color', () => {
       const result = validateCommand({ type: 'text_style', backgroundColor: 'blue' }, oneLayer)
       expect(result).toMatchObject({ backgroundColor: 'blue' })
+    })
+    it('accepts dropShadow, gradientTo, and letterSpacing', () => {
+      expect(validateCommand({ type: 'text_style', dropShadow: true }, oneLayer)).toMatchObject({ dropShadow: true })
+      expect(validateCommand({ type: 'text_style', color: 'pink', gradientTo: 'blue' }, oneLayer)).toMatchObject({ color: 'pink', gradientTo: 'blue' })
+      expect(validateCommand({ type: 'text_style', letterSpacing: 6 }, oneLayer)).toMatchObject({ letterSpacing: 6 })
     })
     it('rejects a backgroundOpacity outside 0-1', () => {
       expect(validateCommand({ type: 'text_style', backgroundOpacity: 1.2 }, oneLayer)).toHaveProperty('error')

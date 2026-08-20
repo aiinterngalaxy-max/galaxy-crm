@@ -83,6 +83,12 @@ interface Overlay {
   strikethrough?: boolean
   /** A standing neon glow, in the text's own color — not an entrance. */
   glow?: boolean
+  /** A standing offset+blurred drop shadow — distinct from glow (no offset). */
+  dropShadow?: boolean
+  /** Paired with `color` (the gradient's start) for a left-to-right gradient fill. */
+  gradientTo?: string
+  /** Extra spacing between characters in pixels, 0-30. */
+  letterSpacing?: number
   outlineColor?: string
   outlineWidth?: number
   /** One of FONT_FAMILIES (aiEditCommands.ts) — omitted means the default sans-serif look. */
@@ -91,8 +97,9 @@ interface Overlay {
   backgroundOpacity?: number
   /** How this overlay enters at its own start time — omitted means appears
    *  instantly, the original behavior. See TimedCaption in autoEdit.ts for
-   *  the actual rendering (a time-varying overlay position/alpha). */
-  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in'
+   *  the actual rendering (a time-varying overlay position/alpha, or a
+   *  progressive reveal crop for 'typewriter'). */
+  animation?: 'slide-down' | 'slide-up' | 'fade' | 'bounce' | 'shake' | 'blur-in' | 'typewriter'
   animationDuration?: number
 }
 
@@ -102,6 +109,7 @@ function overlayToTimedCaption(o: Overlay): TimedCaption {
     color: o.color, bold: o.bold, outlineColor: o.outlineColor, outlineWidth: o.outlineWidth,
     fontFamily: o.fontFamily, italic: o.italic, underline: o.underline, strikethrough: o.strikethrough,
     backgroundColor: o.backgroundColor, backgroundOpacity: o.backgroundOpacity, glow: o.glow,
+    dropShadow: o.dropShadow, gradientTo: o.gradientTo, letterSpacing: o.letterSpacing,
     animation: o.animation, animationDuration: o.animationDuration,
   }
 }
@@ -1529,6 +1537,7 @@ export function VideoEditWorkspacePage() {
             fontFamily: cmd.fontFamily, color: cmd.color, bold: cmd.bold, italic: cmd.italic, underline: cmd.underline, strikethrough: cmd.strikethrough,
             outlineColor: cmd.outlineColor, outlineWidth: cmd.outlineWidth, backgroundColor: cmd.backgroundColor, backgroundOpacity: cmd.backgroundOpacity,
             animation: cmd.animation, animationDuration: cmd.animationDuration,
+            dropShadow: cmd.dropShadow, gradientTo: cmd.gradientTo, letterSpacing: cmd.letterSpacing,
           })
         } else if (cmd.type === 'text_edit') {
           // Already resolved to a concrete overlayId by validateCommand —
@@ -1572,6 +1581,9 @@ export function VideoEditWorkspacePage() {
             ...(cmd.backgroundOpacity != null ? { backgroundOpacity: cmd.backgroundOpacity } : {}),
             ...(cmd.animation != null ? { animation: cmd.animation } : {}),
             ...(cmd.animationDuration != null ? { animationDuration: cmd.animationDuration } : {}),
+            ...(cmd.dropShadow != null ? { dropShadow: cmd.dropShadow } : {}),
+            ...(cmd.gradientTo != null ? { gradientTo: cmd.gradientTo } : {}),
+            ...(cmd.letterSpacing != null ? { letterSpacing: cmd.letterSpacing } : {}),
           })
         } else if (cmd.type === 'captions_auto') {
           if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
