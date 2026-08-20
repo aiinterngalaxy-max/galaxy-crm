@@ -198,6 +198,34 @@ export interface NeonGlowCommand { type: 'neon_glow'; start: number; end: number
  *  (none of them are directional/radiating). strength 1-20 scales ray
  *  brightness/reach. */
 export interface GodRaysCommand { type: 'god_rays'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Small drifting specks over [start,end] — each falls/sways over TIME
+ *  (position changes frame to frame), distinct from `color`'s `grain` field
+ *  and from `look`'s "oldFilm"/"super8" (both of those add STATIC per-pixel
+ *  noise via ffmpeg's `noise` filter — same random texture shape every
+ *  frame, no motion). strength 1-20 scales speck count/brightness. */
+export interface DustCommand { type: 'dust'; start: number; end: number; strength: number }
+/** A handful of thin vertical lines that flash on for a fraction of a second
+ *  at a time, at varying positions, over [start,end] — the classic damaged-
+ *  film-print scratch look. Distinct from "oldFilm"/"super8" under `look`,
+ *  which only add a color grade + the same static `noise` texture as `dust`
+ *  above — neither has any line/scratch structure. strength 1-20 scales how
+ *  many scratches appear and how visible they are. */
+export interface ScratchesCommand { type: 'scratches'; start: number; end: number; strength: number }
+/** A warm/orange burn creeping in from the frame's right edge with a ragged,
+ *  flickering boundary (not a straight line) that grows then recedes over
+ *  [start,end] — organic and uneven, like an actual overexposed film burn.
+ *  Distinct from `light`'s "lightLeak" (a flat, constant-strength warm wash
+ *  with no shape or motion) and from `fade` (a hard cut to black, no color).
+ *  strength 1-20 scales how far it reaches into frame and how bright it
+ *  gets. */
+export interface FilmBurnCommand { type: 'film_burn'; start: number; end: number; strength: number }
+/** Viewfinder chrome — four white corner brackets plus a blinking red REC
+ *  dot — over [start,end]. Distinct from `look`'s "camcorder" preset, which
+ *  is only a color-grade+noise recipe with no on-screen chrome; use this
+ *  ALONGSIDE "camcorder" (both, if asked for "old camcorder footage with a
+ *  REC light and viewfinder brackets") rather than instead of it. strength
+ *  1-20 scales bracket thickness slightly. */
+export interface RetroCameraCommand { type: 'retro_camera'; start: number; end: number; strength: number }
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 /** A camera-motion-style effect over [start,end] — strength 0..1 scales
  *  intensity, default 0.5. "cameraShake"/"wobble" jitter the frame position;
@@ -260,8 +288,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -276,12 +304,12 @@ export type EditCommand =
   | BlurCommand | BackgroundBlurCommand | PixelateCommand
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
-  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | MotionCommand | AudioFxCommand
+  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | MotionCommand | AudioFxCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'motionfx', 'audiofx',
+  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
   'color', 'fade', 'rotate', 'flip', 'reverse',
@@ -828,6 +856,18 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'neon_glow', ...w, strength, ...(color != null ? { color } : {}) }
     }
 
+    case 'dust':
+    case 'scratches':
+    case 'film_burn':
+    case 'retro_camera': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const label = type === 'dust' ? 'Dust' : type === 'scratches' ? 'Scratches' : type === 'film_burn' ? 'Film burn' : 'Retro camera'
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${label} strength has to be between 1 and 20.` }
+      return { type: type as 'dust' | 'scratches' | 'film_burn' | 'retro_camera', ...w, strength }
+    }
+
     case 'motionfx': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -1084,6 +1124,10 @@ lens_flare { "type":"lens_flare","start":number,"end":number,"strength":number,"
 sparkle { "type":"sparkle","start":number,"end":number,"strength":number } — small bright points scattered over the frame, twinkling in and out. strength 1-20 controls density/brightness. Map "sparkly"/"twinkling"/"glittery"/"magic dust" here.
 neon_glow { "type":"neon_glow","start":number,"end":number,"strength":number,"color"?:string } — saturated colored glow around the frame's own bright edges/highlights, tinted by color (any CSS color string, default a vivid neon pink). strength 1-20. Distinct from light's glow, which is white/tonal, not colored — use neon_glow whenever a HUE is named ("pink glow"/"neon blue edges"/"cyberpunk glow").
 god_rays { "type":"god_rays","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — bright diagonal rays radiating from a source point (x/y, 0-1, default 0.5/0.1 — top-center). strength 1-20. Map "god rays"/"light rays"/"sun rays breaking through"/"crepuscular rays" here.
+dust { "type":"dust","start":number,"end":number,"strength":number } — small specks that drift/sway over TIME, distinct from color's grain (static per-frame noise) and look's oldFilm/super8 (same static noise, plus a color grade). strength 1-20. Map "dust"/"floating debris"/"dusty film" here.
+scratches { "type":"scratches","start":number,"end":number,"strength":number } — thin vertical lines flashing on briefly at varying spots, the damaged-film-print look. strength 1-20 controls how many/how visible. Map "film scratches"/"scratched film"/"damaged print" here.
+film_burn { "type":"film_burn","start":number,"end":number,"strength":number } — a warm/orange burn creeping in from the frame's edge with a ragged, flickering boundary, growing then receding. Distinct from light's lightLeak (flat constant wash, no shape) and fade (hard cut to black, no color). strength 1-20. Map "film burn"/"burn effect"/"overexposed edge" here.
+retro_camera { "type":"retro_camera","start":number,"end":number,"strength":number } — adds white viewfinder corner brackets plus a blinking red REC dot. Combine WITH look's "camcorder" (not instead of it) when someone wants the full old-camcorder package — camcorder is only the color grade, this is only the on-screen chrome. strength 1-20 (bracket thickness). Map "REC light"/"viewfinder brackets"/"camcorder viewfinder" here.
 motionfx { "type":"motionfx","start":number,"end":number,"style":"cameraShake"|"wobble"|"zoomPunch"|"motionTrail"|"speedRamp","strength"?:number } — camera-motion effect, strength 0-1 default 0.5. cameraShake=sharp decaying jolt. wobble=sustained unsteady sway (not decaying). zoomPunch=quick zoom in and back out. motionTrail=ghosted recent-frames smear. speedRamp=steps through a few speeds (use "speed" instead for one constant rate change). No "freeze frame" effect exists (every attempt failed testing) — that must be a clarification, never approximated. Map "camera shake"/"wobbly camera"/"zoom punch"/"motion trail"/"speed ramp" to the matching style.
 audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut","strength"?:number,"direction"?:"up"|"down","duration"?:number } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio" to the matching style.
 color { "type":"color","start":number,"end":number,"brightness"?:number,"contrast"?:number,"saturation"?:number,"grayscale"?:boolean,"warmth"?:number,"tint"?:number,"vignette"?:number,"exposure"?:number,"highlights"?:number,"shadows"?:number,"sharpness"?:number,"clarity"?:number,"grain"?:number } — at least one field besides start/end/type required. brightness -1..1 = flat offset; exposure -1..1 = multiplicative camera-dial push — use exposure for "overexposed/underexposed", brightness for plain "brighter/darker". contrast/saturation 0..3 (1=unchanged). warmth -1 (blue)..1 (orange); tint -1 (magenta)..1 (green) — "too green"→tint, "too warm/blue"→warmth. highlights/shadows -1..1 lift/crush just the bright/dark end independent of overall brightness — "recover blown-out sky"→negative highlights, "lift the blacks"→positive shadows. vignette 0..1. sharpness 0..2 = normal sharpen; clarity 0..1 = softer wider punchy local-contrast sharpen — "crisper"→sharpness, "more pop/texture"→clarity. grain 0..1 = film-grain noise. Map casual wording: "dull/muted/washed out"→lower saturation (~0.4); "vibrant/vivid/punchy"→higher saturation (~1.6); "dim/underexposed"→negative brightness; "brighter/overexposed look"→positive brightness. "moody/cinematic" alone is too vague — ask what specifically, rather than guessing a whole grade.
@@ -1128,7 +1172,11 @@ Examples:
 "Add a lens flare from the top right, 0 to 3 seconds." → {"commands":[{"type":"lens_flare","start":0,"end":3,"strength":10,"x":0.8,"y":0.2}]}
 "Make it sparkly for the first 4 seconds." → {"commands":[{"type":"sparkle","start":0,"end":4,"strength":10}]}
 "Give it a pink neon glow the whole way through." → {"commands":[{"type":"neon_glow","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10,"color":"#ff2fd6"}]}
-"Add god rays coming down from the top." → {"commands":[{"type":"god_rays","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}`
+"Add god rays coming down from the top." → {"commands":[{"type":"god_rays","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
+"Add floating dust for the first 5 seconds." → {"commands":[{"type":"dust","start":0,"end":5,"strength":10}]}
+"Make it look like an old scratched film print." (scratches, not oldFilm alone — scratches has the actual line structure) → {"commands":[{"type":"scratches","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
+"Add a film burn from 3 to 6 seconds." → {"commands":[{"type":"film_burn","start":3,"end":6,"strength":10}]}
+"Give it an old camcorder look with a REC light and viewfinder brackets." (needs BOTH — camcorder for the grade, retro_camera for the chrome) → {"commands":[{"type":"look","start":0,"end":${ctx.durationSec.toFixed(1)},"name":"camcorder"},{"type":"retro_camera","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1286,6 +1334,10 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'sparkle': return `Sparkle ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'neon_glow': return `Neon glow ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'god_rays': return `God rays ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'dust': return `Dust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'scratches': return `Scratches ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'film_burn': return `Film burn ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'retro_camera': return `Retro camera ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'motionfx': return `${MOTION_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'audiofx': return AUDIO_LABELS[cmd.style]
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
@@ -1382,6 +1434,14 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Neon Glow', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Color: ${cmd.color ?? 'neon pink'}`] }
     case 'god_rays':
       return { title: 'God Rays', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Source: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.1}`] }
+    case 'dust':
+      return { title: 'Dust', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'scratches':
+      return { title: 'Scratches', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'film_burn':
+      return { title: 'Film Burn', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'retro_camera':
+      return { title: 'Retro Camera', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'motionfx':
       return { title: MOTION_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'audiofx':

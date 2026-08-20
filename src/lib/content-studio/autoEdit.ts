@@ -2346,6 +2346,228 @@ export async function applyNeonGlow(file: Blob, { start, end, strength, color = 
   }
 }
 
+// ---------- dust/scratches/film_burn/retro_camera ----------
+// Film/retro effects not already covered by LOOK_RECIPES' oldFilm/super8
+// (fixed color grade + ffmpeg's `noise` filter — a STATIC per-pixel texture,
+// same shape every frame, no motion/structure) or by `color`'s plain `grain`
+// field (same static-noise idea). dust/scratches add real per-frame
+// structure (drifting points, flashing lines); film_burn adds a moving,
+// colored, organic-edged mask, distinct from light's flat lightLeak wash.
+// retro_camera is pure on-screen chrome (brackets + REC dot), meant to be
+// combined WITH look's camcorder rather than replace it. All four verified
+// via the same real @ffmpeg/core@0.12.6 render-and-inspect harness as the
+// light-family effects above.
+
+/** Like ndx/ndy above, but the "center" is itself a runtime expression (a
+ *  function of T) rather than a fixed number — needed for dust, whose
+ *  specks drift, so their center can't be baked in as a JS constant. */
+const ndxOfExpr = (cxExpr: string) => `((X-W*(${cxExpr}))/W)`
+const ndyOfExpr = (cyExpr: string) => `((Y-H*(${cyExpr}))/W)`
+
+export interface DustOptions { start: number; end: number; strength: number }
+
+/** Twelve fixed (x0, y0, fallSpeed, swayFreq, swayAmp, phase) specks: each
+ *  drifts downward and wraps via `mod` (so it re-enters at the top rather
+ *  than vanishing), sways side to side on a sine, and is modulated by a
+ *  gentle twinkle — same screenLumaOnly composite as lens_flare/sparkle/
+ *  god_rays above, just with a moving rather than fixed center per term. */
+const DUST_POINTS: [number, number, number, number, number, number][] = [
+  [0.10, 0.05, 0.045, 0.60, 0.015, 0.0], [0.30, 0.80, 0.038, 0.50, 0.020, 1.2],
+  [0.55, 0.20, 0.052, 0.70, 0.012, 2.4], [0.70, 0.60, 0.041, 0.55, 0.018, 0.7],
+  [0.85, 0.10, 0.047, 0.65, 0.014, 3.1], [0.20, 0.45, 0.035, 0.45, 0.022, 1.8],
+  [0.45, 0.90, 0.050, 0.60, 0.016, 2.9], [0.65, 0.35, 0.044, 0.50, 0.019, 0.3],
+  [0.92, 0.75, 0.039, 0.58, 0.013, 1.5], [0.05, 0.65, 0.048, 0.62, 0.017, 2.2],
+  [0.38, 0.15, 0.043, 0.53, 0.021, 3.5], [0.78, 0.92, 0.036, 0.68, 0.015, 0.9],
+]
+
+export function buildDustExpr(strength: number, start: number): string {
+  const amp = 55 + strength * 5.5
+  const sigma = 0.0035 + strength * 0.00025
+  const terms = DUST_POINTS.map(([x0, y0, fall, swayF, swayA, ph]) => {
+    const yExpr = `mod(${y0}+${fall}*(T-${start})\\,1.0)`
+    const xExpr = `${x0}+${swayA}*sin(2*PI*(${swayF}*(T-${start})+${ph}))`
+    const twinkle = `(0.6+0.4*sin(2*PI*(1.3*T+${ph})))`
+    return `(${twinkle}*${amp.toFixed(1)}*exp(-((${ndxOfExpr(xExpr)})*(${ndxOfExpr(xExpr)})+(${ndyOfExpr(yExpr)})*(${ndyOfExpr(yExpr)}))/(2*${sigma.toFixed(5)}*${sigma.toFixed(5)})))`
+  })
+  return terms.join('+')
+}
+
+/** Small specks drifting/swaying over [start,end]. strength 1-20 scales
+ *  count/brightness (count is fixed at 12; strength scales size/opacity). */
+export async function applyDust(file: Blob, { start, end, strength }: DustOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildDustExpr(strength, start)
+  const opacity = Math.min(1, 0.45 + strength * 0.02).toFixed(3)
+  const vf = screenLumaOnly(expr, 0.7, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the dust effect.', onProgress, ['-c:a', 'copy'])
+}
+
+/** Deterministic (not Math.random) pseudo-random in [0,1) from a hash sine —
+ *  same strength/window always renders the same scratches, which matters
+ *  for a "remove effect"/re-run to look identical. */
+function pseudoRandom(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453
+  return x - Math.floor(x)
+}
+
+export interface ScratchesOptions { start: number; end: number; strength: number }
+
+/**
+ * A handful of thin vertical `drawbox` lines, each gated to its own short
+ * between(t,..) sub-window — the same short-burst-via-separate-filter-stages
+ * shape GLITCH_RECIPES' digitalGlitch uses above — at a pseudoRandom x
+ * position/timing/thickness/opacity. Distinct from oldFilm/super8's `noise`,
+ * which has no line structure and doesn't turn on/off over time.
+ */
+export function buildScratchesFilter(strength: number, start: number, end: number): string {
+  const dur = Math.max(0.2, end - start)
+  const count = Math.min(14, Math.max(4, Math.round(4 + strength * 0.5)))
+  const parts: string[] = []
+  for (let i = 0; i < count; i++) {
+    const slot = dur / count
+    const jitter = pseudoRandom(i * 3 + 1) * slot * 0.5
+    const t0 = start + i * slot + jitter
+    const visLen = 0.06 + pseudoRandom(i * 5 + 2) * 0.22
+    const t1 = Math.min(end, t0 + visLen)
+    const x = pseudoRandom(i * 7 + 3)
+    const thickness = 1 + Math.round(pseudoRandom(i * 11 + 4) * 2)
+    const opacity = Math.min(0.9, 0.35 + strength * 0.02 + pseudoRandom(i * 13 + 5) * 0.15).toFixed(2)
+    parts.push(`drawbox=x=iw*${x.toFixed(4)}:y=0:w=${thickness}:h=ih:color=white@${opacity}:t=fill:enable='between(t\\,${t0.toFixed(3)}\\,${t1.toFixed(3)})'`)
+  }
+  return parts.join(',')
+}
+
+/** Thin vertical scratch lines flashing on briefly at varying x positions
+ *  over [start,end]. strength 1-20 scales scratch count/visibility. */
+export async function applyScratches(file: Blob, { start, end, strength }: ScratchesOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildScratchesFilter(strength, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the scratches effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface FilmBurnOptions { start: number; end: number; strength: number }
+
+/**
+ * Mask expression: a sin(PI*progress) hump over [start,end] drives how far
+ * (as a fraction of width) the burn reaches in from the right edge — 0 at
+ * both ends of the window, peaking at the midpoint, so it genuinely grows
+ * then recedes rather than snapping on. The boundary itself is perturbed
+ * per-row by a sine-of-Y term plus ffmpeg's per-pixel `random(1)` (not a
+ * straight vertical line), so it reads as a ragged, organic edge rather than
+ * a flat wash — that raggedness plus the color (real RGB tint, see
+ * applyNeonGlow's module note on why hue needs RGB not luma-only screening)
+ * is what makes this look different from lightLeak's flat, static warm wash.
+ */
+export function buildFilmBurnMaskExpr(strength: number, start: number, end: number): string {
+  const dur = Math.max(0.05, end - start)
+  const reach = (0.14 + strength * 0.026).toFixed(3)
+  const sharpness = 5
+  const progress = `sin(PI*clip((T-${start})/${dur.toFixed(3)}\\,0\\,1))`
+  const edge = `(1-${reach}*${progress})`
+  const jitter = `(0.05*sin(Y*0.05+T*2.4)+0.045*(random(1)-0.5))`
+  return `255*clip((X/W-${edge}-${jitter})*${sharpness}\\,0\\,1)`
+}
+
+/**
+ * Needs a second generated color source (like applyNeonGlow/applyLight's
+ * lightLeak), so it manages its own ffmpeg session: generate the mask on a
+ * split copy's luma, soften it, multiply by a solid orange source (RGB, for
+ * real hue), screen that over the original in RGB, convert back to yuv420p.
+ */
+export async function applyFilmBurn(file: Blob, { start, end, strength }: FilmBurnOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'burn-input.mp4'
+  const outputName = 'burn-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    // The color= source below is infinite (no natural EOF) and blend's
+    // framesync just repeats the last frame past a shorter input rather
+    // than signalling EOF, so `-shortest` alone only terminates the encode
+    // because it's ALSO bounded by the main input's audio track duration —
+    // true for every real upload, but not guaranteed (a silent/audio-less
+    // clip would run away). An explicit `-t` from the real probed duration
+    // is a cheap backstop against that either way.
+    const durationSec = await probeDuration(ffmpeg, inputName)
+    const w = windowClause(start, end)
+    const maskExpr = buildFilmBurnMaskExpr(strength, start, end)
+    const sigma = 3
+    const opacity = Math.min(1, 0.55 + strength * 0.02).toFixed(3)
+    const filterComplex = [
+      `[0:v]split=2[main][bm]`,
+      `[bm]geq=lum='${maskExpr}':cb=128:cr=128,gblur=sigma=${sigma},format=rgba[bmblur]`,
+      `[1:v]format=rgba[colorsrc]`,
+      `[bmblur][colorsrc]blend=all_mode=multiply[tinted]`,
+      `[main]format=rgba[mainrgba]`,
+      `[mainrgba][tinted]blend=all_mode=screen:all_opacity=${opacity}${w},format=rgb24,format=yuv420p[outv]`,
+    ].join(';')
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-f', 'lavfi', '-i', `color=c=#ff6a1a:s=${width}x${height}`,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      '-t', durationSec.toFixed(3),
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the film burn effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface RetroCameraOptions { start: number; end: number; strength: number }
+
+/**
+ * Viewfinder chrome: four white L-shaped corner brackets (visible the whole
+ * [start,end] window) plus a small red REC dot blinking roughly once a
+ * second (its own enable clause ANDs the window with a mod(t,1) toggle) —
+ * concretely different from `look`'s "camcorder" preset, which is only a
+ * color-grade+noise recipe with no on-screen chrome at all. Deliberately no
+ * drawtext/timestamp here: this app's drawtext needs a fetched fontfile (see
+ * ensureFont above) and every existing use of that machinery goes through
+ * Canvas-drawn overlays, not a live ffmpeg drawtext call — brackets/dot are
+ * plain drawbox rectangles instead, no font dependency, kept tight in scope.
+ */
+export function buildRetroCameraFilter(strength: number, start: number, end: number): string {
+  const th = Math.max(2, Math.min(6, Math.round(2 + strength * 0.2)))
+  const mX = 'iw*0.045'
+  const mY = 'ih*0.045'
+  const hLen = 'iw*0.09'
+  const vLen = 'ih*0.09'
+  const w = windowClause(start, end)
+  const box = (x: string, y: string, bw: string, bh: string) => `drawbox=x=${x}:y=${y}:w=${bw}:h=${bh}:color=white@0.85:t=fill${w}`
+  const parts = [
+    box(mX, mY, hLen, `${th}`),
+    box(mX, mY, `${th}`, vLen),
+    box(`iw-${mX}-${hLen}`, mY, hLen, `${th}`),
+    box(`iw-${mX}-${th}`, mY, `${th}`, vLen),
+    box(mX, `ih-${mY}-${th}`, hLen, `${th}`),
+    box(mX, `ih-${mY}-${vLen}`, `${th}`, vLen),
+    box(`iw-${mX}-${hLen}`, `ih-${mY}-${th}`, hLen, `${th}`),
+    box(`iw-${mX}-${th}`, `ih-${mY}-${vLen}`, `${th}`, vLen),
+  ]
+  const dotSize = th * 3
+  const dotWindow = `:enable='between(t\\,${start}\\,${end})*lt(mod(t\\,1)\\,0.5)'`
+  parts.push(`drawbox=x=${mX}+${hLen}*1.3:y=${mY}*0.5:w=${dotSize}:h=${dotSize}:color=red@0.9:t=fill${dotWindow}`)
+  return parts.join(',')
+}
+
+/** Viewfinder corner brackets + blinking REC dot over [start,end]. strength
+ *  1-20 scales bracket thickness slightly. Meant to be combined with
+ *  applyLook('camcorder'), not to replace it. */
+export async function applyRetroCamera(file: Blob, { start, end, strength }: RetroCameraOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const vf = buildRetroCameraFilter(strength, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the retro camera effect.', onProgress, ['-c:a', 'copy'])
+}
+
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 
 /**

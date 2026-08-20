@@ -704,6 +704,78 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('dust (TEST: "Add floating dust" style instructions)', () => {
+    it('accepts a valid windowed dust command', () => {
+      expect(validateCommand({ type: 'dust', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'dust', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'dust', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'dust', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'dust', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'dust', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'dust', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('scratches (TEST: "Make it look like a scratched film print" style instructions)', () => {
+    it('accepts a valid windowed scratches command', () => {
+      expect(validateCommand({ type: 'scratches', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'scratches', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'scratches', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'scratches', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'scratches', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'scratches', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'scratches', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('film_burn (TEST: "Add a film burn" style instructions)', () => {
+    it('accepts a valid windowed film burn command', () => {
+      expect(validateCommand({ type: 'film_burn', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'film_burn', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'film_burn', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'film_burn', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'film_burn', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'film_burn', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'film_burn', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('retro_camera (TEST: "Add viewfinder brackets and a REC light" style instructions)', () => {
+    it('accepts a valid windowed retro camera command', () => {
+      expect(validateCommand({ type: 'retro_camera', start: 1, end: 4, strength: 12 }, ctx))
+        .toEqual({ type: 'retro_camera', start: 1, end: 4, strength: 12 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'retro_camera', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'retro_camera', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'retro_camera', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'retro_camera', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'retro_camera', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })
