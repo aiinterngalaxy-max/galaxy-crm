@@ -2858,6 +2858,193 @@ export async function applyRetroCamera(file: Blob, { start, end, strength }: Ret
   return runOneVideoFilter(file, vf, 'Could not apply the retro camera effect.', onProgress, ['-c:a', 'copy'])
 }
 
+// ---------- rain/snow/fog/frost ----------
+// Weather effects, all pure-ffmpeg (no particle/VFX asset library exists in
+// this build — these are procedural geq math, not sprite compositing).
+// rain/snow reuse the drifting-point + screenLumaOnly composite dust/sparkle
+// established above; fog/frost are new shapes on the same
+// split+blur+blend/geq-mask techniques film_burn/neon_glow already proved
+// out. All four verified via the same real @ffmpeg/core@0.12.6
+// render-and-inspect harness as every other batch in this file.
+
+/** Sixteen fixed (x0, fallPhase) rain-streak columns spread across width —
+ *  each streak's vertical position wraps via `mod`, same falling-and-
+ *  re-entering idea as DUST_POINTS, just faster and elongated instead of a
+ *  round blob (see geqStreak below). */
+const RAIN_X_POSITIONS: [number, number][] = [
+  [0.04, 0.10], [0.10, 0.62], [0.16, 0.28], [0.22, 0.85], [0.28, 0.05],
+  [0.34, 0.50], [0.40, 0.72], [0.46, 0.18], [0.52, 0.90], [0.58, 0.35],
+  [0.64, 0.60], [0.70, 0.08], [0.76, 0.48], [0.82, 0.78], [0.88, 0.22],
+  [0.94, 0.65],
+]
+
+/**
+ * An anisotropic gaussian rotated by `angleDeg` off vertical — long/thin
+ * along the streak direction, narrow across it — is what makes a rain drop
+ * read as a STREAK rather than a round dot (dust/sparkle's isotropic
+ * exp(-(dx²+dy²)) blobs, reused unrotated, looked like falling snow in an
+ * early render, not rain — confirmed by rendering both side by side).
+ */
+function geqStreak(cxExpr: string, cyExpr: string, angleDeg: number, sigmaAlong: number, sigmaPerp: number, amp: number): string {
+  const rad = (angleDeg * Math.PI) / 180
+  const ca = Math.cos(rad).toFixed(4)
+  const sa = Math.sin(rad).toFixed(4)
+  const dx = ndxOfExpr(cxExpr)
+  const dy = ndyOfExpr(cyExpr)
+  const along = `((${dx})*${ca}+(${dy})*${sa})`
+  const perp = `(-(${dx})*${sa}+(${dy})*${ca})`
+  return `(${amp.toFixed(1)}*exp(-((${along})*(${along})/(2*${sigmaAlong}*${sigmaAlong})+(${perp})*(${perp})/(2*${sigmaPerp.toFixed(5)}*${sigmaPerp.toFixed(5)}))))`
+}
+
+export function buildRainExpr(strength: number, start: number): string {
+  const fall = 2.4 + strength * 0.15
+  const sigmaAlong = 0.14
+  const sigmaPerp = 0.0022 + strength * 0.00015
+  const amp = 130 + strength * 6
+  const terms = RAIN_X_POSITIONS.map(([x0, phase]) => {
+    const yExpr = `mod(${phase}+${fall}*(T-${start})\\,1.15)-0.075`
+    return geqStreak(`${x0}`, yExpr, -11, sigmaAlong, sigmaPerp, amp)
+  })
+  return terms.join('+')
+}
+
+export interface RainOptions { start: number; end: number; strength: number }
+
+/** Falling diagonal rain streaks over [start,end]. strength 1-20 scales
+ *  streak brightness/thickness (count is fixed at 16). */
+export async function applyRain(file: Blob, { start, end, strength }: RainOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildRainExpr(strength, start)
+  const opacity = Math.min(1, 0.5 + strength * 0.02).toFixed(3)
+  const vf = screenLumaOnly(expr, 0.6, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the rain effect.', onProgress, ['-c:a', 'copy'])
+}
+
+/** Sixteen fixed (x0, yPhase, fallSpeed, swayFreq, swayAmp, sizeMul) flakes
+ *  — sizeMul varies per point so some flakes read as closer/bigger and
+ *  others farther/smaller, which is what gives falling snow a sense of
+ *  depth rather than one uniform layer. */
+const SNOW_POINTS: [number, number, number, number, number, number][] = [
+  [0.06, 0.10, 0.09, 0.35, 0.02, 1.4], [0.14, 0.55, 0.07, 0.30, 0.025, 0.7],
+  [0.22, 0.80, 0.10, 0.40, 0.018, 1.1], [0.30, 0.20, 0.08, 0.28, 0.022, 0.9],
+  [0.38, 0.65, 0.11, 0.45, 0.015, 1.6], [0.46, 0.05, 0.075, 0.33, 0.024, 0.6],
+  [0.54, 0.45, 0.095, 0.38, 0.02, 1.2], [0.62, 0.88, 0.085, 0.31, 0.026, 0.8],
+  [0.70, 0.30, 0.105, 0.42, 0.017, 1.5], [0.78, 0.70, 0.078, 0.29, 0.023, 0.65],
+  [0.86, 0.12, 0.098, 0.36, 0.021, 1.3], [0.94, 0.58, 0.088, 0.34, 0.019, 0.75],
+  [0.10, 0.35, 0.10, 0.44, 0.016, 1.0], [0.50, 0.92, 0.082, 0.32, 0.025, 0.85],
+  [0.90, 0.40, 0.092, 0.39, 0.02, 1.15], [0.34, 0.02, 0.10, 0.41, 0.018, 0.95],
+]
+
+export function buildSnowExpr(strength: number, start: number): string {
+  const ampBase = 90 + strength * 4
+  const sigmaBase = 0.006 + strength * 0.0004
+  const terms = SNOW_POINTS.map(([x0, y0, fall, swayF, swayA, sizeMul]) => {
+    const yExpr = `mod(${y0}+${fall}*(T-${start})\\,1.0)`
+    const xExpr = `${x0}+${swayA}*sin(2*PI*(${swayF}*(T-${start})))`
+    const sigma = (sigmaBase * sizeMul).toFixed(5)
+    const amp = (ampBase * Math.min(1.3, sizeMul)).toFixed(1)
+    const dx = ndxOfExpr(xExpr)
+    const dy = ndyOfExpr(yExpr)
+    return `(${amp}*exp(-((${dx})*(${dx})+(${dy})*(${dy}))/(2*${sigma}*${sigma})))`
+  })
+  return terms.join('+')
+}
+
+export interface SnowOptions { start: number; end: number; strength: number }
+
+/** Falling snowflakes — slow fall, gentle sway, mixed sizes for depth —
+ *  over [start,end]. strength 1-20 scales brightness/size. */
+export async function applySnow(file: Blob, { start, end, strength }: SnowOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildSnowExpr(strength, start)
+  const opacity = Math.min(1, 0.5 + strength * 0.02).toFixed(3)
+  const vf = screenLumaOnly(expr, 1.0, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the snow effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface FogOptions { start: number; end: number; strength: number }
+
+/**
+ * Whole-frame haze: a desaturated, slightly brightened, heavily blurred copy
+ * screened back over the original — same split/blend shape as LIGHT_RECIPES'
+ * glow/bloom above, with desaturation added (glow/bloom keep full color;
+ * fog's whole point is washing color OUT, confirmed by a side-by-side render
+ * showing glow's recipe alone reads as "bright", not "hazy", without it).
+ */
+export async function applyFog(file: Blob, { start, end, strength }: FogOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const w = windowClause(start, end)
+  const sigma = (6 + strength * 1.8).toFixed(1)
+  const sat = Math.max(0.25, 1 - strength * 0.03).toFixed(2)
+  const bri = (0.12 + strength * 0.012).toFixed(3)
+  const opacity = Math.min(1, 0.35 + strength * 0.03).toFixed(3)
+  const vf = `split[fA][fB];[fB]eq=saturation=${sat}:brightness=${bri},gblur=sigma=${sigma}[fBl];[fA][fBl]blend=all_mode=screen:all_opacity=${opacity}${w}`
+  return runOneVideoFilter(file, vf, 'Could not apply the fog effect.', onProgress, ['-c:a', 'copy'])
+}
+
+/**
+ * Mask expression: brightest right at the frame edge, fading to 0 at
+ * `reach` fraction of width in from the nearest edge — the Chebyshev-style
+ * `min(X,W-X,Y,H-Y)` distance-to-nearest-edge (not a radial hypot like
+ * vignette/lens_flare use) is what makes this hug the whole rectangular
+ * border evenly instead of forming a circular vignette shape.
+ */
+export function buildFrostMaskExpr(strength: number): string {
+  const reach = (0.12 + strength * 0.018).toFixed(4)
+  const distToEdge = `(min(min(X\\,W-X)\\,min(Y\\,H-Y))/W)`
+  return `255*clip(1-(${distToEdge})/${reach}\\,0\\,1)`
+}
+
+export interface FrostOptions { start: number; end: number; strength: number }
+
+/**
+ * Same generated-color-source composite as applyFilmBurn/applyNeonGlow
+ * (own ffmpeg session, mask on a split copy's luma, tinted by a solid
+ * color source, screened back over the original in RGB) — just with the
+ * radial-from-edge mask above instead of film_burn's edge-creeping-in-
+ * from-the-right one, and a pale ice-blue tint instead of orange.
+ */
+export async function applyFrost(file: Blob, { start, end, strength }: FrostOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'frost-input.mp4'
+  const outputName = 'frost-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const durationSec = await probeDuration(ffmpeg, inputName)
+    const w = windowClause(start, end)
+    const maskExpr = buildFrostMaskExpr(strength)
+    const sigma = (5 + strength * 1.2).toFixed(1)
+    const opacity = Math.min(1, 0.5 + strength * 0.02).toFixed(3)
+    const filterComplex = [
+      `[0:v]split=2[main][fm]`,
+      `[fm]geq=lum='${maskExpr}':cb=128:cr=128,gblur=sigma=${sigma},format=rgba[fmblur]`,
+      `[1:v]format=rgba[colorsrc]`,
+      `[fmblur][colorsrc]blend=all_mode=multiply[tinted]`,
+      `[main]format=rgba[mainrgba]`,
+      `[mainrgba][tinted]blend=all_mode=screen:all_opacity=${opacity}${w},format=rgb24,format=yuv420p[outv]`,
+    ].join(';')
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-f', 'lavfi', '-i', `color=c=#dff3ff:s=${width}x${height}`,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      '-t', durationSec.toFixed(3),
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the frost effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 
 /**

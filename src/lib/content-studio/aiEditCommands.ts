@@ -254,6 +254,23 @@ export interface FilmBurnCommand { type: 'film_burn'; start: number; end: number
  *  REC light and viewfinder brackets") rather than instead of it. strength
  *  1-20 scales bracket thickness slightly. */
 export interface RetroCameraCommand { type: 'retro_camera'; start: number; end: number; strength: number }
+/** Falling diagonal streaks (fast downward fall + slight wind drift) over
+ *  [start,end] — reuses the drifting-point technique dust/sparkle use, with
+ *  elongated (anisotropic) blobs instead of round ones. strength 1-20. */
+export interface RainCommand { type: 'rain'; start: number; end: number; strength: number }
+/** Falling round flakes (slow fall, gentle side-to-side sway, mixed sizes
+ *  for depth) over [start,end] — same drifting-point technique as `rain`/
+ *  `dust`, round not elongated, much slower. strength 1-20. */
+export interface SnowCommand { type: 'snow'; start: number; end: number; strength: number }
+/** Whole-frame haze: a blurred, desaturated, brightened copy blended back
+ *  over the original — distinct from `color`'s vignette (edge-only, no
+ *  blur) and `light`'s glow/bloom (no desaturation, sharper source).
+ *  strength 1-20. */
+export interface FogCommand { type: 'fog'; start: number; end: number; strength: number }
+/** Icy, pale-blue-white blur concentrated at the frame's edges, brightening
+ *  outward from center — the visual opposite of `color`'s vignette (which
+ *  darkens edges, no blur, no color). strength 1-20. */
+export interface FrostCommand { type: 'frost'; start: number; end: number; strength: number }
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 /** A camera-motion-style effect over [start,end] — strength 0..1 scales
  *  intensity, default 0.5. "cameraShake"/"wobble" jitter the frame position;
@@ -349,8 +366,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'spin' | 'rotation' | 'bounce' | 'swing' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color' | 'chroma_key' | 'double_exposure' | 'split_screen'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'spin', 'rotation', 'bounce', 'swing', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color', 'chroma_key', 'double_exposure', 'split_screen']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'spin' | 'rotation' | 'bounce' | 'swing' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'rain' | 'snow' | 'fog' | 'frost' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color' | 'chroma_key' | 'double_exposure' | 'split_screen'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'spin', 'rotation', 'bounce', 'swing', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'rain', 'snow', 'fog', 'frost', 'motionfx', 'audiofx', 'datamosh', 'auto_color', 'chroma_key', 'double_exposure', 'split_screen']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -366,14 +383,14 @@ export type EditCommand =
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
   | SpinCommand | RotationCommand | BounceCommand | SwingCommand
-  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | MotionCommand | AudioFxCommand
+  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | RainCommand | SnowCommand | FogCommand | FrostCommand | MotionCommand | AudioFxCommand
   | DatamoshCommand | AutoColorCommand
   | ChromaKeyCommand | DoubleExposureCommand | SplitScreenCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx',
+  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'rain', 'snow', 'fog', 'frost', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
   'spin', 'rotation', 'bounce', 'swing',
@@ -974,13 +991,20 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
     case 'dust':
     case 'scratches':
     case 'film_burn':
-    case 'retro_camera': {
+    case 'retro_camera':
+    case 'rain':
+    case 'snow':
+    case 'fog':
+    case 'frost': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
-      const label = type === 'dust' ? 'Dust' : type === 'scratches' ? 'Scratches' : type === 'film_burn' ? 'Film burn' : 'Retro camera'
+      const label = {
+        dust: 'Dust', scratches: 'Scratches', film_burn: 'Film burn', retro_camera: 'Retro camera',
+        rain: 'Rain', snow: 'Snow', fog: 'Fog', frost: 'Frost',
+      }[type as 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'rain' | 'snow' | 'fog' | 'frost']
       const strength = num(c.strength) ?? 8
       if (strength < 1 || strength > 20) return { error: `${label} strength has to be between 1 and 20.` }
-      return { type: type as 'dust' | 'scratches' | 'film_burn' | 'retro_camera', ...w, strength }
+      return { type: type as 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'rain' | 'snow' | 'fog' | 'frost', ...w, strength }
     }
 
     case 'motionfx': {
@@ -1292,6 +1316,10 @@ dust { "type":"dust","start":number,"end":number,"strength":number } — small s
 scratches { "type":"scratches","start":number,"end":number,"strength":number } — thin vertical lines flashing on briefly at varying spots, the damaged-film-print look. strength 1-20 controls how many/how visible. Map "film scratches"/"scratched film"/"damaged print" here.
 film_burn { "type":"film_burn","start":number,"end":number,"strength":number } — a warm/orange burn creeping in from the frame's edge with a ragged, flickering boundary, growing then receding. Distinct from light's lightLeak (flat constant wash, no shape) and fade (hard cut to black, no color). strength 1-20. Map "film burn"/"burn effect"/"overexposed edge" here.
 retro_camera { "type":"retro_camera","start":number,"end":number,"strength":number } — adds white viewfinder corner brackets plus a blinking red REC dot. Combine WITH look's "camcorder" (not instead of it) when someone wants the full old-camcorder package — camcorder is only the color grade, this is only the on-screen chrome. strength 1-20 (bracket thickness). Map "REC light"/"viewfinder brackets"/"camcorder viewfinder" here.
+rain { "type":"rain","start":number,"end":number,"strength":number } — falling diagonal rain streaks, strength 1-20. Map "rain"/"raining"/"rainstorm" here.
+snow { "type":"snow","start":number,"end":number,"strength":number } — falling snowflakes, slow drift/sway, strength 1-20. Map "snow"/"snowing"/"snowfall" here.
+fog { "type":"fog","start":number,"end":number,"strength":number } — whole-frame hazy blurred-white wash, strength 1-20. Distinct from color's vignette (edges only, no blur/haze). Map "fog"/"foggy"/"misty"/"hazy" here.
+frost { "type":"frost","start":number,"end":number,"strength":number } — icy pale-blue blurred border at the frame edges, brightening outward. Opposite of vignette (which darkens edges). strength 1-20. Map "frost"/"frosty"/"icy edges"/"frozen glass" here.
 motionfx { "type":"motionfx","start":number,"end":number,"style":"cameraShake"|"wobble"|"zoomPunch"|"motionTrail"|"speedRamp","strength"?:number } — camera-motion effect, strength 0-1 default 0.5. cameraShake=sharp decaying jolt. wobble=sustained unsteady sway (not decaying). zoomPunch=quick zoom in and back out. motionTrail=ghosted recent-frames smear. speedRamp=steps through a few speeds (use "speed" instead for one constant rate change). No "freeze frame" effect exists (every attempt failed testing) — that must be a clarification, never approximated. Map "camera shake"/"wobbly camera"/"zoom punch"/"motion trail"/"speed ramp" to the matching style.
 audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut"|"voiceChanger","strength"?:number,"direction"?:"up"|"down","duration"?:number,"preset"?:"robot"|"chipmunk"|"deep" } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono and voiceChanger. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. voiceChanger applies a FIXED preset via "preset" (default "robot") — "robot"=metallic/echoed, "chipmunk"=high-pitched fast-talker, "deep"=slowed-down monster voice. Prefer voiceChanger over pitch whenever the instruction names a character ("make me sound like a robot"/"chipmunk voice"/"monster voice") rather than just a direction ("deepen my voice"→pitch down). Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio"/"voice changer"/"robot voice"/"chipmunk voice" to the matching style.
 datamosh { "type":"datamosh","start":number,"end":number,"strength":number } — motion-smeared temporal-bleed look between frames, an APPROXIMATION of true datamoshing (this build can't manipulate raw encoded I-frames/GOPs, only whole-frame filters) via blending several preceding frames together. strength 1-20. Map "datamosh"/"datamoshed"/"corrupted video glitch"/"frame bleed" here.
@@ -1522,6 +1550,10 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'scratches': return `Scratches ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'film_burn': return `Film burn ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'retro_camera': return `Retro camera ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'rain': return `Rain ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'snow': return `Snow ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'fog': return `Fog ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'frost': return `Frost ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'motionfx': return `${MOTION_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'audiofx': return cmd.style === 'voiceChanger' ? `Voice Changer (${VOICE_PRESET_LABELS[cmd.preset ?? 'robot']})` : AUDIO_LABELS[cmd.style]
     case 'datamosh': return `Datamosh ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
@@ -1639,6 +1671,14 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Film Burn', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'retro_camera':
       return { title: 'Retro Camera', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'rain':
+      return { title: 'Rain', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'snow':
+      return { title: 'Snow', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'fog':
+      return { title: 'Fog', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'frost':
+      return { title: 'Frost', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'motionfx':
       return { title: MOTION_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'audiofx':

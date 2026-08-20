@@ -776,6 +776,26 @@ describe('validateCommand', () => {
     })
   })
 
+  for (const kind of ['rain', 'snow', 'fog', 'frost'] as const) {
+    describe(`${kind} (TEST: weather effect instructions)`, () => {
+      it(`accepts a valid windowed ${kind} command`, () => {
+        expect(validateCommand({ type: kind, start: 1, end: 4, strength: 12 }, ctx))
+          .toEqual({ type: kind, start: 1, end: 4, strength: 12 })
+      })
+      it('defaults strength when omitted', () => {
+        expect(validateCommand({ type: kind, start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+      })
+      it('rejects strength outside 1-20', () => {
+        expect(validateCommand({ type: kind, start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+        expect(validateCommand({ type: kind, start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+      })
+      it('rejects a missing or invalid time window', () => {
+        expect(validateCommand({ type: kind, strength: 10 }, ctx)).toHaveProperty('error')
+        expect(validateCommand({ type: kind, start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+      })
+    })
+  }
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })
@@ -1392,6 +1412,10 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'chroma_key', start: 1, end: 4, strength: 0.5, keyColor: '#00ff00', replacementColor: '#000000' },
     { type: 'double_exposure', start: 1, end: 4, strength: 10 },
     { type: 'split_screen', start: 1, end: 4 },
+    { type: 'rain', start: 1, end: 4, strength: 10 },
+    { type: 'snow', start: 1, end: 4, strength: 10 },
+    { type: 'fog', start: 1, end: 4, strength: 10 },
+    { type: 'frost', start: 1, end: 4, strength: 10 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {
