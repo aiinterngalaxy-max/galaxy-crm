@@ -237,15 +237,29 @@ export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail'
  *  a genuinely broken result in testing (wrong duration, a "frozen" segment
  *  that wasn't actually static), not just a rough edge worth shipping. */
 export interface MotionCommand { type: 'motionfx'; start: number; end: number; style: MotionStyle; strength?: number }
-export type AudioStyle = 'equalizer' | 'reverb' | 'echo' | 'distortion' | 'bassBoost' | 'pitch' | 'mono' | 'fadeIn' | 'fadeOut'
+export type AudioStyle = 'equalizer' | 'reverb' | 'echo' | 'distortion' | 'bassBoost' | 'pitch' | 'mono' | 'fadeIn' | 'fadeOut' | 'voiceChanger'
+export type VoicePreset = 'robot' | 'chipmunk' | 'deep'
 /** A whole-clip audio effect (no start/end window — same reasoning as
  *  `reverse`/`audio_noise_reduction`: these process the entire track).
- *  strength 0..1, default 0.5, unused by "mono". "pitch" uses `direction`
- *  (default "up"); "fadeIn"/"fadeOut" use `duration` (seconds, default 1). */
+ *  strength 0..1, default 0.5, unused by "mono" and "voiceChanger". "pitch"
+ *  uses `direction` (default "up"); "fadeIn"/"fadeOut" use `duration`
+ *  (seconds, default 1); "voiceChanger" uses `preset` (default "robot") — a
+ *  fixed recipe, same reasoning as `look`/`glitch`/`light`, not a tunable
+ *  strength. */
 export interface AudioFxCommand {
   type: 'audiofx'; style: AudioStyle; strength?: number
-  direction?: 'up' | 'down'; duration?: number
+  direction?: 'up' | 'down'; duration?: number; preset?: VoicePreset
 }
+/** Motion-smear/temporal-bleed effect over [start,end] — an approximation of
+ *  "datamosh" (see autoEdit.ts's applyDatamosh for why it's an
+ *  approximation, not a literal I-frame-drop datamosh). strength 1-20. */
+export interface DatamoshCommand { type: 'datamosh'; start: number; end: number; strength: number }
+/** A fixed "one-tap enhance" contrast/saturation/sharpen push over
+ *  [start,end] — NOT real per-frame histogram/white-balance analysis (this
+ *  build has no adaptive-normalize filter available). strength 0-1, default
+ *  0.6. Use `color` instead when the instruction names specific tunable
+ *  knobs (brightness/contrast/etc) rather than just "auto color correct". */
+export interface AutoColorCommand { type: 'auto_color'; start: number; end: number; strength?: number }
 export interface FadeCommand { type: 'fade'; direction: 'in' | 'out'; duration: number }
 export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
 export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
@@ -288,8 +302,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -305,6 +319,7 @@ export type EditCommand =
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
   | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | MotionCommand | AudioFxCommand
+  | DatamoshCommand | AutoColorCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
@@ -312,6 +327,7 @@ export const COMMAND_TYPES = [
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
+  'datamosh', 'auto_color',
   'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
@@ -338,10 +354,14 @@ const MOTION_STYLES: MotionStyle[] = ['cameraShake', 'wobble', 'zoomPunch', 'mot
 export const MOTION_LABELS: Record<MotionStyle, string> = {
   cameraShake: 'Camera Shake', wobble: 'Wobble', zoomPunch: 'Zoom Punch', motionTrail: 'Motion Trail', speedRamp: 'Speed Ramp',
 }
-const AUDIO_STYLES: AudioStyle[] = ['equalizer', 'reverb', 'echo', 'distortion', 'bassBoost', 'pitch', 'mono', 'fadeIn', 'fadeOut']
+const AUDIO_STYLES: AudioStyle[] = ['equalizer', 'reverb', 'echo', 'distortion', 'bassBoost', 'pitch', 'mono', 'fadeIn', 'fadeOut', 'voiceChanger']
 export const AUDIO_LABELS: Record<AudioStyle, string> = {
   equalizer: 'Equalizer', reverb: 'Reverb', echo: 'Echo', distortion: 'Distortion', bassBoost: 'Bass Boost',
-  pitch: 'Pitch', mono: 'Mono', fadeIn: 'Audio Fade In', fadeOut: 'Audio Fade Out',
+  pitch: 'Pitch', mono: 'Mono', fadeIn: 'Audio Fade In', fadeOut: 'Audio Fade Out', voiceChanger: 'Voice Changer',
+}
+const VOICE_PRESETS: VoicePreset[] = ['robot', 'chipmunk', 'deep']
+export const VOICE_PRESET_LABELS: Record<VoicePreset, string> = {
+  robot: 'Robot', chipmunk: 'Chipmunk', deep: 'Deep / Monster',
 }
 const CROP_ASPECTS: CropAspect[] = ['9:16', '1:1', '4:5', '16:9', '4:3']
 const ZOOM_TARGETS: ZoomTarget[] = ['center', 'left', 'right', 'top', 'bottom']
@@ -898,7 +918,28 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
         if (duration <= 0 || duration > 10) return { error: 'Audio fade duration has to be between 0 and 10 seconds.' }
         return { type: 'audiofx', style, duration }
       }
+      if (style === 'voiceChanger') {
+        const presetRaw = str(c.preset)
+        const preset = presetRaw && VOICE_PRESETS.includes(presetRaw as VoicePreset) ? presetRaw as VoicePreset : 'robot'
+        return { type: 'audiofx', style, preset }
+      }
       return { type: 'audiofx', style, strength }
+    }
+
+    case 'datamosh': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Datamosh strength has to be between 1 and 20.' }
+      return { type: 'datamosh', ...w, strength }
+    }
+
+    case 'auto_color': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 0.6
+      if (strength < 0 || strength > 1) return { error: 'Auto color strength has to be between 0 and 1.' }
+      return { type: 'auto_color', ...w, strength }
     }
 
     case 'color': {
@@ -1129,7 +1170,9 @@ scratches { "type":"scratches","start":number,"end":number,"strength":number } �
 film_burn { "type":"film_burn","start":number,"end":number,"strength":number } — a warm/orange burn creeping in from the frame's edge with a ragged, flickering boundary, growing then receding. Distinct from light's lightLeak (flat constant wash, no shape) and fade (hard cut to black, no color). strength 1-20. Map "film burn"/"burn effect"/"overexposed edge" here.
 retro_camera { "type":"retro_camera","start":number,"end":number,"strength":number } — adds white viewfinder corner brackets plus a blinking red REC dot. Combine WITH look's "camcorder" (not instead of it) when someone wants the full old-camcorder package — camcorder is only the color grade, this is only the on-screen chrome. strength 1-20 (bracket thickness). Map "REC light"/"viewfinder brackets"/"camcorder viewfinder" here.
 motionfx { "type":"motionfx","start":number,"end":number,"style":"cameraShake"|"wobble"|"zoomPunch"|"motionTrail"|"speedRamp","strength"?:number } — camera-motion effect, strength 0-1 default 0.5. cameraShake=sharp decaying jolt. wobble=sustained unsteady sway (not decaying). zoomPunch=quick zoom in and back out. motionTrail=ghosted recent-frames smear. speedRamp=steps through a few speeds (use "speed" instead for one constant rate change). No "freeze frame" effect exists (every attempt failed testing) — that must be a clarification, never approximated. Map "camera shake"/"wobbly camera"/"zoom punch"/"motion trail"/"speed ramp" to the matching style.
-audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut","strength"?:number,"direction"?:"up"|"down","duration"?:number } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio" to the matching style.
+audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut"|"voiceChanger","strength"?:number,"direction"?:"up"|"down","duration"?:number,"preset"?:"robot"|"chipmunk"|"deep" } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono and voiceChanger. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. voiceChanger applies a FIXED preset via "preset" (default "robot") — "robot"=metallic/echoed, "chipmunk"=high-pitched fast-talker, "deep"=slowed-down monster voice. Prefer voiceChanger over pitch whenever the instruction names a character ("make me sound like a robot"/"chipmunk voice"/"monster voice") rather than just a direction ("deepen my voice"→pitch down). Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio"/"voice changer"/"robot voice"/"chipmunk voice" to the matching style.
+datamosh { "type":"datamosh","start":number,"end":number,"strength":number } — motion-smeared temporal-bleed look between frames, an APPROXIMATION of true datamoshing (this build can't manipulate raw encoded I-frames/GOPs, only whole-frame filters) via blending several preceding frames together. strength 1-20. Map "datamosh"/"datamoshed"/"corrupted video glitch"/"frame bleed" here.
+auto_color { "type":"auto_color","start":number,"end":number,"strength"?:number } — one-tap "auto enhance": a FIXED contrast/saturation/sharpen push, strength 0-1 default 0.6. NOT real adaptive white-balance/histogram analysis (no such filter available in this build) — use "color" instead whenever specific tunable knobs are named. Map "auto color correct"/"auto enhance"/"fix the colors automatically"/"one-tap enhance" here.
 color { "type":"color","start":number,"end":number,"brightness"?:number,"contrast"?:number,"saturation"?:number,"grayscale"?:boolean,"warmth"?:number,"tint"?:number,"vignette"?:number,"exposure"?:number,"highlights"?:number,"shadows"?:number,"sharpness"?:number,"clarity"?:number,"grain"?:number } — at least one field besides start/end/type required. brightness -1..1 = flat offset; exposure -1..1 = multiplicative camera-dial push — use exposure for "overexposed/underexposed", brightness for plain "brighter/darker". contrast/saturation 0..3 (1=unchanged). warmth -1 (blue)..1 (orange); tint -1 (magenta)..1 (green) — "too green"→tint, "too warm/blue"→warmth. highlights/shadows -1..1 lift/crush just the bright/dark end independent of overall brightness — "recover blown-out sky"→negative highlights, "lift the blacks"→positive shadows. vignette 0..1. sharpness 0..2 = normal sharpen; clarity 0..1 = softer wider punchy local-contrast sharpen — "crisper"→sharpness, "more pop/texture"→clarity. grain 0..1 = film-grain noise. Map casual wording: "dull/muted/washed out"→lower saturation (~0.4); "vibrant/vivid/punchy"→higher saturation (~1.6); "dim/underexposed"→negative brightness; "brighter/overexposed look"→positive brightness. "moody/cinematic" alone is too vague — ask what specifically, rather than guessing a whole grade.
 fade { "type":"fade","direction":"in"|"out","duration":number } — fades to/from black at the very start/end, duration seconds (default 1).
 rotate { "type":"rotate","degrees":90|180|270 }
@@ -1176,7 +1219,11 @@ Examples:
 "Add floating dust for the first 5 seconds." → {"commands":[{"type":"dust","start":0,"end":5,"strength":10}]}
 "Make it look like an old scratched film print." (scratches, not oldFilm alone — scratches has the actual line structure) → {"commands":[{"type":"scratches","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
 "Add a film burn from 3 to 6 seconds." → {"commands":[{"type":"film_burn","start":3,"end":6,"strength":10}]}
-"Give it an old camcorder look with a REC light and viewfinder brackets." (needs BOTH — camcorder for the grade, retro_camera for the chrome) → {"commands":[{"type":"look","start":0,"end":${ctx.durationSec.toFixed(1)},"name":"camcorder"},{"type":"retro_camera","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}`
+"Give it an old camcorder look with a REC light and viewfinder brackets." (needs BOTH — camcorder for the grade, retro_camera for the chrome) → {"commands":[{"type":"look","start":0,"end":${ctx.durationSec.toFixed(1)},"name":"camcorder"},{"type":"retro_camera","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
+"Datamosh the last 2 seconds." → {"commands":[{"type":"datamosh","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
+"Auto color correct the whole video." → {"commands":[{"type":"auto_color","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":0.6}]}
+"Make my voice sound like a robot." (a character, not a direction, so voiceChanger not pitch) → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"robot"}]}
+"Turn my voice into a chipmunk." → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"chipmunk"}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1339,7 +1386,9 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'film_burn': return `Film burn ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'retro_camera': return `Retro camera ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'motionfx': return `${MOTION_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
-    case 'audiofx': return AUDIO_LABELS[cmd.style]
+    case 'audiofx': return cmd.style === 'voiceChanger' ? `Voice Changer (${VOICE_PRESET_LABELS[cmd.preset ?? 'robot']})` : AUDIO_LABELS[cmd.style]
+    case 'datamosh': return `Datamosh ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'auto_color': return `Auto color ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'text_edit': return `Edit text → "${cmd.text}"`
     case 'captions_auto': return 'Auto-generate captions from speech'
@@ -1446,13 +1495,19 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: MOTION_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'audiofx':
       return {
-        title: AUDIO_LABELS[cmd.style],
+        title: cmd.style === 'voiceChanger' ? 'Voice Changer' : AUDIO_LABELS[cmd.style],
         lines: cmd.style === 'fadeIn' || cmd.style === 'fadeOut'
           ? [`Duration: ${cmd.duration}s`]
           : cmd.style === 'pitch'
             ? [`Direction: ${cmd.direction}`, `Strength: ${cmd.strength}`]
-            : [`Strength: ${cmd.strength}`],
+            : cmd.style === 'voiceChanger'
+              ? [`Preset: ${VOICE_PRESET_LABELS[cmd.preset ?? 'robot']}`]
+              : [`Strength: ${cmd.strength}`],
       }
+    case 'datamosh':
+      return { title: 'Datamosh', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'auto_color':
+      return { title: 'Auto Color', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength ?? 0.6}`] }
     case 'color': {
       const lines: string[] = []
       if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)
