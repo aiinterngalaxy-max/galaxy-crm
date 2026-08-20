@@ -45,3 +45,8 @@ scripts/BACKUP.bat
 serviceAccountKey.json
 **/serviceAccountKey.json
 *-firebase-adminsdk-*.json
+
+# GPU render server — the API key lets anyone reach the render server, and
+# test-*.mp4 are local smoke-test artifacts, never real content.
+render-server/api-key.txt
+render-server/test-*.mp4

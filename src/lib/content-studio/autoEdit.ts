@@ -1,20 +1,29 @@
 /**
- * Browser-only video auto-edit: cuts out silence/dead air.
+ * Video auto-edit: cuts out silence/dead air, plus every other editing
+ * operation in Content Studio (trim, captions, crop, zoom, color, etc.).
  *
  * This is what "AI auto-edit" means here, and it's worth being precise about
  * that: it is a heuristic (find quiet stretches, remove them), not a model
- * that understands footage. No API key, no per-minute bill, no server —
- * ffmpeg runs as WebAssembly in the visitor's own browser via @ffmpeg/ffmpeg,
- * so the only cost is however long their machine takes to render.
+ * that understands footage. Nothing here attempts to replicate a *reference*
+ * video's editing style — that would need a model watching the reference and
+ * inferring pacing/cut rhythm from it, which no ffmpeg filter does and no
+ * free tool does either. A reference link is stored elsewhere purely as a
+ * note for a human editor.
  *
- * Nothing here attempts to replicate a *reference* video's editing style —
- * that would need a model watching the reference and inferring pacing/cut
- * rhythm from it, which no ffmpeg filter does and no free tool does either.
- * A reference link is stored elsewhere purely as a note for a human editor.
+ * Rendering itself runs one of two ways, chosen automatically by
+ * loadFFmpeg() below: by default, ffmpeg runs as WebAssembly in the
+ * visitor's own browser via @ffmpeg/ffmpeg (CPU-only, works everywhere, no
+ * server). If a GPU render server is configured (VITE_RENDER_SERVER_URL/
+ * VITE_RENDER_API_KEY — see remoteFFmpeg.ts) AND reachable — which in
+ * practice means the visitor's own machine is on the same private Tailscale
+ * network the render server lives on — rendering is transparently routed
+ * there instead, using NVIDIA hardware encoding. Every function below calls
+ * the same writeFile/exec/readFile methods either way; they have no idea
+ * which backend they're talking to.
  */
-import type { FFmpeg } from '@ffmpeg/ffmpeg'
 import type { SelfieSegmentation as SelfieSegmentationType, Results as SelfieSegmentationResults } from '@mediapipe/selfie_segmentation'
 import { renderCaptionImage, renderMaskImage } from './captionOverlay'
+import { type FFmpegLike, RemoteFFmpeg, remoteFFmpegConfig, isRemoteFFmpegReachable } from './remoteFFmpeg'
 
 export class AutoEditError extends Error {}
 
@@ -110,7 +119,16 @@ export function computeKeepSegments(
     .sort((a, b) => a.start - b.start)
 }
 
-let ffmpegSingleton: FFmpeg | null = null
+let ffmpegSingleton: FFmpegLike | null = null
+/** Set once loadFFmpeg() resolves, so resetFFmpeg() knows whether to close
+ *  a remote render session or just drop the wasm instance. */
+let usingRemote = false
+/** Cached for the page session so every render after the first doesn't
+ *  re-pay the reachability check — if the GPU server was reachable once,
+ *  it's assumed to still be for the rest of this session. resetFFmpeg()
+ *  (an actual failure) clears this too, so a genuinely dropped connection
+ *  gets re-checked rather than permanently assumed reachable. */
+let remoteReachableCache: boolean | null = null
 
 /**
  * A crashed ffmpeg.wasm core (out-of-memory on a large clip, a fatal decode
@@ -118,16 +136,40 @@ let ffmpegSingleton: FFmpeg | null = null
  * the same singleton fails too, with an opaque "ErrnoError: FS error" that
  * has nothing to do with what actually broke. Dropping the singleton after
  * any unexpected failure means the next attempt gets a clean instance
- * instead of being stuck failing until the page is reloaded.
+ * instead of being stuck failing until the page is reloaded. Same idea for
+ * a remote session: if a render server call fails, don't keep reusing a
+ * session it may have already dropped.
  */
 function resetFFmpeg() {
+  if (usingRemote && ffmpegSingleton instanceof RemoteFFmpeg) {
+    ffmpegSingleton.closeSession().catch(() => {})
+  }
   ffmpegSingleton = null
+  usingRemote = false
+  remoteReachableCache = null
   fontLoaded = false // the font lived in that instance's virtual FS, gone with it
 }
 
-/** Loaded once per page session — the core is ~25MB, not worth reloading per job. */
-async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
+/** Loaded once per page session — the wasm core is ~25MB (or, for a remote
+ *  render server, the reachability check is the one-time cost) — not worth
+ *  repeating per job either way. */
+async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpegLike> {
   if (ffmpegSingleton) return ffmpegSingleton
+
+  const remoteConfig = remoteFFmpegConfig()
+  if (remoteConfig) {
+    if (remoteReachableCache === null) remoteReachableCache = await isRemoteFFmpegReachable(remoteConfig)
+    if (remoteReachableCache) {
+      const remote = new RemoteFFmpeg(remoteConfig)
+      if (onLog) remote.on('log', ({ message }) => onLog(message))
+      ffmpegSingleton = remote
+      usingRemote = true
+      return remote
+    }
+    // Configured but not reachable (e.g. this visitor isn't on the
+    // Tailscale network the render server lives on) — fall through to the
+    // normal in-browser path below rather than failing the render outright.
+  }
 
   const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
     import('@ffmpeg/ffmpeg'),
@@ -142,6 +184,7 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpeg> {
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
   })
   ffmpegSingleton = ffmpeg
+  usingRemote = false
   return ffmpeg
 }
 
@@ -154,7 +197,7 @@ let fontLoaded = false
  * This fetches one real font into the virtual filesystem once per ffmpeg
  * instance and every caller of drawtext passes its path via fontfile=.
  */
-async function ensureFont(ffmpeg: FFmpeg): Promise<string> {
+async function ensureFont(ffmpeg: FFmpegLike): Promise<string> {
   const fontFile = 'caption-font.ttf'
   if (fontLoaded) return fontFile
   const res = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf')
@@ -164,7 +207,7 @@ async function ensureFont(ffmpeg: FFmpeg): Promise<string> {
   return fontFile
 }
 
-async function probeDuration(ffmpeg: FFmpeg, inputName: string): Promise<number> {
+async function probeDuration(ffmpeg: FFmpegLike, inputName: string): Promise<number> {
   let log = ''
   const collect = ({ message }: { message: string }) => (log += message + '\n')
   ffmpeg.on('log', collect)
@@ -276,7 +319,7 @@ export async function analyzeFootage(
   }
 }
 
-async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ width: number; height: number }> {
+async function probeDimensions(ffmpeg: FFmpegLike, inputName: string): Promise<{ width: number; height: number }> {
   let log = ''
   const collect = ({ message }: { message: string }) => (log += message + '\n')
   ffmpeg.on('log', collect)
@@ -291,7 +334,7 @@ async function probeDimensions(ffmpeg: FFmpeg, inputName: string): Promise<{ wid
   return { width: m ? Number(m[1]) : 1080, height: m ? Number(m[2]) : 1920 }
 }
 
-async function probeFps(ffmpeg: FFmpeg, inputName: string): Promise<number> {
+async function probeFps(ffmpeg: FFmpegLike, inputName: string): Promise<number> {
   let log = ''
   const collect = ({ message }: { message: string }) => (log += message + '\n')
   ffmpeg.on('log', collect)
@@ -643,7 +686,7 @@ export interface TimedCaption {
  * around them, since ffmpeg indexes inputs by position on the command line.
  */
 async function planCaptionOverlays(
-  ffmpeg: FFmpeg,
+  ffmpeg: FFmpegLike,
   probeInputName: string,
   captions: TimedCaption[],
   startLabel: string,

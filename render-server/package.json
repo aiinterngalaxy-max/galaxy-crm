@@ -1,0 +1,14 @@
+{
+  "name": "galaxy-render-server",
+  "version": "1.0.0",
+  "description": "GPU (NVENC) accelerated ffmpeg render service for Galaxy CRM's Content Studio — a drop-in remote backend for the same ffmpeg calls the browser's ffmpeg.wasm makes, so existing editing operations get GPU acceleration without being rewritten.",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
