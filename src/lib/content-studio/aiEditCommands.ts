@@ -173,6 +173,31 @@ export type LightStyle = 'flash' | 'strobe' | 'flicker' | 'glow' | 'bloom' | 'li
  *  "glow"/"bloom" brighten+blur+screen-blend the frame with itself;
  *  "lightLeak" overlays a warm color wash. Each style is a fixed recipe. */
 export interface LightCommand { type: 'light'; start: number; end: number; style: LightStyle; strength?: number }
+/** A bright circular flare/halo with smaller secondary rings strung out
+ *  along the line from a light-source point (x/y, 0-1, default 0.8/0.2 —
+ *  upper-right, the classic flare source position) through frame CENTER and
+ *  beyond — the streak-of-shrinking-circles look, distinct from `light`'s
+ *  "glow"/"bloom" (which brighten+blur the WHOLE frame, no shape). strength
+ *  1-20 scales size/brightness of the whole rig. */
+export interface LensFlareCommand { type: 'lens_flare'; start: number; end: number; strength: number; x?: number; y?: number }
+/** Small bright points scattered over the frame, twinkling in and out via a
+ *  shimmer pattern (several lit at once, not one blinking dot) — not a
+ *  brightness/blur effect on the frame itself, a scattering of star-like
+ *  highlights over it. strength 1-20 scales density/brightness. */
+export interface SparkleCommand { type: 'sparkle'; start: number; end: number; strength: number }
+/** A saturated-color glow around bright edges/highlights, tinted by `color`
+ *  (a plain CSS color string — same convention as TextStyleFields.color, no
+ *  allowlist — default a vivid neon pink). Distinct from `light`'s "glow",
+ *  which is a white/tonal brighten+blur of the whole frame; this only lights
+ *  up the ALREADY-bright parts of the image, in the requested hue. strength
+ *  1-20 scales how far the glow spreads and how strong it is. */
+export interface NeonGlowCommand { type: 'neon_glow'; start: number; end: number; strength: number; color?: string }
+/** Bright diagonal rays radiating from a source point (x/y, 0-1, default
+ *  0.5/0.1 — top-center, a common sunlight angle) — crepuscular/"god rays"
+ *  simulating light breaking through, distinct from every `light` style
+ *  (none of them are directional/radiating). strength 1-20 scales ray
+ *  brightness/reach. */
+export interface GodRaysCommand { type: 'god_rays'; start: number; end: number; strength: number; x?: number; y?: number }
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 /** A camera-motion-style effect over [start,end] — strength 0..1 scales
  *  intensity, default 0.5. "cameraShake"/"wobble" jitter the frame position;
@@ -235,8 +260,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'motionfx' | 'audiofx'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'motionfx' | 'audiofx'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'motionfx', 'audiofx']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -251,12 +276,12 @@ export type EditCommand =
   | BlurCommand | BackgroundBlurCommand | PixelateCommand
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
-  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | MotionCommand | AudioFxCommand
+  | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | MotionCommand | AudioFxCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
   'trim', 'crop', 'zoom', 'pan', 'speed', 'text', 'caption', 'remove_text',
-  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'motionfx', 'audiofx',
+  'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
   'color', 'fade', 'rotate', 'flip', 'reverse',
@@ -772,6 +797,37 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'light', ...w, style: style as LightStyle, strength }
     }
 
+    case 'lens_flare':
+    case 'god_rays': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const label = type === 'lens_flare' ? 'Lens flare' : 'God rays'
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: `${label} strength has to be between 1 and 20.` }
+      const [dx, dy] = type === 'lens_flare' ? [0.8, 0.2] : [0.5, 0.1]
+      const x = num(c.x) ?? dx
+      const y = num(c.y) ?? dy
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: `${label} position (x/y) has to be between 0 and 1 — a fraction of the frame.` }
+      return { type: type as 'lens_flare' | 'god_rays', ...w, strength, x, y }
+    }
+
+    case 'sparkle': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Sparkle strength has to be between 1 and 20.' }
+      return { type: 'sparkle', ...w, strength }
+    }
+
+    case 'neon_glow': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Neon glow strength has to be between 1 and 20.' }
+      const color = str(c.color) ?? undefined
+      return { type: 'neon_glow', ...w, strength, ...(color != null ? { color } : {}) }
+    }
+
     case 'motionfx': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -1024,6 +1080,10 @@ mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:nu
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
 glitch { "type":"glitch","start":number,"end":number,"style":"rgbSplit"|"tvNoise"|"screenFlicker"|"vhs"|"scanLines"|"digitalGlitch"|"signalDistortion","strength"?:number } — digital-degradation effect. strength 0-1, default 0.5, omit unless strength is specified. rgbSplit=chromatic-aberration channel shift. tvNoise=heavy static. screenFlicker=rapid brightness pulse. vhs=rgbSplit+noise+desaturation+vignette. scanLines=darkened alternating CRT lines. digitalGlitch=short jittery rgbSplit/noise bursts. signalDistortion=stronger static rgbSplit+contrast push. Map "glitch it"/"chromatic aberration"/"VHS effect"/"old TV look"/"static" to the matching style.
 light { "type":"light","start":number,"end":number,"style":"flash"|"strobe"|"flicker"|"glow"|"bloom"|"lightLeak","strength"?:number } — brightness effect, strength 0-1 default 0.5. flash=one quick decaying pulse. strobe=fast sharp on/off. flicker=slower gentler wobble. glow/bloom=soft-blurred brighten-over-itself, bloom stronger. lightLeak=warm orange wash. Map "flash effect"/"strobe light"/"flickering light"/"glow"/"light leak" to the matching style.
+lens_flare { "type":"lens_flare","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — a bright circular flare with smaller rings strung out along the line from the light source (x/y, 0-1 fraction of frame, default 0.8/0.2) through frame center and beyond. strength 1-20. Distinct from light's glow/bloom (those brighten the WHOLE frame, no shape) — use lens_flare for "lens flare"/"sun flare"/"anamorphic streak" specifically.
+sparkle { "type":"sparkle","start":number,"end":number,"strength":number } — small bright points scattered over the frame, twinkling in and out. strength 1-20 controls density/brightness. Map "sparkly"/"twinkling"/"glittery"/"magic dust" here.
+neon_glow { "type":"neon_glow","start":number,"end":number,"strength":number,"color"?:string } — saturated colored glow around the frame's own bright edges/highlights, tinted by color (any CSS color string, default a vivid neon pink). strength 1-20. Distinct from light's glow, which is white/tonal, not colored — use neon_glow whenever a HUE is named ("pink glow"/"neon blue edges"/"cyberpunk glow").
+god_rays { "type":"god_rays","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — bright diagonal rays radiating from a source point (x/y, 0-1, default 0.5/0.1 — top-center). strength 1-20. Map "god rays"/"light rays"/"sun rays breaking through"/"crepuscular rays" here.
 motionfx { "type":"motionfx","start":number,"end":number,"style":"cameraShake"|"wobble"|"zoomPunch"|"motionTrail"|"speedRamp","strength"?:number } — camera-motion effect, strength 0-1 default 0.5. cameraShake=sharp decaying jolt. wobble=sustained unsteady sway (not decaying). zoomPunch=quick zoom in and back out. motionTrail=ghosted recent-frames smear. speedRamp=steps through a few speeds (use "speed" instead for one constant rate change). No "freeze frame" effect exists (every attempt failed testing) — that must be a clarification, never approximated. Map "camera shake"/"wobbly camera"/"zoom punch"/"motion trail"/"speed ramp" to the matching style.
 audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut","strength"?:number,"direction"?:"up"|"down","duration"?:number } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio" to the matching style.
 color { "type":"color","start":number,"end":number,"brightness"?:number,"contrast"?:number,"saturation"?:number,"grayscale"?:boolean,"warmth"?:number,"tint"?:number,"vignette"?:number,"exposure"?:number,"highlights"?:number,"shadows"?:number,"sharpness"?:number,"clarity"?:number,"grain"?:number } — at least one field besides start/end/type required. brightness -1..1 = flat offset; exposure -1..1 = multiplicative camera-dial push — use exposure for "overexposed/underexposed", brightness for plain "brighter/darker". contrast/saturation 0..3 (1=unchanged). warmth -1 (blue)..1 (orange); tint -1 (magenta)..1 (green) — "too green"→tint, "too warm/blue"→warmth. highlights/shadows -1..1 lift/crush just the bright/dark end independent of overall brightness — "recover blown-out sky"→negative highlights, "lift the blacks"→positive shadows. vignette 0..1. sharpness 0..2 = normal sharpen; clarity 0..1 = softer wider punchy local-contrast sharpen — "crisper"→sharpness, "more pop/texture"→clarity. grain 0..1 = film-grain noise. Map casual wording: "dull/muted/washed out"→lower saturation (~0.4); "vibrant/vivid/punchy"→higher saturation (~1.6); "dim/underexposed"→negative brightness; "brighter/overexposed look"→positive brightness. "moody/cinematic" alone is too vague — ask what specifically, rather than guessing a whole grade.
@@ -1064,7 +1124,11 @@ Examples:
 "Swirl the first 3 seconds into a vortex." (rotation that fades with distance, so twirl not rotate) → {"commands":[{"type":"twirl","start":0,"end":3,"strength":12}]}
 "Add a fisheye lens look." → {"commands":[{"type":"fisheye","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
 "Pinch the middle inward from 2 to 3 seconds." (inward, so squeeze not bulge) → {"commands":[{"type":"squeeze","start":2,"end":3,"strength":10}]}
-"Stretch it out wide for the last 2 seconds." → {"commands":[{"type":"stretch","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"axis":"horizontal","strength":10}]}`
+"Stretch it out wide for the last 2 seconds." → {"commands":[{"type":"stretch","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"axis":"horizontal","strength":10}]}
+"Add a lens flare from the top right, 0 to 3 seconds." → {"commands":[{"type":"lens_flare","start":0,"end":3,"strength":10,"x":0.8,"y":0.2}]}
+"Make it sparkly for the first 4 seconds." → {"commands":[{"type":"sparkle","start":0,"end":4,"strength":10}]}
+"Give it a pink neon glow the whole way through." → {"commands":[{"type":"neon_glow","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10,"color":"#ff2fd6"}]}
+"Add god rays coming down from the top." → {"commands":[{"type":"god_rays","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":10}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1218,6 +1282,10 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'look': return `${LOOK_LABELS[cmd.name]} look, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'glitch': return `${GLITCH_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'light': return `${LIGHT_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'lens_flare': return `Lens flare ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'sparkle': return `Sparkle ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'neon_glow': return `Neon glow ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'god_rays': return `God rays ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'motionfx': return `${MOTION_LABELS[cmd.style]}, ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'audiofx': return AUDIO_LABELS[cmd.style]
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
@@ -1306,6 +1374,14 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: GLITCH_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'light':
       return { title: LIGHT_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'lens_flare':
+      return { title: 'Lens Flare', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Source: ${cmd.x ?? 0.8}, ${cmd.y ?? 0.2}`] }
+    case 'sparkle':
+      return { title: 'Sparkle', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'neon_glow':
+      return { title: 'Neon Glow', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Color: ${cmd.color ?? 'neon pink'}`] }
+    case 'god_rays':
+      return { title: 'God Rays', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Source: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.1}`] }
     case 'motionfx':
       return { title: MOTION_LABELS[cmd.style], lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'audiofx':

@@ -622,6 +622,88 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('lens_flare (TEST: "Add a lens flare from the top right" style instructions)', () => {
+    it('accepts a valid windowed lens flare with a custom source point', () => {
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 12, x: 0.9, y: 0.1 }, ctx))
+        .toEqual({ type: 'lens_flare', start: 1, end: 4, strength: 12, x: 0.9, y: 0.1 })
+    })
+    it('defaults x/y to the upper-right source position when omitted', () => {
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.8, y: 0.2 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 10, x: 1.5, y: 0.2 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 10, x: 0.8, y: -0.1 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_flare', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'lens_flare', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'lens_flare', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('sparkle (TEST: "Make it sparkly" style instructions)', () => {
+    it('accepts a valid windowed sparkle', () => {
+      expect(validateCommand({ type: 'sparkle', start: 1, end: 4, strength: 14 }, ctx))
+        .toEqual({ type: 'sparkle', start: 1, end: 4, strength: 14 })
+    })
+    it('defaults strength when omitted', () => {
+      expect(validateCommand({ type: 'sparkle', start: 1, end: 4 }, ctx)).toMatchObject({ strength: 8 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'sparkle', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'sparkle', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'sparkle', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'sparkle', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('neon_glow (TEST: "Give it a pink neon glow" style instructions)', () => {
+    it('accepts a valid windowed neon glow with a custom color', () => {
+      expect(validateCommand({ type: 'neon_glow', start: 1, end: 4, strength: 12, color: '#33ffee' }, ctx))
+        .toEqual({ type: 'neon_glow', start: 1, end: 4, strength: 12, color: '#33ffee' })
+    })
+    it('omits color when not given, leaving the default to apply()', () => {
+      const result = validateCommand({ type: 'neon_glow', start: 1, end: 4, strength: 10 }, ctx)
+      expect(result).toMatchObject({ strength: 10 })
+      expect(result).not.toHaveProperty('color')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'neon_glow', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'neon_glow', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'neon_glow', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'neon_glow', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('god_rays (TEST: "Add god rays coming down from the top" style instructions)', () => {
+    it('accepts a valid windowed god rays with a custom source point', () => {
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 12, x: 0.3, y: 0.05 }, ctx))
+        .toEqual({ type: 'god_rays', start: 1, end: 4, strength: 12, x: 0.3, y: 0.05 })
+    })
+    it('defaults x/y to top-center when omitted', () => {
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 10 }, ctx)).toMatchObject({ x: 0.5, y: 0.1 })
+    })
+    it('rejects x/y outside 0-1', () => {
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 10, x: 1.2, y: 0.1 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 10, x: 0.5, y: -0.2 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'god_rays', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects a missing or invalid time window', () => {
+      expect(validateCommand({ type: 'god_rays', strength: 10 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'god_rays', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('color', () => {
     it('accepts a single field set', () => {
       expect(validateCommand({ type: 'color', start: 0, end: 5, brightness: 0.2 }, ctx)).toEqual({ type: 'color', start: 0, end: 5, brightness: 0.2 })

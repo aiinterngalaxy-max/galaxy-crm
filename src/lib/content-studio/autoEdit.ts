@@ -2128,6 +2128,224 @@ export async function applyLight(file: Blob, { start, end, style, strength = 0.5
   }
 }
 
+// ---------- lens_flare/sparkle/neon_glow/god_rays ----------
+// Four more light-family effects, genuinely distinct from LIGHT_RECIPES'
+// six styles above: those brighten the WHOLE frame (flash/strobe/flicker)
+// or brighten+blur the whole frame over itself (glow/bloom/lightLeak). These
+// four instead composite a SHAPE — a flare rig, scattered points, a colored
+// mask of the frame's own highlights, or a ray fan — onto the frame, reusing
+// the ndx/ndy/ndr coordinate helpers the distortion builders above already
+// defined. All four were rendered through the actual @ffmpeg/core@0.12.6
+// build this app loads (via a headless browser harness driving ffmpeg.wasm
+// directly, not just a syntax check) and visually inspected, which caught
+// two real bugs neither would have shown up as an ffmpeg error:
+//  - geq's output isn't clamped before the 8-bit write, so a sum of
+//    overlapping bright terms past 255 WRAPS instead of clipping — lens
+//    flare's core rendered as a dark hole until the sum was wrapped in
+//    min(255, ...).
+//  - blend's screen/multiply modes applied to yuv420p's chroma (cb/cr)
+//    planes are not hue-neutral, even feeding them the source's own chroma
+//    — screen(x,x) isn't x except at the extremes. Confirmed by rendering
+//    onto a flat gray frame and seeing a magenta cast appear out of nowhere.
+//    lens_flare/sparkle/god_rays fix this by screening luma only (gblur's
+//    planes=1 bitmask keeps chroma an exact unblurred copy of the source, so
+//    blend's c1_mode/c2_mode='normal' pass it through untouched); neon_glow
+//    can't take that shortcut since injecting a hue IS the point, so it runs
+//    its whole composite in RGB instead, where screen/multiply behave the
+//    way an image editor's blend modes actually do — plus one more quirk
+//    found the same way: converting a blend node's RGBA output straight to
+//    yuv420p corrupted near-black pixels (a stray green cast), fixed by
+//    routing through format=rgb24 first to drop the alpha plane before that
+//    conversion.
+
+/** A soft-edged disc — near flat-top, falling off sharply past `radius` —
+ *  reads as a distinct circle rather than a diffuse gaussian smear, which is
+ *  what makes lens_flare's secondary elements look like "rings" strung along
+ *  a line instead of more blobs of glow piled on the main halo. */
+const geqDisc = (cx: number, cy: number, radius: number, amp: number) =>
+  `(${amp.toFixed(2)}/(1+pow((${ndr(cx, cy)})/${radius.toFixed(5)}\\,8)))`
+
+const geqSoftBlob = (cx: number, cy: number, sigma: number, amp: number) =>
+  `${amp.toFixed(2)}*exp(-((${ndx(cx)})*(${ndx(cx)})+(${ndy(cy)})*(${ndy(cy)}))/(2*${sigma}*${sigma}))`
+
+/**
+ * Shared composite for lens_flare/sparkle/god_rays: generates a synthetic
+ * brightness-only layer from `expr` (a function of X/Y/T, clamped to 255 —
+ * see the wraparound note above), blurs ONLY its luma plane, then screens
+ * that luma onto the original while the chroma planes pass through the
+ * unblurred source untouched (see the hue-neutrality note above). One -vf
+ * chain, no -filter_complex needed — same as LIGHT_RECIPES' glow/bloom.
+ */
+function screenLumaOnly(expr: string, sigma: number | string, opacity: number | string, start: number, end: number): string {
+  const w = windowClause(start, end)
+  return `split[a][b];[b]geq=lum='min(255\\,${expr})':cb='cb(X,Y)':cr='cr(X,Y)'[g];[g]gblur=sigma=${sigma}:planes=1[gb];[a][gb]blend=c0_mode=screen:c0_opacity=${opacity}:c1_mode=normal:c1_opacity=1:c2_mode=normal:c2_opacity=1${w}`
+}
+
+export interface LensFlareOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * Sum of gaussian-disc terms along the line from the source point through
+ * frame center and beyond: a bright core+halo at the source, then five
+ * shrinking rings trailing off past center — the classic anamorphic streak.
+ * Confirmed via a real render (including the min(255,...) clamp above,
+ * without which the bright core showed as a dark hole from 8-bit wraparound).
+ */
+export function buildLensFlareExpr(strength: number, sx: number, sy: number): string {
+  const s = strength / 20
+  const along = (t: number): [number, number] => [sx + (0.5 - sx) * t, sy + (0.5 - sy) * t]
+  const terms: string[] = []
+  const [hx, hy] = along(0)
+  terms.push(geqSoftBlob(hx, hy, 0.11 + s * 0.03, 70 + s * 55))
+  terms.push(geqDisc(hx, hy, 0.028 + s * 0.01, 190 + s * 60))
+  const rings: [number, number, number][] = [
+    [0.45, 0.016, 0.30],
+    [0.85, 0.030, 0.45],
+    [1.15, 0.012, 0.28],
+    [1.5, 0.022, 0.38],
+    [1.85, 0.009, 0.22],
+  ]
+  for (const [t, radiusBase, ampFrac] of rings) {
+    const [cx, cy] = along(t)
+    const radius = radiusBase * (0.6 + s * 0.6)
+    terms.push(geqDisc(cx, cy, radius, ((90 + s * 90) * ampFrac) / 0.3))
+  }
+  return terms.join('+')
+}
+
+/** Bright circular flare/halo with smaller secondary rings strung along the
+ *  line from the source point (x/y, default 0.8/0.2) through frame center
+ *  and beyond. */
+export async function applyLensFlare(file: Blob, { start, end, strength, x = 0.8, y = 0.2 }: LensFlareOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildLensFlareExpr(strength, x, y)
+  const sigma = (1.4 + strength * 0.1).toFixed(2)
+  const opacity = Math.min(1, 0.4 + strength * 0.022).toFixed(3)
+  const vf = screenLumaOnly(expr, sigma, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the lens flare effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface SparkleOptions { start: number; end: number; strength: number }
+
+/** Ten fixed, spread-out (x, y, frequency, phase) points — varied
+ *  frequencies/phases so several are lit at any given moment instead of all
+ *  blinking in sync, which is what actually reads as "twinkling". */
+const SPARKLE_POINTS: [number, number, number, number][] = [
+  [0.15, 0.20, 3.1, 0.0], [0.35, 0.15, 2.7, 1.1], [0.60, 0.25, 3.5, 2.3],
+  [0.80, 0.18, 2.3, 0.5], [0.25, 0.55, 2.9, 3.0], [0.50, 0.60, 3.3, 1.7],
+  [0.75, 0.50, 2.5, 4.0], [0.90, 0.70, 3.8, 2.0], [0.10, 0.75, 2.6, 0.9],
+  [0.45, 0.85, 3.0, 3.6],
+]
+
+/**
+ * Sum of small gaussian points, each modulated by a `0.5+0.5*sin(...)`
+ * twinkle curve raised to the 4th power — that curve spends more of its
+ * cycle away from zero than `max(0,sin)` would, which is what keeps several
+ * points lit at once instead of the whole set blinking on and off together.
+ */
+export function buildSparkleExpr(strength: number): string {
+  const amp = 150 + strength * 6
+  const sigma = 0.007 + strength * 0.0007
+  const terms = SPARKLE_POINTS.map(([x, y, f, ph]) => {
+    const twinkle = `pow(0.5+0.5*sin(2*PI*(${f}*T+${ph}))\\,4)`
+    return `(${twinkle}*${amp.toFixed(1)}*exp(-((${ndx(x)})*(${ndx(x)})+(${ndy(y)})*(${ndy(y)}))/(2*${sigma.toFixed(5)}*${sigma.toFixed(5)})))`
+  })
+  return terms.join('+')
+}
+
+/** Small bright points scattered over the frame, twinkling in and out over
+ *  [start,end]. strength 1-20 scales density/brightness. */
+export async function applySparkle(file: Blob, { start, end, strength }: SparkleOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildSparkleExpr(strength)
+  const opacity = Math.min(1, 0.55 + strength * 0.02).toFixed(3)
+  const vf = screenLumaOnly(expr, 1.2, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the sparkle effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface GodRaysOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/**
+ * A sector pattern (`sin(K*angle)`, K sectors around the source point)
+ * raised to an odd power to sharpen the beams, multiplied by an exponential
+ * radial falloff so the rays fade with distance from the source — reads as
+ * light rays fanning out from a point, distinct from any `light` style
+ * (none of them are directional).
+ */
+export function buildGodRaysExpr(strength: number, sx: number, sy: number): string {
+  const K = 11
+  const amp = (0.55 + strength * 0.028).toFixed(3)
+  return `${amp}*255*pow(abs(sin(${K}*atan2(${ndy(sy)}\\,${ndx(sx)}))),3)*exp(-2.0*${ndr(sx, sy)})`
+}
+
+/** Bright diagonal rays radiating from a source point (x/y, default
+ *  0.5/0.1 — top-center) over [start,end]. strength 1-20. */
+export async function applyGodRays(file: Blob, { start, end, strength, x = 0.5, y = 0.1 }: GodRaysOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const expr = buildGodRaysExpr(strength, x, y)
+  const sigma = (3 + strength * 0.3).toFixed(2)
+  const opacity = Math.min(1, 0.45 + strength * 0.025).toFixed(3)
+  const vf = screenLumaOnly(expr, sigma, opacity, start, end)
+  return runOneVideoFilter(file, vf, 'Could not apply the god rays effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface NeonGlowOptions { start: number; end: number; strength: number; color?: string }
+
+/**
+ * Needs a second, generated color source (like applyLight's lightLeak
+ * branch above) so it manages its own ffmpeg session instead of going
+ * through runOneVideoFilterComplex, which assumes a single input.
+ *
+ * Composite: threshold the frame's own luma to isolate highlights, blur
+ * just that mask, boost its gain back up (a wide-enough blur to look soft
+ * dilutes a small/sharp highlight's mass far more than expected — confirmed
+ * by testing, the mask peaked around 15/255 without this), multiply it by a
+ * solid color source to tint it, then screen that over the original. Doing
+ * the multiply AND the screen in RGB (not yuv420p) is what keeps the result
+ * hue-correct — see the module-level note above for why, and for the
+ * format=rgb24-before-yuv420p fix for the separate corruption bug that
+ * surfaced once this was rendered for real.
+ */
+export async function applyNeonGlow(file: Blob, { start, end, strength, color = '#ff2fd6' }: NeonGlowOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'neon-input.mp4'
+  const outputName = 'neon-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const w = windowClause(start, end)
+    const th = 160
+    const sigma = (2 + strength * 0.55).toFixed(1)
+    const gain = 3.4
+    const opacity = Math.min(1, 0.55 + strength * 0.03).toFixed(3)
+    const filterComplex = [
+      `[0:v]split=2[main][hl]`,
+      `[hl]lutyuv=y='if(gt(val\\,${th})\\,val\\,0)':u=128:v=128,gblur=sigma=${sigma},format=rgba[hlblur]`,
+      `[hlblur]lutrgb=r='clip(val*${gain}\\,0\\,255)':g='clip(val*${gain}\\,0\\,255)':b='clip(val*${gain}\\,0\\,255)'[hlrgb]`,
+      `[1:v]format=rgba[colorsrc]`,
+      `[hlrgb][colorsrc]blend=all_mode=multiply[tinted]`,
+      `[main]format=rgba[mainrgba]`,
+      `[mainrgba][tinted]blend=all_mode=screen:all_opacity=${opacity}${w},format=rgb24,format=yuv420p[outv]`,
+    ].join(';')
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-f', 'lavfi', '-i', `color=c=${color}:s=${width}x${height}`,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the neon glow effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 export type MotionStyle = 'cameraShake' | 'wobble' | 'zoomPunch' | 'motionTrail' | 'speedRamp'
 
 /**
