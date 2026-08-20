@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
   LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
-  AUDIO_RECIPES, VOICE_RECIPES,
+  AUDIO_RECIPES, VOICE_RECIPES, buildDoubleExposureFilter, buildSplitScreenFilter,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -402,5 +402,39 @@ describe('VOICE_RECIPES', () => {
 
   it('every preset builds a real filter chain, not an empty/placeholder string', () => {
     for (const preset of presets) expect(VOICE_RECIPES[preset].length).toBeGreaterThan(0)
+  })
+})
+
+describe('buildDoubleExposureFilter', () => {
+  it('mirrors a translucent copy of the frame over the original within the time window', () => {
+    const vf = buildDoubleExposureFilter(10, 1, 4)
+    expect(vf).toContain('hflip')
+    expect(vf).toContain('colorchannelmixer=aa=')
+    expect(vf).toContain("between(t\\,1\\,4)")
+    expect(vf).toContain('[outv]')
+  })
+
+  it('ghost opacity scales with strength, capped at 0.95', () => {
+    const low = Number(buildDoubleExposureFilter(1, 0, 1).match(/colorchannelmixer=aa=([\d.]+)/)?.[1])
+    const high = Number(buildDoubleExposureFilter(20, 0, 1).match(/colorchannelmixer=aa=([\d.]+)/)?.[1])
+    expect(high).toBeGreaterThan(low)
+    expect(high).toBeLessThanOrEqual(0.95)
+  })
+})
+
+describe('buildSplitScreenFilter', () => {
+  it('crops left/right halves and hstacks them, gated to the time window', () => {
+    const vf = buildSplitScreenFilter(2, 5)
+    expect(vf).toContain('crop=w=iw/2:h=ih')
+    expect(vf).toContain('hflip')
+    expect(vf).toContain('hstack=inputs=2')
+    expect(vf).toContain("between(t\\,2\\,5)")
+    expect(vf).toContain('[outv]')
+  })
+
+  it('has no strength-driven parameter — same filter chain regardless of call site', () => {
+    const a = buildSplitScreenFilter(0, 3)
+    const b = buildSplitScreenFilter(0, 3)
+    expect(a).toBe(b)
   })
 })

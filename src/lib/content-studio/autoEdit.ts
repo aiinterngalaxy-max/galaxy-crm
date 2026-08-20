@@ -2716,9 +2716,8 @@ export function buildMaskFilter(start: number, end: number): string {
 
 /**
  * A "spotlight" region effect over [start,end] — normal video inside the
- * shape, darkened outside it. Not a cutout/compositing mask (no chroma key
- * or background removal exists in this tool); this is the realistic version
- * of "circle mask"/"rectangle mask" given that constraint.
+ * shape, darkened outside it. Not a cutout/compositing mask — for that, see
+ * `applyChromaKey` below, which does key out and replace a background.
  *
  * Built on ffmpeg's `maskedmerge` filter against a static feathered shape
  * PNG (renderMaskImage, captionOverlay.ts) — needs two video inputs (the
@@ -2771,6 +2770,133 @@ export async function applyMask(
     await ffmpeg.deleteFile(maskName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
+}
+
+// ---------- chroma key / double exposure / split screen (Batch 8 masking/compositing) ----------
+//
+// applyMask above only ever darkens OUTSIDE a shape — there was no real
+// cutout/background-replacement in this tool. chromaKey below is the first
+// actual compositing effect: it keys out a color and replaces it with a
+// solid background, using the exact same "-f lavfi color= source + overlay,
+// -shortest" shape applyNeonGlow already uses for its own generated color
+// layer. doubleExposure and splitScreen don't need a second footage source
+// at all — this is a single-clip editor with no "pick a second video" input
+// anywhere, so both are built from the clip layered against ITSELF (a
+// translucent overlay for doubleExposure, a hard side-by-side crop for
+// splitScreen). "Feather" is not a fourth effect here — it's
+// already the existing `mask` command's own feather parameter (see
+// MaskOptions above), not a separate compositing primitive.
+
+export interface ChromaKeyOptions { start: number; end: number; keyColor?: string; replacementColor?: string; strength?: number }
+
+/**
+ * Keys out `keyColor` (default a standard green-screen green) and replaces
+ * it with a solid `replacementColor` background — built on ffmpeg's
+ * `chromakey` filter (color+similarity+blend, the same standard set every
+ * NLE's chroma key exposes), composited via the identical "color= lavfi
+ * source + overlay + -shortest" shape applyNeonGlow already uses for its own
+ * generated layer, just swapping the blend for a plain overlay since this
+ * is a hard cutout, not a tint. strength 0-1 (default 0.5) scales
+ * `similarity` (how close a pixel's color has to be to keyColor to be cut).
+ */
+export async function applyChromaKey(file: Blob, { start, end, keyColor = '#00ff00', replacementColor = '#000000', strength = 0.5 }: ChromaKeyOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'chromakey-input.mp4'
+  const outputName = 'chromakey-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const w = windowClause(start, end)
+    const similarity = (0.12 + strength * 0.35).toFixed(3)
+    const filterComplex = [
+      `[0:v]split=2[main][fx]`,
+      `[fx]chromakey=color=${keyColor}:similarity=${similarity}:blend=0.05[keyed]`,
+      `[1:v]scale=w=${width}:h=${height}[bg]`,
+      `[bg][keyed]overlay=x=0:y=0[composited]`,
+      `[main][composited]overlay=x=0:y=0${w}[outv]`,
+    ].join(';')
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName, '-f', 'lavfi', '-i', `color=c=${replacementColor}:s=${width}x${height}`,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]', '-map', '0:a',
+      '-shortest',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the chroma key effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface DoubleExposureOptions { start: number; end: number; strength: number }
+
+/**
+ * Superimposes a translucent, horizontally-mirrored copy of the frame over
+ * itself — the same "duplicate + format=yuva420p + colorchannelmixer=aa=
+ * opacity + overlay" ghosting technique the six blur-variant builders
+ * (buildDirectionalBlurFilter etc, see the note above them) already use, so
+ * it goes through runOneVideoFilterComplex rather than its own ffmpeg.exec
+ * boilerplate. There's no second video source to superimpose a genuinely
+ * DIFFERENT image the way a true photographic double exposure would; this
+ * is the honest single-clip approximation — a ghosted mirror-self overlay,
+ * not two different exposures. strength 1-20 scales the ghost layer's
+ * opacity (roughly 0.38-0.95).
+ */
+export function buildDoubleExposureFilter(strength: number, start: number, end: number): string {
+  const opacity = Math.min(0.95, 0.35 + strength * 0.03).toFixed(3)
+  const w = windowClause(start, end)
+  return [
+    `[0:v]split=2[main][fx]`,
+    `[fx]hflip,format=yuva420p,colorchannelmixer=aa=${opacity}[fxa]`,
+    `[main][fxa]overlay=x=0:y=0${w}[outv]`,
+  ].join(';')
+}
+
+export async function applyDoubleExposure(file: Blob, { start, end, strength }: DoubleExposureOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildDoubleExposureFilter(strength, start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the double exposure effect.', onProgress)
+}
+
+export interface SplitScreenOptions { start: number; end: number }
+
+/**
+ * Hard-crops the frame into left/right halves and hstacks them back to the
+ * original width — left is the untouched frame, right is a horizontally
+ * mirrored copy of the SAME half (not a second time offset: pulling a
+ * genuinely later moment of the same clip into the present frame would need
+ * random access into not-yet-decoded future frames, which a single-pass
+ * filter graph can't do). Distinct from doubleExposure on purpose: this is
+ * a hard stack with a visible seam at center, not an alpha blend — the two
+ * effects were kept structurally different rather than two skins on one
+ * filter, per the "each effect built separately, not collapsed" brief.
+ * No strength knob — like `flip`/`reverse`, this is a structural effect,
+ * not an intensity one.
+ */
+export function buildSplitScreenFilter(start: number, end: number): string {
+  const w = windowClause(start, end)
+  return [
+    `[0:v]split=2[main][fx]`,
+    `[fx]split=2[fxa][fxb]`,
+    `[fxa]crop=w=iw/2:h=ih:x=0:y=0[left]`,
+    `[fxb]crop=w=iw/2:h=ih:x=0:y=0,hflip[right]`,
+    `[left][right]hstack=inputs=2[stacked]`,
+    `[main][stacked]overlay=x=0:y=0${w}[outv]`,
+  ].join(';')
+}
+
+export async function applySplitScreen(file: Blob, { start, end }: SplitScreenOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const filterComplex = buildSplitScreenFilter(start, end)
+  return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the split screen effect.', onProgress)
 }
 
 export interface VideoFadeOptions { direction: 'in' | 'out'; duration: number; durationSec: number }

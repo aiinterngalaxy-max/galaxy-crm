@@ -265,17 +265,36 @@ export interface RotateCommand { type: 'rotate'; degrees: 90 | 180 | 270 }
 export interface FlipCommand { type: 'flip'; axis: 'horizontal' | 'vertical' }
 export interface ReverseCommand { type: 'reverse' }
 /** A "spotlight" region effect — the frame stays normal INSIDE the shape and
- *  is darkened OUTSIDE it, for [start,end]. There's no chroma key/background
- *  removal in this tool, so this is the realistic version of "mask"/"circle
- *  mask"/"rectangle mask": drawing attention to a region, not compositing a
- *  second layer through a cutout. x/y/size/feather all default to a centered,
- *  medium spotlight if omitted — unlike a timestamp or amount, "where" a mask
- *  goes has a reasonable default (the middle of the frame) worth using rather
- *  than always asking. */
+ *  is darkened OUTSIDE it, for [start,end]. Not a cutout/compositing mask —
+ *  for that, use `chroma_key` instead — this is the realistic version of
+ *  "mask"/"circle mask"/"rectangle mask" for drawing attention to a region.
+ *  x/y/size/feather all default to a centered, medium spotlight if omitted
+ *  — unlike a timestamp or amount, "where" a mask goes has a reasonable
+ *  default (the middle of the frame) worth using rather than always asking. */
 export interface MaskCommand {
   type: 'mask'; start: number; end: number; shape: 'circle' | 'rect'
   x?: number; y?: number; size?: number; feather?: number
 }
+/** Keys out `keyColor` (default green-screen green, e.g. "#00ff00") and
+ *  replaces it with a solid `replacementColor` (default black), over
+ *  [start,end]. strength 0-1 (default 0.5) scales key tolerance/similarity
+ *  — higher pulls out a wider range of near-matching colors. This IS the
+ *  cutout/background-removal tool `mask` explicitly is not — use chroma_key
+ *  for "green screen"/"remove the background color"/"key out the blue
+ *  screen", use mask for "spotlight"/"darken around". */
+export interface ChromaKeyCommand { type: 'chroma_key'; start: number; end: number; keyColor?: string; replacementColor?: string; strength?: number }
+/** Superimposes a translucent, horizontally-mirrored copy of the frame over
+ *  itself, over [start,end] — the honest single-clip approximation of a
+ *  double exposure (there's no second video source in this tool to
+ *  superimpose a genuinely different image). strength 1-20 scales the
+ *  ghost layer's opacity. */
+export interface DoubleExposureCommand { type: 'double_exposure'; start: number; end: number; strength: number }
+/** Hard-crops the frame into left/right halves and stacks them back to the
+ *  original width — left is the untouched frame, right is a horizontally
+ *  mirrored copy of it, over [start,end]. A visible hard seam at center,
+ *  distinct from double_exposure's alpha blend. No strength knob — a
+ *  structural effect, same reasoning as `flip`/`reverse`. */
+export interface SplitScreenCommand { type: 'split_screen'; start: number; end: number }
 /** Modifies an EXISTING text/caption overlay rather than adding one.
  *  `overlayId`/`text` are resolved by validateCommand the same way as
  *  RemoveTextCommand (never guessed by the AI) — ONLY the fields the
@@ -302,8 +321,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color' | 'chroma_key' | 'double_exposure' | 'split_screen'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color', 'chroma_key', 'double_exposure', 'split_screen']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -320,6 +339,7 @@ export type EditCommand =
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
   | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | MotionCommand | AudioFxCommand
   | DatamoshCommand | AutoColorCommand
+  | ChromaKeyCommand | DoubleExposureCommand | SplitScreenCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
 
 export const COMMAND_TYPES = [
@@ -327,7 +347,7 @@ export const COMMAND_TYPES = [
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
-  'datamosh', 'auto_color',
+  'datamosh', 'auto_color', 'chroma_key', 'double_exposure', 'split_screen',
   'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
 ] as const
@@ -942,6 +962,30 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'auto_color', ...w, strength }
     }
 
+    case 'chroma_key': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 0.5
+      if (strength < 0 || strength > 1) return { error: 'Chroma key strength has to be between 0 and 1.' }
+      const keyColor = str(c.keyColor) ?? undefined
+      const replacementColor = str(c.replacementColor) ?? undefined
+      return { type: 'chroma_key', ...w, strength, ...(keyColor != null ? { keyColor } : {}), ...(replacementColor != null ? { replacementColor } : {}) }
+    }
+
+    case 'double_exposure': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Double exposure strength has to be between 1 and 20.' }
+      return { type: 'double_exposure', ...w, strength }
+    }
+
+    case 'split_screen': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      return { type: 'split_screen', ...w }
+    }
+
     case 'color': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -1157,7 +1201,7 @@ squeeze { "type":"squeeze","start":number,"end":number,"strength":number,"x"?:nu
 stretch { "type":"stretch","start":number,"end":number,"strength":number,"axis"?:"horizontal"|"vertical" } — stretches the picture along ONE axis only (default "horizontal"), frame size unchanged so the edges crop off. Distinct from zoom, which scales both axes and keeps the aspect ratio. Map "squash it wide"/"make everyone tall and thin" here.
 lens_distortion { "type":"lens_distortion","start":number,"end":number,"strength":number,"mode":"barrel"|"pincushion" } — lens-correction-style distortion. "barrel" bows straight lines outward (a milder, correction-scale version of fisheye), "pincushion" bows them inward. mode is REQUIRED — the two look opposite, so ask for a clarification rather than guessing when neither direction is implied.
 tiltshift_blur { "type":"tiltshift_blur","start":number,"end":number,"strength":number,"bandY"?:number,"bandHeight"?:number } — miniature-photo look: a horizontal band stays sharp, blur increases with distance above/below it. bandY = vertical center of the sharp band (0-1, default 0.5); bandHeight = how much of the frame height stays sharp (0.05-0.9, default 0.25). strength 1-20 controls how strong the blur gets outside the band. Map "tilt-shift"/"miniature effect"/"toy town look" to this.
-mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/chroma-key/background-removal tool — "cut me out onto another background" must be a clarification saying only a darken-outside spotlight exists. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
+mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/background-removal tool — use chroma_key for that. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
 glitch { "type":"glitch","start":number,"end":number,"style":"rgbSplit"|"tvNoise"|"screenFlicker"|"vhs"|"scanLines"|"digitalGlitch"|"signalDistortion","strength"?:number } — digital-degradation effect. strength 0-1, default 0.5, omit unless strength is specified. rgbSplit=chromatic-aberration channel shift. tvNoise=heavy static. screenFlicker=rapid brightness pulse. vhs=rgbSplit+noise+desaturation+vignette. scanLines=darkened alternating CRT lines. digitalGlitch=short jittery rgbSplit/noise bursts. signalDistortion=stronger static rgbSplit+contrast push. Map "glitch it"/"chromatic aberration"/"VHS effect"/"old TV look"/"static" to the matching style.
 light { "type":"light","start":number,"end":number,"style":"flash"|"strobe"|"flicker"|"glow"|"bloom"|"lightLeak","strength"?:number } — brightness effect, strength 0-1 default 0.5. flash=one quick decaying pulse. strobe=fast sharp on/off. flicker=slower gentler wobble. glow/bloom=soft-blurred brighten-over-itself, bloom stronger. lightLeak=warm orange wash. Map "flash effect"/"strobe light"/"flickering light"/"glow"/"light leak" to the matching style.
@@ -1173,6 +1217,9 @@ motionfx { "type":"motionfx","start":number,"end":number,"style":"cameraShake"|"
 audiofx { "type":"audiofx","style":"equalizer"|"reverb"|"echo"|"distortion"|"bassBoost"|"pitch"|"mono"|"fadeIn"|"fadeOut"|"voiceChanger","strength"?:number,"direction"?:"up"|"down","duration"?:number,"preset"?:"robot"|"chipmunk"|"deep" } — WHOLE-CLIP audio effect, no start/end (same as reverse/audio_noise_reduction). strength 0-1, default 0.5, unused by mono and voiceChanger. equalizer=presence/clarity boost. reverb=approximate layered-echo room blend, not true convolution. echo=one clear spaced repeat. distortion=bit-crush grit. bassBoost=low-frequency boost. pitch shifts up/down without changing speed via "direction" (default up) — "deepen the voice"→down. mono=downmix to mono (no strength). fadeIn/fadeOut use "duration" (seconds, default 1), not strength. voiceChanger applies a FIXED preset via "preset" (default "robot") — "robot"=metallic/echoed, "chipmunk"=high-pitched fast-talker, "deep"=slowed-down monster voice. Prefer voiceChanger over pitch whenever the instruction names a character ("make me sound like a robot"/"chipmunk voice"/"monster voice") rather than just a direction ("deepen my voice"→pitch down). Map "add reverb"/"echo"/"distort audio"/"boost bass"/"pitch it up"/"deeper voice"/"make it mono"/"fade audio"/"voice changer"/"robot voice"/"chipmunk voice" to the matching style.
 datamosh { "type":"datamosh","start":number,"end":number,"strength":number } — motion-smeared temporal-bleed look between frames, an APPROXIMATION of true datamoshing (this build can't manipulate raw encoded I-frames/GOPs, only whole-frame filters) via blending several preceding frames together. strength 1-20. Map "datamosh"/"datamoshed"/"corrupted video glitch"/"frame bleed" here.
 auto_color { "type":"auto_color","start":number,"end":number,"strength"?:number } — one-tap "auto enhance": a FIXED contrast/saturation/sharpen push, strength 0-1 default 0.6. NOT real adaptive white-balance/histogram analysis (no such filter available in this build) — use "color" instead whenever specific tunable knobs are named. Map "auto color correct"/"auto enhance"/"fix the colors automatically"/"one-tap enhance" here.
+chroma_key { "type":"chroma_key","start":number,"end":number,"keyColor"?:string,"replacementColor"?:string,"strength"?:number } — keys out keyColor (any CSS color, default green-screen green "#00ff00") and replaces it with a solid replacementColor (default black "#000000"). strength 0-1 default 0.5, scales key tolerance. THIS is the cutout tool mask explicitly is not — use for "green screen"/"key out the background"/"remove the blue screen", not "spotlight"/"darken around" (that's mask). There's no second video to composite onto — only a solid replacement color, never a second clip/image.
+double_exposure { "type":"double_exposure","start":number,"end":number,"strength":number } — superimposes a translucent mirrored copy of the frame over itself, strength 1-20 scales ghost opacity. An honest single-clip approximation (no second footage source exists in this tool to blend a genuinely different image) — if asked to blend in a SPECIFIC second photo/video, that's a clarification saying only this self-ghosting version exists.
+split_screen { "type":"split_screen","start":number,"end":number } — hard-splits the frame into left/right halves, left normal, right a mirrored copy, with a visible seam at center. No strength field. Distinct from double_exposure (alpha blend, no seam) — use split_screen for "split screen"/"mirror the frame"/"symmetric halves", double_exposure for "ghosting"/"superimposed"/"double exposure".
 color { "type":"color","start":number,"end":number,"brightness"?:number,"contrast"?:number,"saturation"?:number,"grayscale"?:boolean,"warmth"?:number,"tint"?:number,"vignette"?:number,"exposure"?:number,"highlights"?:number,"shadows"?:number,"sharpness"?:number,"clarity"?:number,"grain"?:number } — at least one field besides start/end/type required. brightness -1..1 = flat offset; exposure -1..1 = multiplicative camera-dial push — use exposure for "overexposed/underexposed", brightness for plain "brighter/darker". contrast/saturation 0..3 (1=unchanged). warmth -1 (blue)..1 (orange); tint -1 (magenta)..1 (green) — "too green"→tint, "too warm/blue"→warmth. highlights/shadows -1..1 lift/crush just the bright/dark end independent of overall brightness — "recover blown-out sky"→negative highlights, "lift the blacks"→positive shadows. vignette 0..1. sharpness 0..2 = normal sharpen; clarity 0..1 = softer wider punchy local-contrast sharpen — "crisper"→sharpness, "more pop/texture"→clarity. grain 0..1 = film-grain noise. Map casual wording: "dull/muted/washed out"→lower saturation (~0.4); "vibrant/vivid/punchy"→higher saturation (~1.6); "dim/underexposed"→negative brightness; "brighter/overexposed look"→positive brightness. "moody/cinematic" alone is too vague — ask what specifically, rather than guessing a whole grade.
 fade { "type":"fade","direction":"in"|"out","duration":number } — fades to/from black at the very start/end, duration seconds (default 1).
 rotate { "type":"rotate","degrees":90|180|270 }
@@ -1223,7 +1270,10 @@ Examples:
 "Datamosh the last 2 seconds." → {"commands":[{"type":"datamosh","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
 "Auto color correct the whole video." → {"commands":[{"type":"auto_color","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":0.6}]}
 "Make my voice sound like a robot." (a character, not a direction, so voiceChanger not pitch) → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"robot"}]}
-"Turn my voice into a chipmunk." → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"chipmunk"}]}`
+"Turn my voice into a chipmunk." → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"chipmunk"}]}
+"Green screen this — key out the green and put in a blue background." → {"commands":[{"type":"chroma_key","start":0,"end":${ctx.durationSec.toFixed(1)},"keyColor":"#00ff00","replacementColor":"#0000ff","strength":0.5}]}
+"Give it a double exposure ghost look for the first 4 seconds." → {"commands":[{"type":"double_exposure","start":0,"end":4,"strength":10}]}
+"Split the screen in half, mirrored, from 2 to 5 seconds." → {"commands":[{"type":"split_screen","start":2,"end":5}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1389,6 +1439,9 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'audiofx': return cmd.style === 'voiceChanger' ? `Voice Changer (${VOICE_PRESET_LABELS[cmd.preset ?? 'robot']})` : AUDIO_LABELS[cmd.style]
     case 'datamosh': return `Datamosh ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'auto_color': return `Auto color ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'chroma_key': return `Chroma key ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'double_exposure': return `Double exposure ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'split_screen': return `Split screen ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'text_style': return `Restyle text "${cmd.text}"${styleSummary(cmd)}`
     case 'text_edit': return `Edit text → "${cmd.text}"`
     case 'captions_auto': return 'Auto-generate captions from speech'
@@ -1508,6 +1561,12 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Datamosh', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
     case 'auto_color':
       return { title: 'Auto Color', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength ?? 0.6}`] }
+    case 'chroma_key':
+      return { title: 'Chroma Key', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Key: ${cmd.keyColor ?? 'green'} → ${cmd.replacementColor ?? 'black'}`] }
+    case 'double_exposure':
+      return { title: 'Double Exposure', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'split_screen':
+      return { title: 'Split Screen', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, 'Left normal, right mirrored'] }
     case 'color': {
       const lines: string[] = []
       if (cmd.brightness != null) lines.push(`Brightness: ${cmd.brightness > 0 ? '+' : ''}${cmd.brightness}`)
