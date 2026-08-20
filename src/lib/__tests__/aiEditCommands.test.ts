@@ -870,6 +870,38 @@ describe('validateCommand', () => {
       expect(validateCommand({ type: 'audiofx', style: 'reverb', strength: 1.5 }, ctx)).toHaveProperty('error')
       expect(validateCommand({ type: 'audiofx', style: 'reverb', strength: -0.1 }, ctx)).toHaveProperty('error')
     })
+    it('defaults voiceChanger preset to robot, no strength, and rejects an unsupported preset', () => {
+      expect(validateCommand({ type: 'audiofx', style: 'voiceChanger' }, ctx)).toEqual({ type: 'audiofx', style: 'voiceChanger', preset: 'robot' })
+      expect(validateCommand({ type: 'audiofx', style: 'voiceChanger', preset: 'chipmunk' }, ctx)).toEqual({ type: 'audiofx', style: 'voiceChanger', preset: 'chipmunk' })
+      expect(validateCommand({ type: 'audiofx', style: 'voiceChanger', preset: 'nonsense' }, ctx)).toEqual({ type: 'audiofx', style: 'voiceChanger', preset: 'robot' })
+    })
+  })
+
+  describe('datamosh', () => {
+    it('accepts a valid window/strength', () => {
+      expect(validateCommand({ type: 'datamosh', start: 1, end: 4, strength: 10 }, ctx))
+        .toEqual({ type: 'datamosh', start: 1, end: 4, strength: 10 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'datamosh', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'datamosh', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects an invalid time window', () => {
+      expect(validateCommand({ type: 'datamosh', start: 5, end: 2, strength: 10 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('auto_color', () => {
+    it('accepts a valid window, defaulting strength to 0.6', () => {
+      expect(validateCommand({ type: 'auto_color', start: 1, end: 4 }, ctx))
+        .toEqual({ type: 'auto_color', start: 1, end: 4, strength: 0.6 })
+      expect(validateCommand({ type: 'auto_color', start: 1, end: 4, strength: 0.9 }, ctx))
+        .toEqual({ type: 'auto_color', start: 1, end: 4, strength: 0.9 })
+    })
+    it('rejects strength outside 0-1', () => {
+      expect(validateCommand({ type: 'auto_color', start: 1, end: 4, strength: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'auto_color', start: 1, end: 4, strength: -0.1 }, ctx)).toHaveProperty('error')
+    })
   })
 
   describe('fade / rotate / flip / reverse', () => {
@@ -1176,6 +1208,9 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'audiofx', style: 'reverb', strength: 0.5 },
     { type: 'audiofx', style: 'pitch', strength: 0.5, direction: 'down' },
     { type: 'audiofx', style: 'fadeOut', duration: 2 },
+    { type: 'audiofx', style: 'voiceChanger', preset: 'robot' },
+    { type: 'datamosh', start: 1, end: 4, strength: 10 },
+    { type: 'auto_color', start: 1, end: 4, strength: 0.6 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

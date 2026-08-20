@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
   LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
-  AUDIO_RECIPES,
+  AUDIO_RECIPES, VOICE_RECIPES,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -380,5 +380,27 @@ describe('AUDIO_RECIPES', () => {
     const low = Number(AUDIO_RECIPES.bassBoost(0.1, 'up', 1).match(/g=([\d.]+)/)?.[1])
     const high = Number(AUDIO_RECIPES.bassBoost(0.9, 'up', 1).match(/g=([\d.]+)/)?.[1])
     expect(high).toBeGreaterThan(low)
+  })
+})
+
+describe('VOICE_RECIPES', () => {
+  const presets = ['robot', 'chipmunk', 'deep'] as const
+
+  it('has a recipe for every VoicePreset the command vocabulary advertises', () => {
+    for (const preset of presets) expect(VOICE_RECIPES).toHaveProperty(preset)
+  })
+
+  it('chipmunk raises sample rate, deep lowers it — each compensated by the inverse atempo, same trick pitch uses', () => {
+    for (const [preset, expectHigher] of [['chipmunk', true], ['deep', false]] as const) {
+      const recipe = VOICE_RECIPES[preset]
+      const rate = Number(recipe.match(/asetrate=44100\*([\d.]+)/)?.[1])
+      const tempo = Number(recipe.match(/atempo=([\d.]+)/)?.[1])
+      expect(expectHigher ? rate > 1 : rate < 1).toBe(true)
+      expect(tempo * rate).toBeCloseTo(1, 1)
+    }
+  })
+
+  it('every preset builds a real filter chain, not an empty/placeholder string', () => {
+    for (const preset of presets) expect(VOICE_RECIPES[preset].length).toBeGreaterThan(0)
   })
 })

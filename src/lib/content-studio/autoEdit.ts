@@ -2631,7 +2631,22 @@ export async function applyNoiseReduction(file: Blob, onProgress?: (p: AutoEditP
   }
 }
 
-export type AudioStyle = 'equalizer' | 'reverb' | 'echo' | 'distortion' | 'bassBoost' | 'pitch' | 'mono' | 'fadeIn' | 'fadeOut'
+export type AudioStyle = 'equalizer' | 'reverb' | 'echo' | 'distortion' | 'bassBoost' | 'pitch' | 'mono' | 'fadeIn' | 'fadeOut' | 'voiceChanger'
+export type VoicePreset = 'robot' | 'chipmunk' | 'deep'
+
+/**
+ * Three fixed voice-changer presets, reachable via the 'voiceChanger'
+ * AudioStyle. Built ONLY from filters this file's own AUDIO_RECIPES already
+ * rely on elsewhere — asetrate+aresample+atempo (the exact pitch-shift-with-
+ * duration-compensation trick 'pitch' below uses), aecho ('reverb'/'echo'),
+ * bass ('bassBoost') — rather than introducing any new, unverified audio
+ * filter into this build.
+ */
+export const VOICE_RECIPES: Record<VoicePreset, string> = {
+  chipmunk: 'asetrate=44100*1.6,aresample=44100,atempo=0.625',
+  deep: 'asetrate=44100*0.62,aresample=44100,atempo=1.6129,bass=g=6',
+  robot: 'asetrate=44100*0.92,aresample=44100,atempo=1.087,aecho=0.8:0.9:16:0.55',
+}
 
 /**
  * One audio filter chain per style, all built from filters independently
@@ -2657,6 +2672,7 @@ export const AUDIO_RECIPES: Record<AudioStyle, (s: number, direction: 'up' | 'do
   mono: () => `pan=mono|c0=0.5*c0+0.5*c1`,
   fadeIn: (_s, _d, duration) => `afade=t=in:st=0:d=${duration}`,
   fadeOut: () => '', // computed inline in applyAudioFx — needs the clip's real total duration
+  voiceChanger: () => '', // computed inline in applyAudioFx from VOICE_RECIPES[preset] — no strength/direction knob, a fixed preset like 'mono'
 }
 
 export interface AudioFxOptions {
@@ -2667,9 +2683,11 @@ export interface AudioFxOptions {
    *  fade's own length; the clip's real total duration is probed from the
    *  file itself. */
   duration?: number
+  /** Only meaningful for style 'voiceChanger' — which fixed preset to use, default 'robot'. */
+  preset?: VoicePreset
 }
 
-export async function applyAudioFx(file: Blob, { style, strength = 0.5, direction = 'up', duration = 1 }: AudioFxOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+export async function applyAudioFx(file: Blob, { style, strength = 0.5, direction = 'up', duration = 1, preset = 'robot' }: AudioFxOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
@@ -2682,6 +2700,8 @@ export async function applyAudioFx(file: Blob, { style, strength = 0.5, directio
       onProgress?.({ phase: 'analyzing' })
       const totalDur = await probeDuration(ffmpeg, inputName)
       af = `afade=t=out:st=${Math.max(0, totalDur - duration)}:d=${duration}`
+    } else if (style === 'voiceChanger') {
+      af = VOICE_RECIPES[preset]
     } else {
       af = AUDIO_RECIPES[style](strength, direction, duration)
     }
@@ -2697,6 +2717,51 @@ export async function applyAudioFx(file: Blob, { style, strength = 0.5, directio
     await ffmpeg.deleteFile(inputName).catch(() => {})
     await ffmpeg.deleteFile(outputName).catch(() => {})
   }
+}
+
+// ---------- Datamosh / auto color (Batch 9 misc effects) ----------
+//
+// Plain -vf filters, same shape as the color/look effects above. Pixel
+// sorting is NOT implemented here: a real pixel sort re-orders pixels along
+// a row/column by brightness, a non-local operation ffmpeg's per-pixel `geq`
+// sampling can't express — it needs the frame extracted to a canvas and
+// sorted in JS, the same class of real per-frame processing applyBackgroundBlur
+// below uses for ML segmentation. That's a materially bigger addition than
+// datamosh/autoColor/voiceChanger and was left out of this pass.
+
+export interface DatamoshOptions { start: number; end: number; strength: number }
+
+/**
+ * Approximates the "datamosh" look — motion-smeared bleeding between frames,
+ * normally caused by dropping I-frames so P-frames keep predicting off a
+ * stale keyframe — using `tmix`, which blends the current frame with several
+ * preceding ones. This ffmpeg.wasm build has no access to raw encoded-frame
+ * (GOP/I-frame) manipulation from a filter graph, so a literal datamosh
+ * isn't reachable here; tmix is the closest whole-frame approximation
+ * available (a real temporal blend, not a fake blur) — same "closest
+ * available, clearly approximate" reasoning as this file's own `reverb`
+ * recipe. strength 1-20 maps to how many frames are blended together (2-9).
+ */
+export async function applyDatamosh(file: Blob, { start, end, strength }: DatamoshOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const frames = Math.max(2, Math.min(9, Math.round(2 + strength * 0.35)))
+  const vf = `tmix=frames=${frames}${windowClause(start, end)}`
+  return runOneVideoFilter(file, vf, 'Could not apply the datamosh effect.', onProgress, ['-c:a', 'copy'])
+}
+
+export interface AutoColorOptions { start: number; end: number; strength?: number }
+
+/**
+ * "Auto color" one-tap enhance — a fixed contrast/saturation/sharpen push
+ * (curves' own increase_contrast preset, same as this file's 'hdr' look,
+ * plus a moderate saturation/contrast lift and unsharp), NOT a real
+ * per-frame histogram/white-balance analysis: this ffmpeg.wasm build has no
+ * `normalize`/`colorlevels`-style adaptive filter confirmed available.
+ * strength 0-1 (default 0.6) scales how strong the push is.
+ */
+export async function applyAutoColor(file: Blob, { start, end, strength = 0.6 }: AutoColorOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  const w = windowClause(start, end)
+  const vf = `curves=preset=increase_contrast${w},eq=saturation=${(1 + strength * 0.5).toFixed(2)}:contrast=${(1 + strength * 0.15).toFixed(2)}${w},unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=${(strength * 0.6).toFixed(2)}${w}`
+  return runOneVideoFilter(file, vf, 'Could not auto-color the video.', onProgress, ['-c:a', 'copy'])
 }
 
 // ---------- Background-only blur ----------
