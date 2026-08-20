@@ -3,6 +3,7 @@ import {
   parseSilenceLog, computeKeepSegments, atempoChain, buildInsertClipFilter, buildMaskFilter,
   LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
   AUDIO_RECIPES, VOICE_RECIPES,
+  buildRotateCoverScale, buildPivotRotateFilter, buildSpinAngleExpr, buildRotationAngleExpr, buildSwingAngleExpr, buildBounceZoomExpr,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -402,5 +403,94 @@ describe('VOICE_RECIPES', () => {
 
   it('every preset builds a real filter chain, not an empty/placeholder string', () => {
     for (const preset of presets) expect(VOICE_RECIPES[preset].length).toBeGreaterThan(0)
+  })
+})
+
+describe('buildRotateCoverScale', () => {
+  it('is never below 1 (never shrinks the frame)', () => {
+    expect(buildRotateCoverScale(1920, 1080, 0, Math.PI)).toBeGreaterThanOrEqual(1)
+  })
+  it('a full-circle sweep needs strictly more coverage than a small-angle sweep', () => {
+    const small = buildRotateCoverScale(1920, 1080, 0, 0.1)
+    const full = buildRotateCoverScale(1920, 1080, 0, Math.PI)
+    expect(full).toBeGreaterThan(small)
+  })
+  it('at angle 0 a square frame needs no extra scale', () => {
+    expect(buildRotateCoverScale(1000, 1000, 0, 0)).toBeCloseTo(1, 4)
+  })
+})
+
+describe('buildPivotRotateFilter', () => {
+  it('produces the pad/scale/rotate/crop chain in order', () => {
+    const vf = buildPivotRotateFilter(1920, 1080, 0.5, 0.5, '0', 0, Math.PI)
+    const stages = vf.split(',')
+    expect(stages[0]).toMatch(/^pad=/)
+    expect(stages[1]).toMatch(/^scale=/)
+    expect(stages[2]).toMatch(/^rotate=/)
+    expect(stages[3]).toMatch(/^crop=/)
+  })
+  it('a centered pivot (0.5,0.5) pads by exactly 1x (a no-op pad)', () => {
+    const vf = buildPivotRotateFilter(1920, 1080, 0.5, 0.5, '0', 0, Math.PI)
+    expect(vf).toContain("pad=w='iw*1.0000'")
+    expect(vf).toContain("pad=w='iw*1.0000':h='ih*1.0000'")
+  })
+  it('an off-center pivot pads by more than 1x on at least one axis', () => {
+    const vf = buildPivotRotateFilter(1920, 1080, 0.2, 0.5, '0', 0, Math.PI)
+    expect(vf).not.toContain("pad=w='iw*1.0000':h='ih*1.0000'")
+  })
+})
+
+describe('buildSpinAngleExpr', () => {
+  it('clockwise advances the angle positively over time, counterclockwise negatively', () => {
+    const cw = buildSpinAngleExpr(10, 'clockwise', 0, 5)
+    const ccw = buildSpinAngleExpr(10, 'counterclockwise', 0, 5)
+    expect(cw.startsWith('1*')).toBe(true)
+    expect(ccw.startsWith('-1*')).toBe(true)
+  })
+  it('holds the angle before start and after end via clip(t,start,end)', () => {
+    const expr = buildSpinAngleExpr(10, 'clockwise', 2, 6)
+    expect(expr).toContain('clip(t\\,2\\,6)')
+  })
+})
+
+describe('buildRotationAngleExpr', () => {
+  it('interpolates linearly from fromDegrees to toDegrees converted to radians', () => {
+    const expr = buildRotationAngleExpr(0, 90, 0, 2)
+    const fromRad = 0
+    const toRad = Math.PI / 2
+    expect(expr).toContain(String(fromRad))
+    expect(expr).toContain(String(toRad - fromRad))
+  })
+})
+
+describe('buildSwingAngleExpr', () => {
+  it('settles back to exactly 0 at progress=1 (no discontinuity)', () => {
+    // sin(2*PI*2.5*1) = sin(5*PI) = 0 exactly, so the expression algebraically
+    // evaluates to 0 at t=end regardless of amplitude/strength.
+    const expr = buildSwingAngleExpr(10, 0, 4)
+    expect(expr).toContain('sin(2*PI*2.5*')
+    expect(expr).toContain('exp(-4*')
+  })
+  it('peak swing amplitude scales with strength', () => {
+    const low = buildSwingAngleExpr(1, 0, 4)
+    const high = buildSwingAngleExpr(20, 0, 4)
+    const lowAmp = Number(low.match(/^([\d.]+)\*sin/)?.[1])
+    const highAmp = Number(high.match(/^([\d.]+)\*sin/)?.[1])
+    expect(highAmp).toBeGreaterThan(lowAmp)
+  })
+})
+
+describe('buildBounceZoomExpr', () => {
+  it('is neutral (scale factor 1 baseline) before startFrame and after endFrame', () => {
+    const expr = buildBounceZoomExpr(10, 30, 90)
+    expect(expr).toContain('lt(on\\,30)\\,0')
+    expect(expr).toContain('gt(on\\,90)\\,1')
+  })
+  it('pop amplitude scales with strength', () => {
+    const low = buildBounceZoomExpr(1, 0, 60)
+    const high = buildBounceZoomExpr(20, 0, 60)
+    const lowAmp = Number(low.match(/^1\+([\d.]+)\*sin/)?.[1])
+    const highAmp = Number(high.match(/^1\+([\d.]+)\*sin/)?.[1])
+    expect(highAmp).toBeGreaterThan(lowAmp)
   })
 })

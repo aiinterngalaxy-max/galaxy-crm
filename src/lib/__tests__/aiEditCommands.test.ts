@@ -815,6 +815,69 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('spin', () => {
+    it('accepts a valid window/strength, defaulting direction to clockwise', () => {
+      expect(validateCommand({ type: 'spin', start: 1, end: 4, strength: 10 }, ctx))
+        .toEqual({ type: 'spin', start: 1, end: 4, strength: 10, direction: 'clockwise' })
+    })
+    it('accepts an explicit counterclockwise direction', () => {
+      expect(validateCommand({ type: 'spin', start: 1, end: 4, strength: 10, direction: 'counterclockwise' }, ctx))
+        .toEqual({ type: 'spin', start: 1, end: 4, strength: 10, direction: 'counterclockwise' })
+    })
+    it('rejects an invalid direction', () => {
+      expect(validateCommand({ type: 'spin', start: 1, end: 4, strength: 10, direction: 'sideways' }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'spin', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'spin', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('rotation', () => {
+    it('accepts a valid fromDegrees/toDegrees pair', () => {
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4, fromDegrees: 0, toDegrees: 45 }, ctx))
+        .toEqual({ type: 'rotation', start: 1, end: 4, fromDegrees: 0, toDegrees: 45 })
+    })
+    it('requires both fromDegrees and toDegrees', () => {
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4, fromDegrees: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4, toDegrees: 45 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects degrees outside -360..360', () => {
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4, fromDegrees: -400, toDegrees: 45 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'rotation', start: 1, end: 4, fromDegrees: 0, toDegrees: 400 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('bounce', () => {
+    it('accepts a valid window/strength', () => {
+      expect(validateCommand({ type: 'bounce', start: 1, end: 4, strength: 10 }, ctx))
+        .toEqual({ type: 'bounce', start: 1, end: 4, strength: 10 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'bounce', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'bounce', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('swing', () => {
+    it('accepts a valid window/strength, defaulting pivot to center', () => {
+      expect(validateCommand({ type: 'swing', start: 1, end: 4, strength: 10 }, ctx))
+        .toEqual({ type: 'swing', start: 1, end: 4, strength: 10, x: 0.5, y: 0.5 })
+    })
+    it('accepts an explicit pivot', () => {
+      expect(validateCommand({ type: 'swing', start: 1, end: 4, strength: 10, x: 0.2, y: 0.8 }, ctx))
+        .toEqual({ type: 'swing', start: 1, end: 4, strength: 10, x: 0.2, y: 0.8 })
+    })
+    it('rejects a pivot outside 0-1', () => {
+      expect(validateCommand({ type: 'swing', start: 1, end: 4, strength: 10, x: 2, y: 0.5 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'swing', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'swing', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('mask', () => {
     it('accepts a minimal circle mask, filling in defaults', () => {
       const result = validateCommand({ type: 'mask', start: 0, end: 5, shape: 'circle' }, ctx)
@@ -1283,6 +1346,10 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'audiofx', style: 'voiceChanger', preset: 'robot' },
     { type: 'datamosh', start: 1, end: 4, strength: 10 },
     { type: 'auto_color', start: 1, end: 4, strength: 0.6 },
+    { type: 'spin', start: 1, end: 4, strength: 10, direction: 'clockwise' },
+    { type: 'rotation', start: 1, end: 4, fromDegrees: 0, toDegrees: 45 },
+    { type: 'bounce', start: 1, end: 4, strength: 10 },
+    { type: 'swing', start: 1, end: 4, strength: 10, x: 0.5, y: 0.5 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {

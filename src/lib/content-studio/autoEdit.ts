@@ -1845,6 +1845,296 @@ export async function applyStretch(file: Blob, { start, end, strength, axis = 'h
   return runOneVideoFilterComplex(file, filterComplex, 'Could not apply the stretch effect.', onProgress)
 }
 
+// ---------- spin / rotation / bounce / swing ----------
+// Four "Motion" effects, evaluated against the existing motionfx/rotate/zoom
+// commands to make sure none of these is a near-duplicate: motionfx's own
+// wobble/cameraShake jitter POSITION, zoomPunch changes SCALE with no
+// spring/overshoot, rotate is an instant fixed 90/180/270 snap, zoom is a
+// continuous SCALE change with no rotation. spin/rotation/swing are all
+// genuine ROTATION-over-time (none of the above do that); bounce is a
+// SCALE-over-time animation with decaying spring overshoot (none of the
+// above do that either).
+//
+// spin/rotation/swing share one native `-vf` chain (no filter_complex): a
+// `rotate` filter with a time-varying `a=` angle expression — ffmpeg's own
+// per-frame `t` variable makes this possible without any split/overlay
+// trick. `rotate` always pivots about the CENTER of its own input frame
+// (confirmed by the spin_blur commit above), so an off-center pivot (swing's
+// x/y) is faked the same way spin_blur fakes it: pad the frame so the pivot
+// sits at the padded canvas's center, rotate there, then crop back out the
+// original region. On top of that, since these rotate the WHOLE frame
+// (not a translucent smear like spin_blur), the corners need to stay
+// covered for every angle actually reached, not just a small max angle —
+// buildRotateCoverScale below computes the exact scale-up factor that
+// guarantees no black corners appear for any angle in [minAngleRad,
+// maxAngleRad], by checking each corner of the (padded) frame against the
+// rotated support function. Confirmed via a real render across several
+// timestamps: the frame stays fully covered through the whole rotation
+// range, and the picture only reads as "more zoomed in" than usual for a
+// wide (16:9-ish) frame swept through a full spin, which is the unavoidable
+// cost of guaranteeing zero black corners rather than an accepted rough edge.
+//
+// bounce is a SCALE animation instead, so it reuses applyZoomPan's own
+// technique (zoompan, keyed on frame index) rather than the rotate-filter
+// approach — just with a decaying-oscillator `z=` expression instead of a
+// linear one. See buildBounceZoomExpr for the formula, adapted from the
+// existing text-caption 'bounce' entrance animation (autoEdit.ts's own
+// windowed-caption overlay code) but using sin() instead of cos() so it
+// starts and ends AT scale 1 (a "neutral → pop → settle" shape) instead of
+// starting displaced (that shape is right for a caption sliding in from an
+// offset position, wrong for a whole-frame pop that should begin and end
+// looking normal).
+
+/**
+ * The scale factor a frame (aspect ratio W:H) must be enlarged by so that,
+ * after rotating by any angle in [minAngleRad, maxAngleRad] about its own
+ * center, the rotated frame still fully covers the original W×H rectangle
+ * (support-function condition per corner: Sw|cos a|+Sh|sin a| >= W and
+ * Sw|sin a|+Sh|cos a| >= H). Sampled numerically across the angle range
+ * rather than solved in closed form — cheap (a few dozen evaluations, once
+ * per apply* call, not per frame) and trivially correct for any range,
+ * including the full-circle case `spin` needs (whose worst angle depends on
+ * aspect ratio, not a nice round number).
+ */
+export function buildRotateCoverScale(width: number, height: number, minAngleRad: number, maxAngleRad: number): number {
+  const samples = 48
+  let maxS = 1
+  for (let i = 0; i <= samples; i++) {
+    const a = minAngleRad + ((maxAngleRad - minAngleRad) * i) / samples
+    const c = Math.abs(Math.cos(a))
+    const s = Math.abs(Math.sin(a))
+    maxS = Math.max(maxS, c + (height / width) * s, (width / height) * s + c)
+  }
+  return maxS
+}
+
+/**
+ * Builds the shared `-vf` chain for spin/rotation/swing: pad (to re-center
+ * an off-center pivot), scale up by the corner-coverage factor, rotate by
+ * the (possibly time-varying) angle expression, crop back down to the
+ * original frame. For a centered pivot (cx=cy=0.5, the only case spin/
+ * rotation ever use) the pad step is a no-op (kx=ky=0.5, so the "padded"
+ * size equals the original size) — this is still the right function to
+ * call, just with nothing to undo later.
+ */
+export function buildPivotRotateFilter(
+  width: number, height: number, cx: number, cy: number,
+  angleExpr: string, minAngleRad: number, maxAngleRad: number,
+): string {
+  const kx = Math.max(cx, 1 - cx)
+  const ky = Math.max(cy, 1 - cy)
+  const paddedW = width * 2 * kx
+  const paddedH = height * 2 * ky
+  const scale = buildRotateCoverScale(paddedW, paddedH, minAngleRad, maxAngleRad).toFixed(4)
+  const padW = (2 * kx).toFixed(4)
+  const padH = (2 * ky).toFixed(4)
+  const padX = (kx - cx).toFixed(4)
+  const padY = (ky - cy).toFixed(4)
+  const cropWDiv = (2 * kx).toFixed(4)
+  const cropHDiv = (2 * ky).toFixed(4)
+  const cropXFrac = ((kx - cx) / (2 * kx)).toFixed(4)
+  const cropYFrac = ((ky - cy) / (2 * ky)).toFixed(4)
+  return [
+    `pad=w='iw*${padW}':h='ih*${padH}':x='iw*${padX}':y='ih*${padY}':color=black@0`,
+    `scale=w='iw*${scale}':h='ih*${scale}'`,
+    `rotate=a='${angleExpr}':ow='iw/${scale}':oh='ih/${scale}':c=black@0`,
+    `crop=w='iw/${cropWDiv}':h='ih/${cropHDiv}':x='iw*${cropXFrac}':y='ih*${cropYFrac}'`,
+  ].join(',')
+}
+
+export interface SpinOptions { start: number; end: number; strength: number; direction?: 'clockwise' | 'counterclockwise' }
+
+/**
+ * Continuous rotation: angle advances at a constant rate from `start`,
+ * holds at 0 before `start` and at whatever angle it reached by `end`
+ * afterward (via ffmpeg's own `clip(t,start,end)`, the same "hold the
+ * endpoints" shape applyZoomPan's own `progress` expression uses) — so the
+ * frame never snaps back to unrotated, it just stops spinning where it
+ * stopped. strength 1-20 maps to 0.08-1.08 revolutions/second.
+ */
+export function buildSpinAngleExpr(strength: number, direction: 'clockwise' | 'counterclockwise', start: number, end: number): string {
+  const revsPerSec = 0.08 + strength * 0.05
+  const sign = direction === 'counterclockwise' ? -1 : 1
+  const clippedT = `clip(t\\,${start}\\,${end})`
+  return `${sign}*2*PI*${revsPerSec}*(${clippedT}-${start})`
+}
+
+/** Continuous whole-frame spin, centered, at a constant rate. strength 1-20
+ *  controls speed; direction defaults to clockwise. */
+export async function applySpin(file: Blob, { start, end, strength, direction = 'clockwise' }: SpinOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'spin-input.mp4'
+  const outputName = 'spin-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const angleExpr = buildSpinAngleExpr(strength, direction, start, end)
+    // Full period of |cos|/|sin| (PI, not 2*PI) covers every angle a
+    // continuous multi-revolution spin will ever pass through.
+    const vf = buildPivotRotateFilter(width, height, 0.5, 0.5, angleExpr, 0, Math.PI)
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the spin effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface RotationOptions { start: number; end: number; fromDegrees: number; toDegrees: number }
+
+/** A single bounded linear turn from fromDegrees to toDegrees over
+ *  [start,end], holding each end value before/after — a controlled tilt,
+ *  not a continuous spin. */
+export function buildRotationAngleExpr(fromDegrees: number, toDegrees: number, start: number, end: number): string {
+  const fromRad = (fromDegrees * Math.PI) / 180
+  const toRad = (toDegrees * Math.PI) / 180
+  const clippedT = `clip(t\\,${start}\\,${end})`
+  const progress = `((${clippedT}-${start})/${end - start})`
+  return `${fromRad}+(${toRad - fromRad})*${progress}`
+}
+
+/** Bounded tilt from fromDegrees to toDegrees, linear over [start,end]. */
+export async function applyRotation(file: Blob, { start, end, fromDegrees, toDegrees }: RotationOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'rotation-input.mp4'
+  const outputName = 'rotation-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const angleExpr = buildRotationAngleExpr(fromDegrees, toDegrees, start, end)
+    const fromRad = (fromDegrees * Math.PI) / 180
+    const toRad = (toDegrees * Math.PI) / 180
+    const vf = buildPivotRotateFilter(width, height, 0.5, 0.5, angleExpr, Math.min(fromRad, toRad), Math.max(fromRad, toRad))
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the rotation effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface SwingOptions { start: number; end: number; strength: number; x?: number; y?: number }
+
+/** Damped pendulum: rotates one way then the other, amplitude decaying to
+ *  zero — same decaying-oscillator SHAPE as buildBounceZoomExpr below (2.5
+ *  cycles over the window, exp(-4*progress) decay), applied to angle instead
+ *  of scale. 2.5 cycles means sin(2*PI*2.5*1) is exactly 0 at progress=1, so
+ *  the swing settles at exactly 0° with no discontinuity, no hard clamp
+ *  needed. strength 1-20 maps to a 5.5°-53° peak swing. */
+export function buildSwingAngleExpr(strength: number, start: number, end: number): string {
+  const maxSwingDeg = 3 + strength * 2.5
+  const ampRad = (maxSwingDeg * Math.PI) / 180
+  const clippedT = `clip(t\\,${start}\\,${end})`
+  const progress = `((${clippedT}-${start})/${end - start})`
+  return `${ampRad}*sin(2*PI*2.5*${progress})*exp(-4*${progress})`
+}
+
+/** Pendulum-like rotational oscillation around a pivot (x/y, 0-1, default
+ *  centered), amplitude decaying to a stop. */
+export async function applySwing(file: Blob, { start, end, strength, x = 0.5, y = 0.5 }: SwingOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'swing-input.mp4'
+  const outputName = 'swing-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const angleExpr = buildSwingAngleExpr(strength, start, end)
+    const maxSwingDeg = 3 + strength * 2.5
+    const ampRad = (maxSwingDeg * Math.PI) / 180
+    const vf = buildPivotRotateFilter(width, height, x, y, angleExpr, -ampRad, ampRad)
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the swing effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
+export interface BounceOptions { start: number; end: number; strength: number }
+
+/**
+ * Decaying-spring scale expression for zoompan's `z=`, keyed on `on` (output
+ * frame index, converted to a 0..1 progress the same way applyZoomPan's own
+ * `progress` is) — a SCALE analogue of the existing text-caption 'bounce'
+ * entrance animation (see this file's caption-overlay code), but sin()
+ * instead of cos() so it starts AND ends at scale 1 rather than starting
+ * displaced: sin(2*PI*2.5*0)=0 (neutral at `start`) and, since 2.5 is
+ * exactly the number of cycles run by progress=1, sin(2*PI*2.5*1)=sin(5*PI)
+ * is exactly 0 too (neutral again at `end`, no hard clamp needed to avoid a
+ * discontinuity — provably zero, not just numerically small).
+ */
+export function buildBounceZoomExpr(strength: number, startFrame: number, endFrame: number): string {
+  const amp = 0.04 + strength * 0.018
+  const progress = `if(lt(on\\,${startFrame})\\,0\\,if(gt(on\\,${endFrame})\\,1\\,(on-${startFrame})/(${endFrame}-${startFrame})))`
+  return `1+${amp}*sin(2*PI*2.5*(${progress}))*exp(-4*(${progress}))`
+}
+
+/** Whole-frame scale "pop": enlarges then springs back with a couple of
+ *  decaying overshoots. strength 1-20 controls how big the initial pop is.
+ *  Built on the same zoompan machinery as applyZoomPan (see that function's
+ *  own comment for why zoompan rather than crop), just with this decaying
+ *  expression for `z=` instead of a linear one, and no pan (x/y stay
+ *  centered throughout). */
+export async function applyBounce(file: Blob, { start, end, strength }: BounceOptions, onProgress?: (p: AutoEditProgress) => void): Promise<Blob> {
+  onProgress?.({ phase: 'loading' })
+  const ffmpeg = await loadFFmpeg()
+  ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
+  const inputName = 'bounce-input.mp4'
+  const outputName = 'bounce-output.mp4'
+  await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()))
+  try {
+    onProgress?.({ phase: 'analyzing' })
+    const { width, height } = await probeDimensions(ffmpeg, inputName)
+    const fps = await probeFps(ffmpeg, inputName)
+    const startFrame = Math.max(0, Math.round(start * fps))
+    const endFrame = Math.max(startFrame + 1, Math.round(end * fps))
+    const zExpr = buildBounceZoomExpr(strength, startFrame, endFrame)
+    onProgress?.({ phase: 'rendering' })
+    await ffmpeg.exec([
+      '-i', inputName,
+      '-vf', `zoompan=z='${zExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`,
+      '-c:a', 'copy',
+      outputName,
+    ])
+    const data = await ffmpeg.readFile(outputName)
+    return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
+  } catch (err) {
+    if (err instanceof AutoEditError) throw err
+    resetFFmpeg()
+    throw new AutoEditError(`Could not apply the bounce effect. (${err instanceof Error ? err.message : String(err)})`)
+  } finally {
+    await ffmpeg.deleteFile(inputName).catch(() => {})
+    await ffmpeg.deleteFile(outputName).catch(() => {})
+  }
+}
+
 export interface ColorAdjustOptions {
   start: number
   end: number

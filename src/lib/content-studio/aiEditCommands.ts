@@ -139,6 +139,34 @@ export interface StretchCommand { type: 'stretch'; start: number; end: number; s
  *  "pincushion" bows them inward. Mode is required — the two look nothing
  *  alike and picking one is the whole point of the command. */
 export interface LensDistortionCommand { type: 'lens_distortion'; start: number; end: number; strength: number; mode: 'barrel' | 'pincushion' }
+/** Continuous rotating-frame animation over [start,end] — the frame itself
+ *  visibly spins, unlike `rotate`'s fixed one-time 90/180/270 snap and
+ *  unlike `spin_blur`'s rotational SMEAR (a blur, the frame never actually
+ *  moves). strength 1-20 controls rotation speed (revolutions/sec);
+ *  direction defaults to clockwise. Always centered — no pivot field, since
+ *  a continuously spinning frame around anything but its own center reads
+ *  as broken rather than stylistic. See autoEdit.ts's buildPivotRotateFilter. */
+export interface SpinCommand { type: 'spin'; start: number; end: number; strength: number; direction?: 'clockwise' | 'counterclockwise' }
+/** A single BOUNDED partial turn from fromDegrees to toDegrees (both
+ *  -360..360), linear over [start,end], holding fromDegrees before and
+ *  toDegrees after — a controlled tilt/dutch-angle move. Distinct from
+ *  `spin`'s open-ended continuous rotation (which never settles at a fixed
+ *  angle and can sweep through many revolutions) and from `rotate`'s
+ *  instant 90/180/270 snap (no animation at all). */
+export interface RotationCommand { type: 'rotation'; start: number; end: number; fromDegrees: number; toDegrees: number }
+/** Scale "pop": the frame briefly enlarges then springs back with a couple
+ *  of decaying overshoots, over [start,end] — a SCALE-over-time animation,
+ *  distinct from motionfx's `wobble` (position jitter, no scale change) and
+ *  `zoomPunch` (one quick zoom in-and-out, no spring/overshoot). strength
+ *  1-20 controls how large the initial pop is. */
+export interface BounceCommand { type: 'bounce'; start: number; end: number; strength: number }
+/** Pendulum-like ROTATIONAL oscillation — rotates one way then swings back
+ *  the other, amplitude decaying to a standstill, around a pivot (x/y, 0-1
+ *  fraction of frame, default centered — same convention as `spin_blur`/
+ *  `ripple`). Distinct from `spin` (rotates continuously one direction,
+ *  never reverses) and from `bounce` (scale, not rotation). strength 1-20
+ *  controls swing amplitude. */
+export interface SwingCommand { type: 'swing'; start: number; end: number; strength: number; x?: number; y?: number }
 export interface ColorCommand {
   type: 'color'; start: number; end: number
   brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; warmth?: number; vignette?: number
@@ -302,8 +330,8 @@ export interface NoiseReductionCommand { type: 'audio_noise_reduction' }
 /** Every hard-baked (pixel-level) effect type — the same set commitNewSource
  *  can tag a history snapshot with, so "remove the blur" can check whether
  *  the blur really is the single most recent change before touching undo. */
-export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color'
-export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color']
+export type EffectType = 'crop' | 'zoom' | 'pan' | 'speed' | 'loop' | 'blur' | 'background_blur' | 'pixelate' | 'motion_blur' | 'directional_blur' | 'zoom_blur' | 'radial_blur' | 'spin_blur' | 'tiltshift_blur' | 'wave' | 'ripple' | 'warp' | 'twirl' | 'fisheye' | 'bulge' | 'squeeze' | 'stretch' | 'lens_distortion' | 'spin' | 'rotation' | 'bounce' | 'swing' | 'color' | 'fade' | 'rotate' | 'flip' | 'reverse' | 'audio_noise_reduction' | 'mask' | 'look' | 'glitch' | 'light' | 'lens_flare' | 'sparkle' | 'neon_glow' | 'god_rays' | 'dust' | 'scratches' | 'film_burn' | 'retro_camera' | 'motionfx' | 'audiofx' | 'datamosh' | 'auto_color'
+export const EFFECT_TYPES: EffectType[] = ['crop', 'zoom', 'pan', 'speed', 'loop', 'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur', 'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion', 'spin', 'rotation', 'bounce', 'swing', 'color', 'fade', 'rotate', 'flip', 'reverse', 'audio_noise_reduction', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx', 'datamosh', 'auto_color']
 /** Removes the most recently applied hard-baked effect via the editor's own
  *  Undo — only valid when that effect is EXACTLY the top of the undo stack
  *  (see ctx.lastEffectType), since a hard-baked effect can't be lifted back
@@ -318,6 +346,7 @@ export type EditCommand =
   | BlurCommand | BackgroundBlurCommand | PixelateCommand
   | MotionBlurCommand | DirectionalBlurCommand | ZoomBlurCommand | RadialBlurCommand | SpinBlurCommand | TiltShiftBlurCommand
   | WaveCommand | RippleCommand | WarpCommand | TwirlCommand | FisheyeCommand | BulgeCommand | SqueezeCommand | StretchCommand | LensDistortionCommand
+  | SpinCommand | RotationCommand | BounceCommand | SwingCommand
   | ColorCommand | FadeCommand | RotateCommand | FlipCommand | ReverseCommand | MaskCommand | LookCommand | GlitchCommand | LightCommand | LensFlareCommand | SparkleCommand | NeonGlowCommand | GodRaysCommand | DustCommand | ScratchesCommand | FilmBurnCommand | RetroCameraCommand | MotionCommand | AudioFxCommand
   | DatamoshCommand | AutoColorCommand
   | TextStyleCommand | TextEditCommand | CaptionsAutoCommand | NoiseReductionCommand | RemoveEffectCommand
@@ -327,6 +356,7 @@ export const COMMAND_TYPES = [
   'audio_volume', 'mute', 'music', 'loop', 'mask', 'look', 'glitch', 'light', 'lens_flare', 'sparkle', 'neon_glow', 'god_rays', 'dust', 'scratches', 'film_burn', 'retro_camera', 'motionfx', 'audiofx',
   'blur', 'background_blur', 'pixelate', 'motion_blur', 'directional_blur', 'zoom_blur', 'radial_blur', 'spin_blur', 'tiltshift_blur',
   'wave', 'ripple', 'warp', 'twirl', 'fisheye', 'bulge', 'squeeze', 'stretch', 'lens_distortion',
+  'spin', 'rotation', 'bounce', 'swing',
   'datamosh', 'auto_color',
   'color', 'fade', 'rotate', 'flip', 'reverse',
   'text_style', 'text_edit', 'captions_auto', 'audio_noise_reduction', 'remove_effect',
@@ -792,6 +822,51 @@ export function validateCommand(raw: unknown, ctx: InterpretContext): EditComman
       return { type: 'lens_distortion', ...w, strength, mode }
     }
 
+    case 'spin': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Spin strength has to be between 1 and 20.' }
+      const direction = c.direction === undefined ? 'clockwise' : str(c.direction)
+      if (direction !== 'clockwise' && direction !== 'counterclockwise') {
+        return { error: 'Spin direction has to be "clockwise" or "counterclockwise".' }
+      }
+      return { type: 'spin', ...w, strength, direction }
+    }
+
+    case 'rotation': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const fromDegrees = num(c.fromDegrees)
+      const toDegrees = num(c.toDegrees)
+      if (fromDegrees === null || toDegrees === null) {
+        return { error: 'Rotation needs both a fromDegrees and a toDegrees (I won\'t guess the turn amount).' }
+      }
+      if (fromDegrees < -360 || fromDegrees > 360 || toDegrees < -360 || toDegrees > 360) {
+        return { error: 'Rotation degrees have to be between -360 and 360.' }
+      }
+      return { type: 'rotation', ...w, fromDegrees, toDegrees }
+    }
+
+    case 'bounce': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Bounce strength has to be between 1 and 20.' }
+      return { type: 'bounce', ...w, strength }
+    }
+
+    case 'swing': {
+      const w = timeWindow(c, ctx)
+      if ('error' in w) return w
+      const strength = num(c.strength) ?? 8
+      if (strength < 1 || strength > 20) return { error: 'Swing strength has to be between 1 and 20.' }
+      const x = num(c.x) ?? 0.5
+      const y = num(c.y) ?? 0.5
+      if (x < 0 || x > 1 || y < 0 || y > 1) return { error: 'Swing pivot (x/y) has to be between 0 and 1 — a fraction of the frame.' }
+      return { type: 'swing', ...w, strength, x, y }
+    }
+
     case 'mask': {
       const w = timeWindow(c, ctx)
       if ('error' in w) return w
@@ -1156,6 +1231,10 @@ bulge { "type":"bulge","start":number,"end":number,"strength":number,"x"?:number
 squeeze { "type":"squeeze","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — exact inverse of bulge: a localized inward pinch around x/y (0-1, default 0.5/0.5). Map "pinch"/"suck it inward" here.
 stretch { "type":"stretch","start":number,"end":number,"strength":number,"axis"?:"horizontal"|"vertical" } — stretches the picture along ONE axis only (default "horizontal"), frame size unchanged so the edges crop off. Distinct from zoom, which scales both axes and keeps the aspect ratio. Map "squash it wide"/"make everyone tall and thin" here.
 lens_distortion { "type":"lens_distortion","start":number,"end":number,"strength":number,"mode":"barrel"|"pincushion" } — lens-correction-style distortion. "barrel" bows straight lines outward (a milder, correction-scale version of fisheye), "pincushion" bows them inward. mode is REQUIRED — the two look opposite, so ask for a clarification rather than guessing when neither direction is implied.
+spin { "type":"spin","start":number,"end":number,"strength":number,"direction"?:"clockwise"|"counterclockwise" } — the WHOLE FRAME continuously rotates, direction default "clockwise". strength 1-20 sets rotation speed. Distinct from rotate (instant fixed 90/180/270 snap, no animation) and spin_blur (a rotational SMEAR, the frame never actually turns). Map "spin it"/"keep spinning"/"rotating continuously" here.
+rotation { "type":"rotation","start":number,"end":number,"fromDegrees":number,"toDegrees":number } — a single BOUNDED tilt from fromDegrees to toDegrees (-360..360), holding each end value before/after the window — a controlled dutch-angle move, NOT a continuous spin. Use when specific degree values or a one-way partial turn are named ("tilt from 0 to 20 degrees"); use spin instead for open-ended continuous rotation.
+bounce { "type":"bounce","start":number,"end":number,"strength":number } — the WHOLE FRAME briefly scales up then springs back with a couple of decaying overshoots, like a spring pop. strength 1-20 sets how big the initial pop is. Distinct from motionfx's wobble (position jitter, no scale) and zoomPunch (one smooth zoom in-and-out, no overshoot/spring). Map "bounce"/"pop"/"spring effect" (on the whole frame, not text) here.
+swing { "type":"swing","start":number,"end":number,"strength":number,"x"?:number,"y"?:number } — a pendulum: the frame rotates one way then swings back the other, amplitude decaying to a stop, around a pivot x/y (0-1, default 0.5/0.5). strength 1-20 sets swing amplitude. Distinct from spin (rotates one direction continuously, never reverses) and bounce (scale, not rotation). Map "swing"/"pendulum"/"rock back and forth" here.
 tiltshift_blur { "type":"tiltshift_blur","start":number,"end":number,"strength":number,"bandY"?:number,"bandHeight"?:number } — miniature-photo look: a horizontal band stays sharp, blur increases with distance above/below it. bandY = vertical center of the sharp band (0-1, default 0.5); bandHeight = how much of the frame height stays sharp (0.05-0.9, default 0.25). strength 1-20 controls how strong the blur gets outside the band. Map "tilt-shift"/"miniature effect"/"toy town look" to this.
 mask { "type":"mask","start":number,"end":number,"shape":"circle"|"rect","x"?:number,"y"?:number,"size"?:number,"feather"?:number } — SPOTLIGHT: normal inside the shape, darkened outside, for [start,end]. NOT a cutout/chroma-key/background-removal tool — "cut me out onto another background" must be a clarification saying only a darken-outside spotlight exists. x/y = shape center as 0-1 fraction (default 0.5,0.5). size 0.05-0.9, default 0.35. feather 0 (hard)-0.3 (soft), default 0.12. Map "spotlight"/"circle the product" to sensible defaults rather than asking, unless there's no usable time window at all.
 look { "type":"look","start":number,"end":number,"name":"sepia"|"negative"|"tealOrange"|"vintage"|"cinematic"|"hdr"|"colorize"|"duotone"|"oldFilm"|"super8"|"polaroid"|"camcorder","hueDegrees"?:number } — fixed canned color-grade preset (use "color" instead for tunable brightness/contrast/etc). "negative"=full invert. "tealOrange"=blockbuster grade (blue-green shadows, orange highlights). "hdr"=punchy local contrast/saturation, not real HDR. "colorize" tints toward one hue via hueDegrees (0-360, default ~200/blue) — e.g. "colorize it blue"→~200-220, "green sepia"→~100-140. Others are one fixed recipe, no params. Map "vintage look"/"cinematic grade"/"old film"/"like a polaroid"/"camcorder look" directly to the matching name.
@@ -1223,7 +1302,11 @@ Examples:
 "Datamosh the last 2 seconds." → {"commands":[{"type":"datamosh","start":${Math.max(0, ctx.durationSec - 2).toFixed(1)},"end":${ctx.durationSec.toFixed(1)},"strength":10}]}
 "Auto color correct the whole video." → {"commands":[{"type":"auto_color","start":0,"end":${ctx.durationSec.toFixed(1)},"strength":0.6}]}
 "Make my voice sound like a robot." (a character, not a direction, so voiceChanger not pitch) → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"robot"}]}
-"Turn my voice into a chipmunk." → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"chipmunk"}]}`
+"Turn my voice into a chipmunk." → {"commands":[{"type":"audiofx","style":"voiceChanger","preset":"chipmunk"}]}
+"Make the video keep spinning for the first 4 seconds." → {"commands":[{"type":"spin","start":0,"end":4,"strength":8}]}
+"Tilt the frame from 0 to 15 degrees between 2 and 4 seconds." (specific degree values, one-way, so rotation not spin) → {"commands":[{"type":"rotation","start":2,"end":4,"fromDegrees":0,"toDegrees":15}]}
+"Add a bounce/pop effect at the start." → {"commands":[{"type":"bounce","start":0,"end":1.5,"strength":10}]}
+"Make it swing like a pendulum for the first 3 seconds." → {"commands":[{"type":"swing","start":0,"end":3,"strength":10}]}`
 }
 
 /** Strips a ```json fenced block down to just its contents, if present — the model is told not to do this, but following that instruction isn't guaranteed. */
@@ -1368,6 +1451,10 @@ export function describeAiCommand(cmd: EditCommand): string {
     case 'squeeze': return `Squeeze ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'stretch': return `Stretch (${cmd.axis ?? 'horizontal'}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'lens_distortion': return `Lens distortion (${cmd.mode}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'spin': return `Spin (${cmd.direction ?? 'clockwise'}) ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'rotation': return `Rotate ${cmd.fromDegrees}°→${cmd.toDegrees}° ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'bounce': return `Bounce ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
+    case 'swing': return `Swing ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'color': return `Color adjust ${fmtTime(cmd.start)}–${fmtTime(cmd.end)}`
     case 'fade': return `Fade ${cmd.direction} (${cmd.duration}s)`
     case 'rotate': return `Rotate ${cmd.degrees}°`
@@ -1464,6 +1551,14 @@ export function describeAiCommandCard(cmd: EditCommand): { title: string; lines:
       return { title: 'Stretch', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Axis: ${cmd.axis ?? 'horizontal'}`, `Strength: ${cmd.strength}`] }
     case 'lens_distortion':
       return { title: 'Lens Distortion', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Mode: ${cmd.mode}`, `Strength: ${cmd.strength}`] }
+    case 'spin':
+      return { title: 'Spin', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Direction: ${cmd.direction ?? 'clockwise'}`, `Strength: ${cmd.strength}`] }
+    case 'rotation':
+      return { title: 'Rotation', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `${cmd.fromDegrees}° → ${cmd.toDegrees}°`] }
+    case 'bounce':
+      return { title: 'Bounce', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`] }
+    case 'swing':
+      return { title: 'Swing', lines: [`${fmtTime(cmd.start)} → ${fmtTime(cmd.end)}`, `Strength: ${cmd.strength}`, `Pivot: ${cmd.x ?? 0.5}, ${cmd.y ?? 0.5}`] }
     case 'mask':
       return {
         title: `${cmd.shape === 'circle' ? 'Circle' : 'Rectangle'} Spotlight`,
