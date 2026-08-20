@@ -1039,6 +1039,45 @@ describe('validateCommand', () => {
     })
   })
 
+  describe('chroma_key', () => {
+    it('accepts a valid window, defaulting strength/colors', () => {
+      expect(validateCommand({ type: 'chroma_key', start: 1, end: 4 }, ctx))
+        .toEqual({ type: 'chroma_key', start: 1, end: 4, strength: 0.5 })
+    })
+    it('accepts explicit keyColor/replacementColor/strength', () => {
+      expect(validateCommand({ type: 'chroma_key', start: 1, end: 4, keyColor: '#0f0', replacementColor: '#00f', strength: 0.8 }, ctx))
+        .toEqual({ type: 'chroma_key', start: 1, end: 4, strength: 0.8, keyColor: '#0f0', replacementColor: '#00f' })
+    })
+    it('rejects strength outside 0-1', () => {
+      expect(validateCommand({ type: 'chroma_key', start: 1, end: 4, strength: 1.5 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'chroma_key', start: 1, end: 4, strength: -0.1 }, ctx)).toHaveProperty('error')
+    })
+    it('rejects an invalid time window', () => {
+      expect(validateCommand({ type: 'chroma_key', start: 5, end: 2 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('double_exposure', () => {
+    it('accepts a valid window/strength', () => {
+      expect(validateCommand({ type: 'double_exposure', start: 1, end: 4, strength: 10 }, ctx))
+        .toEqual({ type: 'double_exposure', start: 1, end: 4, strength: 10 })
+    })
+    it('rejects strength outside 1-20', () => {
+      expect(validateCommand({ type: 'double_exposure', start: 1, end: 4, strength: 0 }, ctx)).toHaveProperty('error')
+      expect(validateCommand({ type: 'double_exposure', start: 1, end: 4, strength: 21 }, ctx)).toHaveProperty('error')
+    })
+  })
+
+  describe('split_screen', () => {
+    it('accepts a valid window with no strength field', () => {
+      expect(validateCommand({ type: 'split_screen', start: 1, end: 4 }, ctx))
+        .toEqual({ type: 'split_screen', start: 1, end: 4 })
+    })
+    it('rejects an invalid time window', () => {
+      expect(validateCommand({ type: 'split_screen', start: 5, end: 2 }, ctx)).toHaveProperty('error')
+    })
+  })
+
   describe('fade / rotate / flip / reverse', () => {
     it('accepts a valid fade', () => {
       expect(validateCommand({ type: 'fade', direction: 'in', duration: 2 }, ctx)).toEqual({ type: 'fade', direction: 'in', duration: 2 })
@@ -1350,6 +1389,9 @@ describe('describeAiCommand / describeAiCommandCard', () => {
     { type: 'rotation', start: 1, end: 4, fromDegrees: 0, toDegrees: 45 },
     { type: 'bounce', start: 1, end: 4, strength: 10 },
     { type: 'swing', start: 1, end: 4, strength: 10, x: 0.5, y: 0.5 },
+    { type: 'chroma_key', start: 1, end: 4, strength: 0.5, keyColor: '#00ff00', replacementColor: '#000000' },
+    { type: 'double_exposure', start: 1, end: 4, strength: 10 },
+    { type: 'split_screen', start: 1, end: 4 },
   ]
 
   it('produces a non-empty one-line description for every command type', () => {
