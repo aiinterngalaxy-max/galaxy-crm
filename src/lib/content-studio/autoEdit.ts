@@ -225,7 +225,13 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpegLike> {
   // server (if reachable) already uses real hardware encoding.
   const multiThreaded = typeof globalThis !== 'undefined' && !!(globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated
   const pkg = multiThreaded ? '@ffmpeg/core-mt' : '@ffmpeg/core'
-  const base = `https://unpkg.com/${pkg}@0.12.6/dist/esm`
+  // jsdelivr, not unpkg: same package, but jsdelivr fronts npm packages with
+  // its own global CDN/cache layer built for exactly this (large static
+  // package assets), where unpkg has a well-known history of being slow or
+  // rate-limited under load. This ~25MB core is downloaded fresh every
+  // session (nothing persists it across page reloads), so the CDN's raw
+  // throughput IS the "Loading the video engine" wait time.
+  const base = `https://cdn.jsdelivr.net/npm/${pkg}@0.12.6/dist/esm`
   await ffmpeg.load({
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
