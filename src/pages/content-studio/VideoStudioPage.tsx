@@ -353,6 +353,23 @@ export function VideoStudioPage() {
     if (previewingPendingId === id) { setPendingPreview(''); setPreviewingPendingId(null) }
   }
 
+  // ---------- drag-to-reorder (before Join & Upload) ----------
+  const [draggedPendingId, setDraggedPendingId] = useState<string | null>(null)
+  const [dragOverPendingId, setDragOverPendingId] = useState<string | null>(null)
+
+  function movePendingClip(draggedId: string, targetId: string) {
+    if (draggedId === targetId) return
+    setPendingClips((clips) => {
+      const from = clips.findIndex((c) => c.id === draggedId)
+      const to = clips.findIndex((c) => c.id === targetId)
+      if (from === -1 || to === -1) return clips
+      const next = [...clips]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
   function onSetPendingTrim(id: string, field: 'trimStart' | 'trimEnd', value: number) {
     setPendingClips((clips) => clips.map((c) => (c.id === id ? { ...c, [field]: Math.max(0, value) } : c)))
   }
@@ -944,7 +961,28 @@ export function VideoStudioPage() {
               {pendingClips.length > 0 && (
                 <div className="space-y-2">
                   {pendingClips.map((clip, i) => (
-                    <div key={clip.id} className="rounded-lg border border-gray-800 p-2.5">
+                    <div
+                      key={clip.id}
+                      draggable={pendingClips.length > 1}
+                      onDragStart={(e) => { setDraggedPendingId(clip.id); e.dataTransfer.effectAllowed = 'move' }}
+                      onDragEnd={() => { setDraggedPendingId(null); setDragOverPendingId(null) }}
+                      onDragOver={(e) => { if (draggedPendingId) { e.preventDefault(); setDragOverPendingId(clip.id) } }}
+                      onDragLeave={() => setDragOverPendingId((id) => (id === clip.id ? null : id))}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        if (draggedPendingId) movePendingClip(draggedPendingId, clip.id)
+                        setDraggedPendingId(null)
+                        setDragOverPendingId(null)
+                      }}
+                      title={pendingClips.length > 1 ? 'Drag to reorder' : undefined}
+                      className={`rounded-lg border p-2.5 transition-colors ${
+                        draggedPendingId === clip.id
+                          ? 'opacity-40 border-gold-600'
+                          : dragOverPendingId === clip.id && draggedPendingId && draggedPendingId !== clip.id
+                            ? 'border-gold-400 border-2'
+                            : 'border-gray-800'
+                      } ${pendingClips.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                    >
                       <div className="flex items-center gap-3">
                         <div className="w-14 h-9 shrink-0 rounded bg-gray-800 overflow-hidden flex items-center justify-center text-gray-600 text-xs">
                           {clip.thumbnail ? (
