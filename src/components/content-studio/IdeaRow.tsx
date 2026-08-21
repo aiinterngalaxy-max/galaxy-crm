@@ -1,15 +1,12 @@
 import { useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { fmtDate } from '@/lib/content-studio/format'
-import { useViewer } from '@/lib/content-studio/viewer-context'
 import type { Idea } from '@/types/content-studio'
 import { deleteIdea as apiDeleteIdea, updateIdea } from '@/lib/content-studio/queries'
 import { notifyTeamOfIdeaApproved, notifyTeamOfIdeaRejected } from '@/lib/notifyHelpers'
 import { FUNNEL_STAGE_STYLE } from '@/lib/content-studio/stages'
 
 export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?: string; onChanged: () => void }) {
-  const { viewer } = useViewer()
-  const canApprove = !!viewer?.is_owner
   const [pitched, setPitched] = useState(!!idea.pitched)
   const [approved, setApproved] = useState(!!idea.approved)
   const [rejected, setRejected] = useState(!!idea.rejected)
@@ -72,10 +69,7 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
           on={approved}
           label="Approved"
           color="gold"
-          disabled={!canApprove}
-          disabledTitle="Only the Owner can approve or reject ideas"
           onClick={() => {
-            if (!canApprove) return
             const v = !approved
             setApproved(v)
             if (v) setRejected(false)
@@ -88,10 +82,7 @@ export function IdeaRow({ idea, brandName, onChanged }: { idea: Idea; brandName?
           on={rejected}
           label="Rejected"
           color="rose"
-          disabled={!canApprove}
-          disabledTitle="Only the Owner can approve or reject ideas"
           onClick={() => {
-            if (!canApprove) return
             const v = !rejected
             setRejected(v)
             if (v) {
