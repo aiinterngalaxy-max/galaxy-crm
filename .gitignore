@@ -50,3 +50,5 @@ serviceAccountKey.json
 # test-*.mp4 are local smoke-test artifacts, never real content.
 render-server/api-key.txt
 render-server/test-*.mp4
+.vercel
+.env*

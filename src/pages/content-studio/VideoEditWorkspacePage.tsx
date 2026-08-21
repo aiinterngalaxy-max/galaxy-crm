@@ -1605,7 +1605,15 @@ export function VideoEditWorkspacePage() {
       setAiEditPrompt('')
       await logActivity('content', content.id, 'ai-edit', summary, viewer?.name || 'System')
     } catch (err) {
+      // handleError() alone put this in the page-level banner up near the
+      // header — invisible to someone whose eyes are on the Apply button
+      // right here, which just re-enables with no visible explanation. That
+      // silence is exactly what makes a real, distinct failure on every
+      // attempt look like "nothing is happening" and invites clicking Apply
+      // again and again. Setting aiEditError puts the same message right
+      // next to the button that failed.
       handleError(err)
+      setAiEditError(errText(err))
     } finally {
       setAiApplying(false)
       setAiProgress(null)
