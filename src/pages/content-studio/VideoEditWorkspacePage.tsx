@@ -507,23 +507,46 @@ export function VideoEditWorkspacePage() {
   // committed on blur/Enter — committing on every keystroke meant clearing
   // the box to type a new number briefly sent an empty string through as 0,
   // which for "Ends at" means "cut off almost the whole clip".
-  const startAtValue = selectedClip ? Math.round((selectedClip.start + selectedClip.cutStart) * 10) / 10 : 0
-  const endAtValue = selectedClip ? Math.round((selectedClip.end - selectedClip.cutEnd) * 10) / 10 : 0
+  //
+  // A clip's real [start,end] is its natural position in the merged source —
+  // for anything past the first clip that's a nonzero number even though
+  // nothing has actually been trimmed off it yet, which reads as "this has
+  // already been auto-trimmed" when it hasn't. So an untouched clip
+  // (cutStart/cutEnd both still 0) shows 0/0 here regardless of its real
+  // length; the real absolute position only appears once a trim genuinely
+  // exists (typed here, or dragged on the timeline handles).
+  //
+  // Because the box can now show 0 while the clip's real end is very much
+  // NOT 0, blur can no longer unconditionally commit — that would silently
+  // cut the clip to nothing the instant you clicked away without typing
+  // anything. commitStartAt/commitEndAt only act once the user has actually
+  // edited the box (startAtTouched/endAtTouched), and reset once a clip
+  // change is done.
+  const startAtValue = selectedClip && selectedClip.cutStart > 0 ? Math.round((selectedClip.start + selectedClip.cutStart) * 10) / 10 : 0
+  const endAtValue = selectedClip && selectedClip.cutEnd > 0 ? Math.round((selectedClip.end - selectedClip.cutEnd) * 10) / 10 : 0
   const [startAtInput, setStartAtInput] = useState('0')
   const [endAtInput, setEndAtInput] = useState('0')
+  const [startAtTouched, setStartAtTouched] = useState(false)
+  const [endAtTouched, setEndAtTouched] = useState(false)
   useEffect(() => {
     setStartAtInput(String(startAtValue))
     setEndAtInput(String(endAtValue))
+    setStartAtTouched(false)
+    setEndAtTouched(false)
   }, [selectedId, startAtValue, endAtValue])
 
   function commitStartAt() {
+    if (!startAtTouched) return
     if (selectedClip && startAtInput.trim() !== '') setStartAt(selectedClip.id, Number(startAtInput) || 0)
     else setStartAtInput(String(startAtValue))
+    setStartAtTouched(false)
   }
 
   function commitEndAt() {
+    if (!endAtTouched) return
     if (selectedClip && endAtInput.trim() !== '') setEndAt(selectedClip.id, Number(endAtInput) || 0)
     else setEndAtInput(String(endAtValue))
+    setEndAtTouched(false)
   }
 
   /** Pushes a clip-level change — same source video, new clip boundaries.
@@ -2150,7 +2173,7 @@ export function VideoEditWorkspacePage() {
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
                       value={startAtInput}
-                      onChange={(e) => setStartAtInput(e.target.value)}
+                      onChange={(e) => { setStartAtInput(e.target.value); setStartAtTouched(true) }}
                       onBlur={commitStartAt}
                       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                     />
@@ -2160,7 +2183,7 @@ export function VideoEditWorkspacePage() {
                     <input
                       type="number" min="0" step="0.5" className="form-input py-1 text-xs"
                       value={endAtInput}
-                      onChange={(e) => setEndAtInput(e.target.value)}
+                      onChange={(e) => { setEndAtInput(e.target.value); setEndAtTouched(true) }}
                       onBlur={commitEndAt}
                       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                     />
