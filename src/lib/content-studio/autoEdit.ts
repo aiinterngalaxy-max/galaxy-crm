@@ -27,6 +27,19 @@ import { type FFmpegLike, RemoteFFmpeg, remoteFFmpegConfig, isRemoteFFmpegReacha
 
 export class AutoEditError extends Error {}
 
+/**
+ * Explicit encoder settings for every in-browser render that produces new
+ * video frames (as opposed to a `-c:v copy` stream copy, which needs none).
+ * The default ffmpeg.wasm core build's implicit codec/quality choice was
+ * unspecified and produced inconsistent — often poor — output; libx264 + a
+ * moderate CRF gives predictable, good-looking output without the render
+ * time exploding. `veryfast` trades a little compression efficiency for
+ * speed, which matters more here since this all runs on the visitor's own
+ * machine. Not used on the remote GPU render-server path (remoteFFmpeg.ts),
+ * which has its own hardware (NVENC) encode settings.
+ */
+const VIDEO_ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20']
+
 export interface SilenceOptions {
   /** dB below which audio counts as silent. Louder rooms need this less negative. */
   thresholdDb?: number
@@ -178,10 +191,20 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpegLike> {
   const ffmpeg = new FFmpeg()
   if (onLog) ffmpeg.on('log', ({ message }) => onLog(message))
 
-  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'
+  // The multi-threaded core renders several times faster than the
+  // single-threaded default, but only works when SharedArrayBuffer is
+  // available (cross-origin isolated page) — falls back cleanly otherwise.
+  // Only relevant for the in-browser path above; the remote GPU render
+  // server (if reachable) already uses real hardware encoding.
+  const multiThreaded = typeof globalThis !== 'undefined' && !!(globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated
+  const pkg = multiThreaded ? '@ffmpeg/core-mt' : '@ffmpeg/core'
+  const base = `https://unpkg.com/${pkg}@0.12.6/dist/esm`
   await ffmpeg.load({
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+    ...(multiThreaded
+      ? { workerURL: await toBlobURL(`${base}/ffmpeg-core.worker.js`, 'text/javascript') }
+      : {}),
   })
   ffmpegSingleton = ffmpeg
   usingRemote = false
@@ -403,7 +426,7 @@ export async function joinClips(
 
     const args: string[] = []
     for (const name of inputNames) args.push('-i', name)
-    args.push('-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', outputName)
+    args.push('-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', ...VIDEO_ENCODE_ARGS, outputName)
 
     await ffmpeg.exec(args)
     const data = await ffmpeg.readFile(outputName)
@@ -534,6 +557,7 @@ export async function applyInsertClip(
       '-i', inputName, '-i', newName,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '[outa]',
+      ...VIDEO_ENCODE_ARGS,
       outputName,
     ])
     const data = await ffmpeg.readFile(outputName)
@@ -610,6 +634,7 @@ export async function autoEditRemoveSilence(
       '-i', inputName,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '[outa]',
+      ...VIDEO_ENCODE_ARGS,
       outputName,
     ])
 
@@ -887,6 +912,14 @@ export async function renderFinal(
   }: RenderFinalOptions,
   onProgress?: (p: AutoEditProgress) => void,
 ): Promise<Blob> {
+  const hasCaptions = captions.some((c) => c.text.trim())
+  if (trimStart === 0 && trimEnd === 0 && !hasCaptions && !musicBlob && originalVolume === 1) {
+    // Nothing actually requested — hand back the original rather than a
+    // pointless re-encode (same reasoning as autoEditRemoveSilence's
+    // no-cuts-found early return).
+    return file
+  }
+
   onProgress?.({ phase: 'loading' })
   const ffmpeg = await loadFFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress?.({ phase: 'rendering', fraction: progress }))
@@ -934,7 +967,7 @@ export async function renderFinal(
     const audioMap = audioLabel
 
     if (filters.length) args.push('-filter_complex', filters.join(';'))
-    args.push('-map', videoMap, '-map', audioMap)
+    args.push('-map', videoMap, '-map', audioMap, ...VIDEO_ENCODE_ARGS)
     if (musicBlob || captionPngNames.length) args.push('-shortest')
     args.push(outputName)
 
@@ -1036,7 +1069,7 @@ export async function renderSegments(
     filterComplex.push(...audioFilters)
 
     onProgress?.({ phase: 'rendering' })
-    args.push('-filter_complex', filterComplex.join(';'), '-map', videoOut, '-map', audioOut)
+    args.push('-filter_complex', filterComplex.join(';'), '-map', videoOut, '-map', audioOut, ...VIDEO_ENCODE_ARGS)
     if (musicBlob || capNames.length) args.push('-shortest')
     args.push(outputName)
     await ffmpeg.exec(args)
@@ -1107,7 +1140,7 @@ export async function applyCropAspect(
       `crop=w='trunc(if(gt(iw/ih\\,${ratio})\\,ih*${ratio}\\,iw)/2)*2':` +
       `h='trunc(if(gt(iw/ih\\,${ratio})\\,ih\\,iw/${ratio})/2)*2':` +
       `x='(iw-out_w)/2':y='(ih-out_h)/2'`
-    await ffmpeg.exec(['-i', inputName, '-vf', cropFilter, '-c:a', 'copy', outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', cropFilter, ...VIDEO_ENCODE_ARGS, '-c:a', 'copy', outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -1193,6 +1226,7 @@ export async function applyZoomPan(
     await ffmpeg.exec([
       '-i', inputName,
       '-vf', `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${width}x${height}:fps=${fps}`,
+      ...VIDEO_ENCODE_ARGS,
       '-c:a', 'copy',
       outputName,
     ])
@@ -1272,7 +1306,7 @@ export async function applyWindowedSpeed(
     filters.push(`${refs}concat=n=${segments.length}:v=1:a=1[outv][outa]`)
 
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-filter_complex', filters.join(';'), '-map', '[outv]', '-map', '[outa]', outputName])
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filters.join(';'), '-map', '[outv]', '-map', '[outa]', ...VIDEO_ENCODE_ARGS, outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -1355,7 +1389,7 @@ async function runOneVideoFilter(
 
   try {
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...extraArgs, outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...VIDEO_ENCODE_ARGS, ...extraArgs, outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -1392,7 +1426,7 @@ async function runOneVideoFilterComplex(
 
   try {
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', outputName])
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', ...VIDEO_ENCODE_ARGS, '-c:a', 'copy', outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -2044,7 +2078,7 @@ export async function applySpin(file: Blob, { start, end, strength, direction = 
     // continuous multi-revolution spin will ever pass through.
     const vf = buildPivotRotateFilter(width, height, 0.5, 0.5, angleExpr, 0, Math.PI)
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...VIDEO_ENCODE_ARGS, '-c:a', 'copy', outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -2086,7 +2120,7 @@ export async function applyRotation(file: Blob, { start, end, fromDegrees, toDeg
     const toRad = (toDegrees * Math.PI) / 180
     const vf = buildPivotRotateFilter(width, height, 0.5, 0.5, angleExpr, Math.min(fromRad, toRad), Math.max(fromRad, toRad))
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...VIDEO_ENCODE_ARGS, '-c:a', 'copy', outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -2132,7 +2166,7 @@ export async function applySwing(file: Blob, { start, end, strength, x = 0.5, y 
     const ampRad = (maxSwingDeg * Math.PI) / 180
     const vf = buildPivotRotateFilter(width, height, x, y, angleExpr, -ampRad, ampRad)
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vf', vf, '-c:a', 'copy', outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', vf, ...VIDEO_ENCODE_ARGS, '-c:a', 'copy', outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -2188,6 +2222,7 @@ export async function applyBounce(file: Blob, { start, end, strength }: BounceOp
     await ffmpeg.exec([
       '-i', inputName,
       '-vf', `zoompan=z='${zExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`,
+      ...VIDEO_ENCODE_ARGS,
       '-c:a', 'copy',
       outputName,
     ])
@@ -2471,6 +2506,7 @@ export async function applyLight(file: Blob, { start, end, style, strength = 0.5
       '-i', inputName, '-f', 'lavfi', '-i', `color=c=0xFFA050:s=${width}x${height}`,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       '-shortest',
       outputName,
     ])
@@ -2689,6 +2725,7 @@ export async function applyNeonGlow(file: Blob, { start, end, strength, color = 
       '-i', inputName, '-f', 'lavfi', '-i', `color=c=${color}:s=${width}x${height}`,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       '-shortest',
       outputName,
     ])
@@ -2865,6 +2902,7 @@ export async function applyFilmBurn(file: Blob, { start, end, strength }: FilmBu
       '-i', inputName, '-f', 'lavfi', '-i', `color=c=#ff6a1a:s=${width}x${height}`,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       '-t', durationSec.toFixed(3),
       '-shortest',
       outputName,
@@ -3097,6 +3135,7 @@ export async function applyFrost(file: Blob, { start, end, strength }: FrostOpti
       '-i', inputName, '-f', 'lavfi', '-i', `color=c=#dff3ff:s=${width}x${height}`,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       '-t', durationSec.toFixed(3),
       '-shortest',
       outputName,
@@ -3216,7 +3255,7 @@ async function applySteppedSpeedRamp(
   try {
     const { filterComplex } = buildSpeedRampFilter(start, end, strength)
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', outputName])
+    await ffmpeg.exec(['-i', inputName, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', ...VIDEO_ENCODE_ARGS, outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -3297,6 +3336,7 @@ export async function applyMask(
       '-i', inputName, '-loop', '1', '-i', maskName,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       // The looped mask PNG has no natural end (that's the point — it has
       // to cover the whole clip), so without -shortest ffmpeg never sees
       // all inputs finish and renders forever. Caught by testing: a 4s
@@ -3368,6 +3408,7 @@ export async function applyChromaKey(file: Blob, { start, end, keyColor = '#00ff
       '-i', inputName, '-f', 'lavfi', '-i', `color=c=${replacementColor}:s=${width}x${height}`,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '0:a',
+      ...VIDEO_ENCODE_ARGS,
       '-shortest',
       outputName,
     ])
@@ -3483,7 +3524,7 @@ export async function applyReverse(file: Blob, onProgress?: (p: AutoEditProgress
 
   try {
     onProgress?.({ phase: 'rendering' })
-    await ffmpeg.exec(['-i', inputName, '-vf', 'reverse', '-af', 'areverse', outputName])
+    await ffmpeg.exec(['-i', inputName, '-vf', 'reverse', '-af', 'areverse', ...VIDEO_ENCODE_ARGS, outputName])
     const data = await ffmpeg.readFile(outputName)
     return new Blob([new Uint8Array(data as Uint8Array).buffer], { type: 'video/mp4' })
   } catch (err) {
@@ -3929,6 +3970,7 @@ export async function applyBackgroundBlur(
       '-i', inputName, '-i', midName,
       '-filter_complex', filterComplex,
       '-map', '[outv]', '-map', '[outa]',
+      ...VIDEO_ENCODE_ARGS,
       outputName,
     ])
 
