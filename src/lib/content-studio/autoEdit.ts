@@ -53,8 +53,19 @@ export class AutoEditError extends Error {}
  * an explicit `format=yuv420p`, but it matters for the plain single-filter
  * ones: a yuv422/444 source would otherwise stay high-profile through the
  * encode and produce a file some browsers refuse to decode.
+ *
+ * `-movflags +faststart` moves the moov atom (duration/seek index) to the
+ * FRONT of the file instead of ffmpeg's default of writing it at the end.
+ * That default is fine for a file served over HTTP, where the browser can
+ * range-request the tail to read it — but every render here is played back
+ * as a Blob URL, which the browser reads front-to-back with no seeking.
+ * Without this flag, `<video>` (and probeBlobDuration's own loadedmetadata
+ * probe) can't find the duration at all and reports it as Infinity, which
+ * every duration display here (fmtTime) then renders as "0:00" — a video
+ * that plays fine but LOOKS totally broken, worse after every additional
+ * hard-baked effect since each one re-encodes without the atom moved back.
  */
-const VIDEO_ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p']
+const VIDEO_ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p', '-movflags', '+faststart']
 
 export interface SilenceOptions {
   /** dB below which audio counts as silent. Louder rooms need this less negative. */
