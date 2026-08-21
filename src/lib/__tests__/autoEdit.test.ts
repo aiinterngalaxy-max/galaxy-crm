@@ -4,6 +4,11 @@ import {
   LOOK_RECIPES, hueToColorbalanceShift, GLITCH_RECIPES, LIGHT_RECIPES, MOTION_RECIPES, buildSpeedRampFilter,
   AUDIO_RECIPES, VOICE_RECIPES, buildDoubleExposureFilter, buildSplitScreenFilter,
   buildRotateCoverScale, buildPivotRotateFilter, buildSpinAngleExpr, buildRotationAngleExpr, buildSwingAngleExpr, buildBounceZoomExpr,
+  batchableEffectVf, buildBatchedEffectsVf,
+  blurVf, pixelateVf, colorAdjustVf, videoFadeVf, autoColorVf, rotateVf, flipVf, cropAspectVf,
+  buildWaveFilter, buildRippleFilter, buildWarpFilter, buildTwirlFilter, buildRadialPinchFilter,
+  buildScratchesFilter, buildRetroCameraFilter,
+  type BatchableEffect,
 } from '../content-studio/autoEdit'
 
 describe('parseSilenceLog', () => {
@@ -526,5 +531,79 @@ describe('buildBounceZoomExpr', () => {
     const lowAmp = Number(low.match(/^1\+([\d.]+)\*sin/)?.[1])
     const highAmp = Number(high.match(/^1\+([\d.]+)\*sin/)?.[1])
     expect(highAmp).toBeGreaterThan(lowAmp)
+  })
+})
+
+// The whole point of batching is that it must be a pure performance/quality
+// change with ZERO effect on what the video looks like. These lock that in:
+// every batchable effect has to contribute exactly the filter string its own
+// standalone builder would have produced, and the batched chain has to be
+// those strings in order.
+describe('batchableEffectVf', () => {
+  it('produces the same filter string each effect would render on its own', () => {
+    const cases: { effect: BatchableEffect; expected: string | null }[] = [
+      { effect: { kind: 'crop', aspect: '9:16' }, expected: cropAspectVf('9:16') },
+      { effect: { kind: 'rotate', degrees: 90 }, expected: rotateVf(90) },
+      { effect: { kind: 'rotate', degrees: 180 }, expected: rotateVf(180) },
+      { effect: { kind: 'flip', axis: 'horizontal' }, expected: flipVf('horizontal') },
+      { effect: { kind: 'blur', opts: { start: 1, end: 3, strength: 7 } }, expected: blurVf({ start: 1, end: 3, strength: 7 }) },
+      { effect: { kind: 'pixelate', opts: { start: 0, end: 2, strength: 5 } }, expected: pixelateVf({ start: 0, end: 2, strength: 5 }) },
+      { effect: { kind: 'autoColor', opts: { start: 0, end: 4, strength: 0.6 } }, expected: autoColorVf({ start: 0, end: 4, strength: 0.6 }) },
+      { effect: { kind: 'fade', opts: { direction: 'in', duration: 1, durationSec: 8 } }, expected: videoFadeVf({ direction: 'in', duration: 1, durationSec: 8 }) },
+      { effect: { kind: 'scratches', opts: { start: 0, end: 5, strength: 0.5 } }, expected: buildScratchesFilter(0.5, 0, 5) },
+      { effect: { kind: 'retroCamera', opts: { start: 0, end: 5, strength: 0.5 } }, expected: buildRetroCameraFilter(0.5, 0, 5) },
+      { effect: { kind: 'warp', opts: { start: 0, end: 5, strength: 0.4 } }, expected: buildWarpFilter(0.4, 0, 5) },
+      { effect: { kind: 'wave', opts: { start: 0, end: 5, strength: 0.4, axis: 'vertical' } }, expected: buildWaveFilter('vertical', 0.4, 0, 5) },
+      { effect: { kind: 'ripple', opts: { start: 0, end: 5, strength: 0.4, x: 0.3, y: 0.7 } }, expected: buildRippleFilter(0.4, 0.3, 0.7, 0, 5) },
+      { effect: { kind: 'twirl', opts: { start: 0, end: 5, strength: 0.4, x: 0.3, y: 0.7 } }, expected: buildTwirlFilter(0.4, 0.3, 0.7, 0, 5) },
+      { effect: { kind: 'bulge', opts: { start: 0, end: 5, strength: 0.4, x: 0.3, y: 0.7 } }, expected: buildRadialPinchFilter(0.4, 0.3, 0.7, true, 0, 5) },
+      { effect: { kind: 'squeeze', opts: { start: 0, end: 5, strength: 0.4, x: 0.3, y: 0.7 } }, expected: buildRadialPinchFilter(0.4, 0.3, 0.7, false, 0, 5) },
+    ]
+    for (const { effect, expected } of cases) {
+      expect(batchableEffectVf(effect), `mismatch for ${effect.kind}`).toBe(expected)
+    }
+  })
+
+  it('defaults an omitted centre point to the middle of the frame, same as the standalone effect', () => {
+    const batched = batchableEffectVf({ kind: 'ripple', opts: { start: 0, end: 2, strength: 0.5 } })
+    expect(batched).toBe(buildRippleFilter(0.5, 0.5, 0.5, 0, 2))
+  })
+})
+
+describe('buildBatchedEffectsVf', () => {
+  it('chains effects in order, comma-separated', () => {
+    const effects: BatchableEffect[] = [
+      { kind: 'blur', opts: { start: 1, end: 3, strength: 4 } },
+      { kind: 'flip', axis: 'vertical' },
+    ]
+    expect(buildBatchedEffectsVf(effects)).toBe(
+      `${blurVf({ start: 1, end: 3, strength: 4 })},${flipVf('vertical')}`,
+    )
+  })
+
+  it('preserves order — a rotate before a blur is not the same chain as after', () => {
+    const a = buildBatchedEffectsVf([{ kind: 'rotate', degrees: 90 }, { kind: 'blur', opts: { start: 0, end: 1, strength: 3 } }])
+    const b = buildBatchedEffectsVf([{ kind: 'blur', opts: { start: 0, end: 1, strength: 3 } }, { kind: 'rotate', degrees: 90 }])
+    expect(a).not.toBe(b)
+  })
+
+  // A color command with every adjustment left at its neutral value produces
+  // no filter at all. Left in the chain it would emit an empty element and
+  // ffmpeg would reject the whole -vf string, taking the other effects down
+  // with it — so it has to be dropped, not stringified.
+  it('drops a no-op colour adjustment instead of emitting an empty filter', () => {
+    const neutral = { start: 0, end: 5 }
+    expect(colorAdjustVf(neutral)).toBeNull()
+    const chain = buildBatchedEffectsVf([
+      { kind: 'color', opts: neutral },
+      { kind: 'flip', axis: 'horizontal' },
+    ])
+    expect(chain).toBe(flipVf('horizontal'))
+    expect(chain).not.toContain(',,')
+  })
+
+  it('returns null when every effect in the run is a no-op, so the caller can skip the render entirely', () => {
+    expect(buildBatchedEffectsVf([{ kind: 'color', opts: { start: 0, end: 5 } }])).toBeNull()
+    expect(buildBatchedEffectsVf([])).toBeNull()
   })
 })
