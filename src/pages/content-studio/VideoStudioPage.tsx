@@ -370,6 +370,21 @@ export function VideoStudioPage() {
     })
   }
 
+  /** Drag needs a mouse held down while moving — trackpads on "tap to
+   *  click" can't do that reliably, so this button-based swap is the only
+   *  way some laptop users can reorder at all, not just a convenience. */
+  function movePendingClipByOffset(id: string, offset: -1 | 1) {
+    setPendingClips((clips) => {
+      const from = clips.findIndex((c) => c.id === id)
+      const to = from + offset
+      if (from === -1 || to < 0 || to >= clips.length) return clips
+      const next = [...clips]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
   function onSetPendingTrim(id: string, field: 'trimStart' | 'trimEnd', value: number) {
     setPendingClips((clips) => clips.map((c) => (c.id === id ? { ...c, [field]: Math.max(0, value) } : c)))
   }
@@ -984,6 +999,26 @@ export function VideoStudioPage() {
                       } ${pendingClips.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
                     >
                       <div className="flex items-center gap-3">
+                        {pendingClips.length > 1 && (
+                          <div className="flex flex-col gap-0.5 shrink-0">
+                            <button
+                              onClick={() => movePendingClipByOffset(clip.id, -1)}
+                              disabled={busy || i === 0}
+                              title="Move up"
+                              className="text-gray-500 hover:text-gray-200 disabled:opacity-30 disabled:hover:text-gray-500 leading-none px-1"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              onClick={() => movePendingClipByOffset(clip.id, 1)}
+                              disabled={busy || i === pendingClips.length - 1}
+                              title="Move down"
+                              className="text-gray-500 hover:text-gray-200 disabled:opacity-30 disabled:hover:text-gray-500 leading-none px-1"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        )}
                         <div className="w-14 h-9 shrink-0 rounded bg-gray-800 overflow-hidden flex items-center justify-center text-gray-600 text-xs">
                           {clip.thumbnail ? (
                             <img src={clip.thumbnail} alt="" className="w-full h-full object-cover" />

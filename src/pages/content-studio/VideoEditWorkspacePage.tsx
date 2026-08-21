@@ -1995,6 +1995,34 @@ export function VideoEditWorkspacePage() {
                   <span>End: {fmtTime(selectedClip.end - selectedClip.cutEnd)}</span>
                   <span>Duration: {fmtTime(Math.max(0, (selectedClip.end - selectedClip.cutEnd) - (selectedClip.start + selectedClip.cutStart)))}</span>
                 </div>
+                {mode === 'segments' && clips.length > 1 && (
+                  // Dragging the tiles above needs a mouse held down while
+                  // moving — a trackpad on "tap to click" can't do that
+                  // reliably, so these buttons are the only way some laptop
+                  // users can reorder clips at all, not just a convenience.
+                  <div className="flex gap-2 mt-1.5">
+                    <button
+                      onClick={() => {
+                        const i = clips.findIndex((c) => c.id === selectedClip.id)
+                        if (i > 0) moveClip(selectedClip.id, clips[i - 1].id)
+                      }}
+                      disabled={clips.findIndex((c) => c.id === selectedClip.id) === 0}
+                      className="text-[11px] font-semibold text-gray-400 hover:text-gray-200 disabled:opacity-30"
+                    >
+                      ◀ Move left
+                    </button>
+                    <button
+                      onClick={() => {
+                        const i = clips.findIndex((c) => c.id === selectedClip.id)
+                        if (i < clips.length - 1) moveClip(selectedClip.id, clips[i + 1].id)
+                      }}
+                      disabled={clips.findIndex((c) => c.id === selectedClip.id) === clips.length - 1}
+                      className="text-[11px] font-semibold text-gray-400 hover:text-gray-200 disabled:opacity-30"
+                    >
+                      Move right ▶
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
