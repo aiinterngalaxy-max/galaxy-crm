@@ -3673,13 +3673,44 @@ export async function applyAutoColor(file: Blob, { start, end, strength = 0.6 }:
 // effect in this file.
 
 let segmenterSingleton: SelfieSegmentationType | null = null
+let segmenterScriptPromise: Promise<void> | null = null
+
+const SELFIE_SEGMENTATION_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation'
+
+// @mediapipe/selfie_segmentation ships no real ES/CommonJS exports — the file
+// it publishes just attaches `SelfieSegmentation` onto `window` as a side
+// effect (that's genuinely all MediaPipe's own docs show: a <script> tag).
+// Loading it through a bundler's `import()` and destructuring the result
+// gives `undefined`, so `new SelfieSegmentation(...)` fails with "... is not
+// a constructor" on every single call. Loading it as a real <script> tag and
+// reading the constructor back off `window` is what actually makes the
+// global assignment happen.
+function loadSegmenterScript(): Promise<void> {
+  if (segmenterScriptPromise) return segmenterScriptPromise
+  segmenterScriptPromise = new Promise((resolve, reject) => {
+    if ((window as unknown as { SelfieSegmentation?: unknown }).SelfieSegmentation) {
+      resolve()
+      return
+    }
+    const script = document.createElement('script')
+    script.src = `${SELFIE_SEGMENTATION_CDN_BASE}/selfie_segmentation.js`
+    script.onload = () => resolve()
+    script.onerror = () => reject(new AutoEditError('Could not load the background-blur model from the CDN.'))
+    document.head.appendChild(script)
+  })
+  return segmenterScriptPromise
+}
 
 /** Loaded once per page session, same "load once, reuse" reasoning as
  *  loadFFmpeg — re-downloading and re-initializing the model per clip would
  *  be wasteful, and nothing about the model itself is per-video state. */
 async function loadSegmenter(): Promise<SelfieSegmentationType> {
   if (segmenterSingleton) return segmenterSingleton
-  const { SelfieSegmentation } = await import('@mediapipe/selfie_segmentation')
+  await loadSegmenterScript()
+  const SelfieSegmentation = (window as unknown as {
+    SelfieSegmentation?: new (config: { locateFile: (file: string) => string }) => SelfieSegmentationType
+  }).SelfieSegmentation
+  if (!SelfieSegmentation) throw new AutoEditError('Could not load the background-blur model.')
   const seg = new SelfieSegmentation({
     // The npm package ships the model/wasm files, but they're not part of
     // this app's own build output — fetched from the same package's CDN
