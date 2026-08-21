@@ -64,6 +64,24 @@ interface HistorySnapshot {
    *  (not combined with anything else) before treating Undo as a safe way
    *  to remove it. Absent for clip-level (trim/split) commits. */
   effectTypes?: string[]
+  /** Every AI effect applied to reach this snapshot, in order, expressed
+   *  against the ORIGINAL loaded source rather than the previous render.
+   *
+   *  Baking each new instruction onto the last render is what made quality
+   *  fall off a cliff over a session: five instructions meant five stacked
+   *  generations of lossy encoding, on top of however many the effects
+   *  inside each instruction cost. Keeping the cumulative list lets the next
+   *  instruction re-render from the pristine source with the whole list
+   *  applied once, so the loss stays flat instead of compounding.
+   *
+   *  Absent on clip-level commits and on any snapshot produced by the
+   *  fallback path below (see canReplayFromBase). */
+  effectStack?: EditCommand[]
+  /** True when a pending trim was baked into this snapshot's video. The
+   *  trim bake runs before the effects, so a stack recorded alongside one
+   *  can't be replayed from the base without reordering trim against those
+   *  effects — such a snapshot ends the replay chain. */
+  bakedTrim?: boolean
 }
 
 /** A Text or Captions item — same shape as TimedCaption, plus a stable id for editing/deleting in the UI. */
@@ -351,16 +369,22 @@ export function VideoEditWorkspacePage() {
   /** Swaps the active source to a cached (or, failing that, Drive-fetched)
    *  blob — used by undo/redo/history-jump when the target snapshot points
    *  at a different video than the one currently loaded. */
+  /** The blob for a source key, fetching and caching it if this session
+   *  hasn't seen it yet. Shared by switchSource and the AI replay path. */
+  async function getSourceBlob(sourceKey: string): Promise<Blob> {
+    const cached = sourceBlobCache.current.get(sourceKey)
+    if (cached) return cached
+    // Only reachable if the key is a real Drive id whose blob fell out of
+    // this session's cache (e.g. a page reload) — a local-* key always
+    // has its blob cached at creation time, since nothing else can produce one.
+    const fetched = await downloadFromDrive(sourceKey)
+    sourceBlobCache.current.set(sourceKey, fetched)
+    return fetched
+  }
+
   async function switchSource(sourceKey: string): Promise<void> {
     if (sourceKey === currentSourceKey) return
-    let blob = sourceBlobCache.current.get(sourceKey)
-    if (!blob) {
-      // Only reachable if the key is a real Drive id whose blob fell out of
-      // this session's cache (e.g. a page reload) — a local-* key always
-      // has its blob cached at creation time, since nothing else can produce one.
-      blob = await downloadFromDrive(sourceKey)
-      sourceBlobCache.current.set(sourceKey, blob)
-    }
+    const blob = await getSourceBlob(sourceKey)
     sourceBlobRef.current = blob
     if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current)
     const url = URL.createObjectURL(blob)
@@ -569,7 +593,7 @@ export function VideoEditWorkspacePage() {
    *  clip and swapping the player/export source to match. Purely local:
    *  no Drive upload, no DB write — same "stays local until Save" rule the
    *  Music panel already follows for a picked-but-unsaved file. */
-  async function commitNewSource(blob: Blob, newDuration: number, label: string, effectTypes?: string[]) {
+  async function commitNewSource(blob: Blob, newDuration: number, label: string, effectTypes?: string[], effectStack?: EditCommand[], bakedTrim?: boolean) {
     const sourceKey = `local-${Date.now()}`
     sourceBlobCache.current.set(sourceKey, blob)
     await switchSource(sourceKey)
@@ -580,7 +604,7 @@ export function VideoEditWorkspacePage() {
     setMode('single')
     setClips([newClip])
     setSelectedId(newClip.id)
-    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: [newClip], sourceKey, label, effectTypes }])
+    setHistory((h) => [...h.slice(0, historyIndex + 1), { clips: [newClip], sourceKey, label, effectTypes, effectStack, bakedTrim }])
     setHistoryIndex((i) => i + 1)
     setDirty(true)
   }
@@ -1395,6 +1419,47 @@ export function VideoEditWorkspacePage() {
         if (!sourceBlobRef.current) throw new Error('No source video loaded yet.')
         let blob = sourceBlobRef.current
 
+        // Replay the whole effect list against the ORIGINAL source instead of
+        // stacking this instruction on top of the last render, so a session's
+        // worth of instructions costs one generation of encoding loss rather
+        // than one per instruction. See HistorySnapshot.effectStack.
+        //
+        // Only safe when replaying is genuinely equivalent to appending:
+        //  - the base snapshot has to still be in the history (index 0),
+        //  - every earlier effect has to be one this build knows how to
+        //    replay — a snapshot with no recorded stack (an older session, or
+        //    a previous fallback) can't be reconstructed,
+        //  - no earlier effect may have changed the clip's DURATION
+        //    (speed/loop/reverse do), because every windowed effect after it
+        //    is timed against the retimed clip, and
+        //  - no trim may be involved, in either direction. The trim bake
+        //    below deliberately runs BEFORE the effects, so a stack built as
+        //    "effects, then trim" would replay as "trim, then effects" and
+        //    every windowed effect would land at the wrong timestamp.
+        // Any of those failing falls back to the old append-on-top
+        // behaviour, which is always correct, just lossier. Deliberately
+        // conservative: a slightly softer render is recoverable, an edit
+        // silently applied at the wrong second is not.
+        const RETIMING_TYPES = new Set(['speed', 'loop', 'reverse'])
+        const hasPendingTrim = mode === 'single' && !!clips[0] && (clips[0].cutStart > 0 || clips[0].cutEnd > 0)
+        const baseSnapshot = history[0]
+        const prevSnapshot = history[historyIndex]
+        const prevStack = prevSnapshot?.effectStack
+        // Nothing to replay yet — the base IS the current source, so this
+        // path is byte-identical to the old one, pending trim included.
+        const prevIsBase = prevSnapshot === baseSnapshot
+        const canReplayFromBase = !!baseSnapshot
+          && (prevIsBase || (!!prevStack && !prevSnapshot?.bakedTrim && !hasPendingTrim))
+          && !(prevStack ?? []).some((c) => RETIMING_TYPES.has(c.type))
+
+        let effectStack: EditCommand[] | undefined
+        let toApply: EditCommand[] = hardBake
+        if (canReplayFromBase) {
+          effectStack = [...(prevStack ?? []), ...hardBake]
+          toApply = effectStack
+          blob = await getSourceBlob(baseSnapshot.sourceKey)
+        }
+
         // A still-pending (not yet baked-in) trim from an earlier "Trim the
         // first 3 seconds" instruction is only a cutStart/cutEnd on the
         // clip — sourceBlobRef itself is still the untrimmed video. Without
@@ -1406,7 +1471,7 @@ export function VideoEditWorkspacePage() {
         // product from 5 to 8 seconds"). Baking it in also means the fresh
         // clip commitNewSource creates below correctly starts at cutStart=0
         // instead of silently re-applying the same trim on top of itself.
-        if (mode === 'single' && clips[0] && (clips[0].cutStart > 0 || clips[0].cutEnd > 0)) {
+        if (hasPendingTrim && clips[0]) {
           const c = clips[0]
           blob = await renderFinal(blob, { trimStart: c.cutStart, trimEnd: c.cutEnd > 0 ? Math.max(0.1, c.end - c.cutEnd) : 0 }, setAiProgress)
         }
@@ -1416,11 +1481,11 @@ export function VideoEditWorkspacePage() {
         // touch-ups), then reverse, loop last (should wrap the fully-edited
         // result, not a pre-edit segment).
         const ordered = [
-          ...hardBake.filter((c) => c.type === 'crop' || c.type === 'rotate' || c.type === 'flip'),
-          ...hardBake.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
-          ...hardBake.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'background_blur' || c.type === 'pixelate' || c.type === 'motion_blur' || c.type === 'directional_blur' || c.type === 'zoom_blur' || c.type === 'radial_blur' || c.type === 'spin_blur' || c.type === 'tiltshift_blur' || c.type === 'wave' || c.type === 'ripple' || c.type === 'warp' || c.type === 'twirl' || c.type === 'fisheye' || c.type === 'bulge' || c.type === 'squeeze' || c.type === 'stretch' || c.type === 'lens_distortion' || c.type === 'spin' || c.type === 'rotation' || c.type === 'bounce' || c.type === 'swing' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask' || c.type === 'look' || c.type === 'glitch' || c.type === 'light' || c.type === 'lens_flare' || c.type === 'sparkle' || c.type === 'neon_glow' || c.type === 'god_rays' || c.type === 'dust' || c.type === 'scratches' || c.type === 'film_burn' || c.type === 'retro_camera' || c.type === 'rain' || c.type === 'snow' || c.type === 'fog' || c.type === 'frost' || c.type === 'motionfx' || c.type === 'audiofx' || c.type === 'datamosh' || c.type === 'auto_color' || c.type === 'chroma_key' || c.type === 'double_exposure' || c.type === 'split_screen'),
-          ...hardBake.filter((c) => c.type === 'reverse'),
-          ...hardBake.filter((c) => c.type === 'loop'),
+          ...toApply.filter((c) => c.type === 'crop' || c.type === 'rotate' || c.type === 'flip'),
+          ...toApply.filter((c) => c.type === 'zoom' || c.type === 'pan' || c.type === 'speed'),
+          ...toApply.filter((c) => c.type === 'color' || c.type === 'blur' || c.type === 'background_blur' || c.type === 'pixelate' || c.type === 'motion_blur' || c.type === 'directional_blur' || c.type === 'zoom_blur' || c.type === 'radial_blur' || c.type === 'spin_blur' || c.type === 'tiltshift_blur' || c.type === 'wave' || c.type === 'ripple' || c.type === 'warp' || c.type === 'twirl' || c.type === 'fisheye' || c.type === 'bulge' || c.type === 'squeeze' || c.type === 'stretch' || c.type === 'lens_distortion' || c.type === 'spin' || c.type === 'rotation' || c.type === 'bounce' || c.type === 'swing' || c.type === 'fade' || c.type === 'audio_noise_reduction' || c.type === 'mask' || c.type === 'look' || c.type === 'glitch' || c.type === 'light' || c.type === 'lens_flare' || c.type === 'sparkle' || c.type === 'neon_glow' || c.type === 'god_rays' || c.type === 'dust' || c.type === 'scratches' || c.type === 'film_burn' || c.type === 'retro_camera' || c.type === 'rain' || c.type === 'snow' || c.type === 'fog' || c.type === 'frost' || c.type === 'motionfx' || c.type === 'audiofx' || c.type === 'datamosh' || c.type === 'auto_color' || c.type === 'chroma_key' || c.type === 'double_exposure' || c.type === 'split_screen'),
+          ...toApply.filter((c) => c.type === 'reverse'),
+          ...toApply.filter((c) => c.type === 'loop'),
         ]
         let bakedDurationSec = totalDuration
 
@@ -1596,8 +1661,20 @@ export function VideoEditWorkspacePage() {
         // other edit, and what keeps the original upload (raw_drive_id,
         // untouched by any of this) and every earlier save's Drive file
         // intact rather than replaced on every single AI instruction.
+        // The label and effectTypes describe what the operator just asked
+        // for, NOT the replayed stack — on a replay `ordered` also contains
+        // every earlier effect, and listing those again would make each
+        // history entry read as if it had re-applied everything.
+        const justApplied = ordered.filter((c) => hardBake.includes(c))
         const newDuration = await probeBlobDuration(blob)
-        await commitNewSource(blob, newDuration, ordered.map(describeAiCommand).join(' + '), ordered.map((c) => c.type))
+        await commitNewSource(
+          blob,
+          newDuration,
+          justApplied.map(describeAiCommand).join(' + '),
+          justApplied.map((c) => c.type),
+          effectStack,
+          hasPendingTrim || prevSnapshot?.bakedTrim,
+        )
       }
 
       for (const cmd of soft) {

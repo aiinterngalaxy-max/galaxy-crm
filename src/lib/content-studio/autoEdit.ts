@@ -42,17 +42,19 @@ export class AutoEditError extends Error {}
  * threshold, where the loss per generation stops accumulating into visible
  * banding and smeared motion.
  *
- * `fast` (not `medium`) because preset is mostly a speed/file-size trade at
- * a fixed CRF, not a quality one — the rate control targets the same
- * quality either way. This runs on the visitor's own machine, so the extra
- * encode time a slower preset costs buys little that CRF hasn't already.
+ * `slow` and CRF 16 are a deliberate quality-over-speed choice for this
+ * editor: renders are allowed to take as long as they take. Preset mostly
+ * trades encode time for file size at a fixed CRF, so `slow` mainly buys
+ * back the bitrate that CRF 16 spends; CRF 16 is the part that actually
+ * preserves detail, and it leaves headroom for the re-encode every social
+ * platform runs on upload.
  *
  * `-pix_fmt yuv420p` is a no-op for the effect chains that already end in
  * an explicit `format=yuv420p`, but it matters for the plain single-filter
  * ones: a yuv422/444 source would otherwise stay high-profile through the
  * encode and produce a file some browsers refuse to decode.
  */
-const VIDEO_ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p']
+const VIDEO_ENCODE_ARGS = ['-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p']
 
 export interface SilenceOptions {
   /** dB below which audio counts as silent. Louder rooms need this less negative. */
