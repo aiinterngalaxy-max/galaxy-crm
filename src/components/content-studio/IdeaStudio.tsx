@@ -88,6 +88,62 @@ function appendCaption(text: string, caption?: string): string {
   return `${text}\n\n---\n\n📱 INSTAGRAM CAPTION\n${caption}`
 }
 
+function scriptFileName(title: string, ext: string): string {
+  return `${(title || 'script').replace(/[^\w\- ]+/g, '').trim() || 'script'}.${ext}`
+}
+
+/**
+ * jsPDF is only pulled in here on click (dynamic import), not at the top of
+ * the file — this component ships in the same bundle as the whole Ideas
+ * board, and jsPDF is a ~350KB dependency that most people opening that
+ * board will never trigger. Loading it eagerly would grow every visitor's
+ * initial download for a feature only some of them use.
+ */
+async function downloadScriptAsPdf(title: string, text: string) {
+  const { default: jsPDF } = await import('jspdf')
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+  const pageH = doc.internal.pageSize.getHeight()
+  const margin = 48
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.text(title || 'Script', margin, margin)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(11)
+  let y = margin + 26
+  for (const paragraph of text.split('\n')) {
+    const lines: string[] = paragraph ? doc.splitTextToSize(paragraph, pageW - margin * 2) : ['']
+    for (const line of lines) {
+      if (y > pageH - margin) { doc.addPage(); y = margin }
+      doc.text(line, margin, y)
+      y += 15
+    }
+  }
+  doc.save(scriptFileName(title, 'pdf'))
+}
+
+/**
+ * No docx library involved — Word opens any HTML document saved with a
+ * .doc extension and an application/msword MIME type, which is exactly
+ * enough for a plain-text script and avoids adding a whole new dependency
+ * (and its bundle weight) just for this one export.
+ */
+function downloadScriptAsWord(title: string, text: string) {
+  const escaped = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:Calibri, sans-serif; font-size:11pt;"><h2>${title}</h2><p>${escaped}</p></body></html>`
+  const blob = new Blob(['﻿', html], { type: 'application/msword' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = scriptFileName(title, 'doc')
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function IdeaStudio({
   idea, brandName, autoGenerate, onClose, onSaved,
 }: {
@@ -112,6 +168,7 @@ export function IdeaStudio({
 
   const [analysing, setAnalysing] = useState(false)
   const [writing, setWriting] = useState(false)
+  const [pdfDownloading, setPdfDownloading] = useState(false)
   const [captioning, setCaptioning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [coverFailed, setCoverFailed] = useState(false)
@@ -127,6 +184,11 @@ export function IdeaStudio({
     if (!idea.content_id) return
     getScriptByContentId(idea.content_id).then(setScript).catch(() => setScript(null))
   }, [idea.content_id])
+
+  const hasScript = format === 'reel' ? !!(hook || body || cta) : !!(scriptEn || scriptHi)
+  function scriptText(): string {
+    return format === 'explainer' ? (lang === 'en' ? scriptEn : scriptHi) : buildScriptSheet(idea, hook, body, cta)
+  }
 
   async function scriptAction(status: 'Submitted' | 'Approved' | 'Changes Required') {
     if (!script) return
@@ -345,12 +407,11 @@ export function IdeaStudio({
               <span className="text-sm font-medium text-gray-200">Script — every box editable</span>
             </div>
             <div className="flex items-center gap-2">
-              {((format === 'reel' && (hook || body || cta)) || (format === 'explainer' && (scriptEn || scriptHi))) && (
+              {hasScript && (
                 <button
                   className="text-[11px] text-gray-500 hover:text-gold-400"
                   onClick={() => {
-                    const text = format === 'explainer' ? (lang === 'en' ? scriptEn : scriptHi) : buildScriptSheet(idea, hook, body, cta)
-                    navigator.clipboard.writeText(text)
+                    navigator.clipboard.writeText(scriptText())
                     toast.success('Copied')
                   }}
                 >
@@ -520,6 +581,32 @@ export function IdeaStudio({
 
       <div className="flex justify-end gap-3">
         <button className="btn-secondary text-xs" onClick={onClose}>Collapse</button>
+        {hasScript && (
+          <>
+            <button
+              className="btn-secondary text-xs"
+              disabled={pdfDownloading}
+              onClick={async () => {
+                setPdfDownloading(true)
+                try {
+                  await downloadScriptAsPdf(idea.title, scriptText())
+                } catch {
+                  toast.error('Could not generate the PDF')
+                } finally {
+                  setPdfDownloading(false)
+                }
+              }}
+            >
+              {pdfDownloading ? 'Preparing…' : '⬇ PDF'}
+            </button>
+            <button
+              className="btn-secondary text-xs"
+              onClick={() => downloadScriptAsWord(idea.title, scriptText())}
+            >
+              ⬇ Word
+            </button>
+          </>
+        )}
         <button className="btn-primary text-xs" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save script'}
         </button>
