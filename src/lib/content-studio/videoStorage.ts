@@ -83,6 +83,21 @@ export async function downloadVideoBlob(storagePath: string): Promise<Blob> {
     return await res.blob()
   } catch (err) {
     if (err instanceof VideoStorageError) throw err
+    const code = (err as { code?: string })?.code
+    // getDownloadURL retries transient failures internally and only throws
+    // this after giving up — on a machine where it happens every time (but
+    // not on others), that's this specific machine's network refusing to
+    // reach Google's servers at all (a VPN, a corporate firewall, or
+    // security software blocking firebasestorage.googleapis.com), not
+    // something a code change here can route around.
+    if (code === 'storage/retry-limit-exceeded') {
+      throw new VideoStorageError(
+        'Could not reach Firebase Storage after repeated retries — this usually means a VPN, ' +
+        'firewall, or security software on THIS device/network is blocking requests to ' +
+        'firebasestorage.googleapis.com. Try a different network, or check with whoever manages ' +
+        'this device\'s network/antivirus settings.',
+      )
+    }
     const detail = err instanceof Error ? err.message : String(err)
     throw new VideoStorageError(`Could not reach Firebase Storage (${detail}).`)
   }

@@ -2310,6 +2310,7 @@ export function VideoEditWorkspacePage() {
                   className="btn-primary text-xs w-full disabled:opacity-50"
                   onClick={interpretAiEdit}
                   disabled={aiInterpreting || aiApplying || !sourceBlobRef.current}
+                  title={!sourceBlobRef.current ? 'Waiting for the video to finish loading — check the error banner above if this never clears' : undefined}
                 >
                   {aiInterpreting ? 'Thinking…' : 'Interpret instruction'}
                 </button>
