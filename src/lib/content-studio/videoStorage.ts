@@ -19,7 +19,7 @@
  * change than it's worth for what's really just a switch in what gets
  * stored there.
  */
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { storage } from '../firebase'
 
 export class VideoStorageError extends Error {}
@@ -46,10 +46,25 @@ export interface StorageUploadResult {
 }
 
 /**
- * Uploads a file/blob to Firebase Storage with progress, mirroring
- * googleDrive.ts's uploadToDrive/uploadBlobToDrive (both collapse into this
- * one function here — Storage has no separate "create a folder" step Drive
- * needed).
+ * Uploads a file/blob to Firebase Storage, mirroring googleDrive.ts's
+ * uploadToDrive/uploadBlobToDrive (both collapse into this one function
+ * here — Storage has no separate "create a folder" step Drive needed).
+ *
+ * Deliberately `uploadBytes` (one plain multipart POST), not
+ * `uploadBytesResumable` — see STORAGE_SETUP.md: the resumable protocol
+ * opens a session and reads back custom `X-Goog-Upload-*` response headers,
+ * which only get exposed once the bucket's own CORS policy explicitly lists
+ * them (`gsutil cors set` / `gcloud storage buckets update --cors-file`).
+ * That step has never actually been applied to this bucket (confirmed
+ * 2026-08-22: uploadBytesResumable failed with storage/retry-limit-exceeded
+ * on the user's own machine, not just a restrictive network) — so the
+ * resumable path is broken here regardless of code. A plain multipart
+ * upload's response is just the final JSON object metadata, which only
+ * needs `Access-Control-Allow-Origin` (already `*` by default on
+ * firebasestorage.googleapis.com, verified directly), so it works without
+ * that unapplied infra step. Trade-off: no live progress percentage during
+ * upload — onProgress only fires at 0 and 1 — and no auto-resume on a
+ * dropped connection, since neither exists outside the resumable protocol.
  */
 export async function uploadVideoBlob(
   file: Blob,
@@ -58,22 +73,15 @@ export async function uploadVideoBlob(
 ): Promise<StorageUploadResult> {
   const path = uniquePath(fileName)
   const storageRef = ref(storage, path)
-  return new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file, { contentType: file.type || 'video/mp4' })
-    task.on(
-      'state_changed',
-      (snap) => onProgress?.(snap.totalBytes ? snap.bytesTransferred / snap.totalBytes : 0),
-      (err) => reject(new VideoStorageError(err.message || 'Upload failed. Please try again.')),
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(storageRef)
-          resolve({ driveFileId: path, driveViewUrl: downloadUrl })
-        } catch (err) {
-          reject(new VideoStorageError(err instanceof Error ? err.message : 'Could not finish the upload.'))
-        }
-      },
-    )
-  })
+  onProgress?.(0)
+  try {
+    await uploadBytes(storageRef, file, { contentType: file.type || 'video/mp4' })
+    const downloadUrl = await getDownloadURL(storageRef)
+    onProgress?.(1)
+    return { driveFileId: path, driveViewUrl: downloadUrl }
+  } catch (err) {
+    throw new VideoStorageError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
+  }
 }
 
 /** Signature-compatible with googleDrive.ts's uploadToDrive (drops the
