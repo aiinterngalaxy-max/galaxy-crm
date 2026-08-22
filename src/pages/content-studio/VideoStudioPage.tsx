@@ -1485,19 +1485,19 @@ function ProjectHeader({
             {editor && (
               <div className="flex items-center gap-1.5">
                 <dt className="text-gray-600">Editor:</dt>
-                <dd className="text-gray-300">{editor}</dd>
+                <dd className="text-white font-medium">{editor}</dd>
               </div>
             )}
             {content?.platform && (
               <div className="flex items-center gap-1.5">
                 <dt className="text-gray-600">Platform:</dt>
-                <dd className="text-gray-300">{content.platform}</dd>
+                <dd className="text-white font-medium">{content.platform}</dd>
               </div>
             )}
             {content?.format && (
               <div className="flex items-center gap-1.5">
                 <dt className="text-gray-600">Format:</dt>
-                <dd className="text-gray-300">{content.format}</dd>
+                <dd className="text-white font-medium">{content.format}</dd>
               </div>
             )}
           </dl>
