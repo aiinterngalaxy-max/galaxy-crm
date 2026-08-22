@@ -1,143 +1,48 @@
 /**
- * Client-side video/music upload/download/delete, backed by Firebase Storage
- * instead of Google Drive.
+ * Client-side video/music upload/download/delete for Content Studio, backed
+ * by Google Drive (see googleDrive.ts) via the same per-user OAuth grant the
+ * rest of the app already uses for invoices/documents.
  *
- * Drive access needed a per-user Google OAuth consent popup (Drive is a
- * separate product from Firebase Auth, so being signed into the CRM didn't
- * automatically grant it) — shown once per browser session to EVERY person
- * who opened Content Studio's editor, including a fresh popup mid-edit
- * whenever a cached grant had expired. Firebase Storage instead uses the
- * exact sign-in the CRM already requires (see storage.rules: any
- * `request.auth != null` may read/write), so there is no separate consent
- * step and therefore no popup, for anyone, ever.
- *
- * Same shape as googleDrive.ts's upload/download functions on purpose —
- * every call site swaps the import and otherwise stays the same. The
- * "driveFileId"/"driveViewUrl" field names in cmo_video_jobs are reused
- * as-is to hold a Storage path / download URL instead of a real Drive id —
- * they're just TEXT columns, and renaming them would be a bigger, riskier
- * change than it's worth for what's really just a switch in what gets
- * stored there.
+ * This used to be backed by Firebase Storage instead, to skip Drive's
+ * per-session OAuth consent popup. That required Firebase Storage's default
+ * bucket to actually be provisioned for this project, which needs the Blaze
+ * (pay-as-you-go) plan — confirmed 2026-08-22 the project is on Spark (free)
+ * and the user does not want to upgrade. Storage was never provisioned, so
+ * every upload attempt failed (CORS-preflight-looking errors, but the real
+ * cause was "no bucket exists" — `gsutil ls` on the project came back with
+ * zero buckets, and the Firebase console Storage page shows the "Get
+ * started"/upgrade screen, not a Files tab). Drive needs no plan upgrade, so
+ * this reverts back to it. Same field-reuse as before Firebase Storage: the
+ * `driveFileId`/`driveViewUrl` names in cmo_video_jobs hold a real Drive file
+ * id / view URL again.
  */
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
-import { storage } from '../firebase'
+import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, permanentlyDeleteDriveFile } from '../googleDrive'
 
-export class VideoStorageError extends Error {}
-
-const STORAGE_PATH_PREFIX = 'content-studio/'
-
-function uniquePath(fileName: string): string {
-  const safe = fileName.replace(/[^\w.\- ]+/g, '').trim() || 'file'
-  return `${STORAGE_PATH_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`
-}
-
-/** True for anything this module itself created (always starts with
- *  STORAGE_PATH_PREFIX) — false for a bare Google Drive file id (an opaque
- *  token with no slashes) left over from before this migration. */
-function isStoragePath(id: string): boolean {
-  return id.startsWith(STORAGE_PATH_PREFIX)
-}
+export { GoogleDriveError as VideoStorageError } from '../googleDrive'
 
 export interface StorageUploadResult {
-  /** Reused as `driveFileId` at call sites — really the Storage path. */
   driveFileId: string
-  /** Reused as `driveViewUrl` at call sites — really the download URL. */
   driveViewUrl: string
 }
 
-/**
- * Uploads a file/blob to Firebase Storage, mirroring googleDrive.ts's
- * uploadToDrive/uploadBlobToDrive (both collapse into this one function
- * here — Storage has no separate "create a folder" step Drive needed).
- *
- * Deliberately `uploadBytes` (one plain multipart POST), not
- * `uploadBytesResumable` — see STORAGE_SETUP.md: the resumable protocol
- * opens a session and reads back custom `X-Goog-Upload-*` response headers,
- * which only get exposed once the bucket's own CORS policy explicitly lists
- * them (`gsutil cors set` / `gcloud storage buckets update --cors-file`).
- * That step has never actually been applied to this bucket (confirmed
- * 2026-08-22: uploadBytesResumable failed with storage/retry-limit-exceeded
- * on the user's own machine, not just a restrictive network) — so the
- * resumable path is broken here regardless of code. A plain multipart
- * upload's response is just the final JSON object metadata, which only
- * needs `Access-Control-Allow-Origin` (already `*` by default on
- * firebasestorage.googleapis.com, verified directly), so it works without
- * that unapplied infra step. Trade-off: no live progress percentage during
- * upload — onProgress only fires at 0 and 1 — and no auto-resume on a
- * dropped connection, since neither exists outside the resumable protocol.
- */
-export async function uploadVideoBlob(
-  file: Blob,
-  fileName: string,
+/** Uploads a File, with upload progress (used for the initial footage/clip upload). */
+export async function uploadVideoFile(
+  file: File,
+  _fileName: string,
   onProgress?: (fraction: number) => void,
 ): Promise<StorageUploadResult> {
-  const path = uniquePath(fileName)
-  const storageRef = ref(storage, path)
-  onProgress?.(0)
-  try {
-    await uploadBytes(storageRef, file, { contentType: file.type || 'video/mp4' })
-    const downloadUrl = await getDownloadURL(storageRef)
-    onProgress?.(1)
-    return { driveFileId: path, driveViewUrl: downloadUrl }
-  } catch (err) {
-    throw new VideoStorageError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
-  }
+  return uploadToDrive(file, onProgress)
 }
 
-/** Signature-compatible with googleDrive.ts's uploadToDrive (drops the
- *  Drive-only per-account-folder step this doesn't need). */
-export const uploadVideoFile = uploadVideoBlob
-
-/**
- * Downloads a file's bytes back from Storage, given the path stored in
- * `raw_drive_id`/`edited_drive_id`/`export_drive_id`/`music_drive_id`.
- *
- * Content uploaded before this migration has a real Google Drive file id in
- * that same column, not a Storage path — those still need to go through
- * Drive (one popup) since the bytes genuinely live there, not in Storage.
- * Without this fallback, every piece of content uploaded before today would
- * simply fail to load at all: the video stays stuck at 0:00/0:00 and every
- * button that needs the source blob (Interpret instruction included) stays
- * disabled with no way to fix it short of re-uploading.
- */
-export async function downloadVideoBlob(storagePath: string): Promise<Blob> {
-  if (!isStoragePath(storagePath)) {
-    const { downloadFromDrive } = await import('../googleDrive')
-    return downloadFromDrive(storagePath)
-  }
-  try {
-    const url = await getDownloadURL(ref(storage, storagePath))
-    const res = await fetch(url)
-    if (!res.ok) throw new VideoStorageError(`Could not download the file (${res.status}).`)
-    return await res.blob()
-  } catch (err) {
-    if (err instanceof VideoStorageError) throw err
-    const code = (err as { code?: string })?.code
-    // getDownloadURL retries transient failures internally and only throws
-    // this after giving up — on a machine where it happens every time (but
-    // not on others), that's this specific machine's network refusing to
-    // reach Google's servers at all (a VPN, a corporate firewall, or
-    // security software blocking firebasestorage.googleapis.com), not
-    // something a code change here can route around.
-    if (code === 'storage/retry-limit-exceeded') {
-      throw new VideoStorageError(
-        'Could not reach Firebase Storage after repeated retries — this usually means a VPN, ' +
-        'firewall, or security software on THIS device/network is blocking requests to ' +
-        'firebasestorage.googleapis.com. Try a different network, or check with whoever manages ' +
-        'this device\'s network/antivirus settings.',
-      )
-    }
-    const detail = err instanceof Error ? err.message : String(err)
-    throw new VideoStorageError(`Could not reach Firebase Storage (${detail}).`)
-  }
+/** Uploads an in-memory Blob (a joined/edited/rendered result, or a music file) — no progress events. */
+export async function uploadVideoBlob(blob: Blob, fileName: string): Promise<StorageUploadResult> {
+  return uploadBlobToDrive(blob, fileName)
 }
 
-/** Deletes a file from Storage. A no-op (not an error) if it's already gone. */
-export async function deleteVideoBlob(storagePath: string): Promise<void> {
-  try {
-    await deleteObject(ref(storage, storagePath))
-  } catch (err) {
-    if ((err as { code?: string })?.code === 'storage/object-not-found') return
-    throw new VideoStorageError(err instanceof Error ? err.message : 'Could not delete the file.')
-  }
+/** Downloads a file's bytes back from Drive, given the id stored in `raw_drive_id`/`edited_drive_id`/`export_drive_id`/`music_drive_id`. */
+export async function downloadVideoBlob(driveFileId: string): Promise<Blob> {
+  return downloadFromDrive(driveFileId)
 }
+
+/** Permanently deletes a file from Drive. */
+export const deleteVideoBlob = permanentlyDeleteDriveFile
