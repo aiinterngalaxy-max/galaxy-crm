@@ -6,7 +6,7 @@ import { ensureVideoJob, updateVideoJob, updateContent, getContent, deleteConten
 import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
 import { uploadVideoFile, uploadVideoBlob, downloadVideoBlob, VideoStorageError } from '@/lib/content-studio/videoStorage'
 import { useViewer } from '@/lib/content-studio/viewer-context'
-import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
+import { parseJsonField, type ClipSegmentRecord, fmtTime, fixInfiniteDuration } from '@/lib/content-studio/videoEditShared'
 import { getSocialPreview, previewImageSrc, type SocialPreview } from '@/lib/content-studio/socialPreview'
 import { Page, PageHeader } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -934,7 +934,7 @@ export function VideoStudioPage() {
               </div>
 
               {rawPreviewUrl && (
-                <video src={rawPreviewUrl} controls className="w-full max-h-72 rounded-lg border border-gray-800 bg-black" />
+                <video src={rawPreviewUrl} onLoadedMetadata={(e) => fixInfiniteDuration(e.currentTarget)} controls className="w-full max-h-72 rounded-lg border border-gray-800 bg-black" />
               )}
 
               {!!clipSegments?.length && (
@@ -1053,7 +1053,7 @@ export function VideoStudioPage() {
                       </div>
 
                       {previewingPendingId === clip.id && pendingPreviewUrlRef.current && (
-                        <video src={pendingPreviewUrlRef.current} controls className="mt-2 w-full max-h-56 rounded-lg border border-gray-800 bg-black" />
+                        <video src={pendingPreviewUrlRef.current} onLoadedMetadata={(e) => fixInfiniteDuration(e.currentTarget)} controls className="mt-2 w-full max-h-56 rounded-lg border border-gray-800 bg-black" />
                       )}
 
                       <details className="mt-2">
@@ -1391,7 +1391,7 @@ export function VideoStudioPage() {
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">5 · Preview → Approve → Export</h3>
 
             {previewUrl ? (
-              <video src={previewUrl} controls className="w-full max-h-96 rounded-lg border border-gray-800 bg-black" />
+              <video src={previewUrl} onLoadedMetadata={(e) => fixInfiniteDuration(e.currentTarget)} controls className="w-full max-h-96 rounded-lg border border-gray-800 bg-black" />
             ) : (
               <p className="text-sm text-gray-500">
                 {job?.edited_view_url ? (

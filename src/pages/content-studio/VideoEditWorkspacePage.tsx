@@ -31,7 +31,7 @@ import {
 } from '@/lib/content-studio/aiEditCommands'
 import { uploadVideoBlob, downloadVideoBlob, VideoStorageError } from '@/lib/content-studio/videoStorage'
 import { useViewer } from '@/lib/content-studio/viewer-context'
-import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt } from '@/lib/content-studio/videoEditShared'
+import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt, fixInfiniteDuration } from '@/lib/content-studio/videoEditShared'
 import { transcribeAudio, analyzeReferenceStyle, analyzeReferenceStyleImage, styleProfileToCommands } from '@/lib/content-studio/videoPlan'
 import { Page } from '@/components/content-studio/ui'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -1909,7 +1909,7 @@ export function VideoEditWorkspacePage() {
                     src={previewUrl || sourceUrl}
                     className="w-full max-h-[55vh] bg-black"
                     onTimeUpdate={(e) => setCurTime(e.currentTarget.currentTime)}
-                    onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                    onLoadedMetadata={(e) => { setDuration(e.currentTarget.duration); fixInfiniteDuration(e.currentTarget, setDuration) }}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
                   />

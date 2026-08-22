@@ -30,6 +30,38 @@ export function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/**
+ * A raw, untouched upload (a phone/WhatsApp video especially) very often has
+ * its moov atom — the index ffmpeg/Chrome need to know the file's duration
+ * and seek — written at the END of the file rather than the front. Streamed
+ * from a URL that's fine (the browser range-requests the tail); played from
+ * a Blob URL, which is read front-to-back with no seeking, Chrome can't find
+ * it and reports `duration === Infinity` instead. Every duration display in
+ * this app (fmtTime) then renders that as "0:00", and Play does nothing
+ * because there's no known timeline to play across — the video is actually
+ * fine, playback just can't start without a duration.
+ *
+ * Forcing a seek near the very end makes Chrome binary-search the (locally
+ * available, so effectively instant) blob to find that trailing moov atom,
+ * after which `duration` resolves to the real value. Attach as
+ * `onLoadedMetadata={(e) => fixInfiniteDuration(e.currentTarget)}` on any
+ * `<video>` playing a raw/untouched upload — a plain `<video controls>`
+ * picks the corrected duration up on its own once the seek-back settles.
+ * Pass `onFixed` when something ELSE (React state, e.g.) also needs to know
+ * the real duration — reading `video.duration` synchronously right after
+ * calling this would still read Infinity, since the fix completes async.
+ */
+export function fixInfiniteDuration(video: HTMLVideoElement, onFixed?: (duration: number) => void): void {
+  if (video.duration !== Infinity) return
+  const onTimeUpdate = () => {
+    video.currentTime = 0
+    video.removeEventListener('timeupdate', onTimeUpdate)
+    onFixed?.(video.duration)
+  }
+  video.addEventListener('timeupdate', onTimeUpdate)
+  video.currentTime = 1e101
+}
+
 export interface SubtitleCue {
   text: string
   start: number
