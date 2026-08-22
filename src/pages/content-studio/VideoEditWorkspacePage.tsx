@@ -559,15 +559,18 @@ export function VideoEditWorkspacePage() {
     setDirty(true)
   }
 
-  // ---------- drag-to-reorder (multi-clip only) ----------
+  // ---------- reorder (multi-clip only) ----------
   // Only the ARRAY ORDER changes here — each clip's [start,end] window into
   // the one shared source video is untouched. renderSegments/saveChanges
   // both walk `clips` (filtered to non-deleted) in array order to build the
   // final concatenated video, so moving a clip's position in this array is
   // the whole of what "reorder" needs to mean.
-  const [draggedClipId, setDraggedClipId] = useState<string | null>(null)
-  const [dragOverClipId, setDragOverClipId] = useState<string | null>(null)
-
+  //
+  // Button-only (Move left/right in the selected-clip panel below), not
+  // drag — dragging and the tiles' own onClick-to-select lived on the same
+  // element, and on a trackpad a tiny bit of jitter during a plain click
+  // could get misread as a drag start, swallowing the click entirely and
+  // making clip selection randomly stop working.
   function moveClip(draggedId: string, targetId: string) {
     if (draggedId === targetId) return
     const current = clipsRef.current
@@ -2037,30 +2040,14 @@ export function VideoEditWorkspacePage() {
                         key={c.id}
                         onClick={() => setSelectedId(c.id)}
                         disabled={c.deleted}
-                        draggable={mode === 'segments' && clips.length > 1 && !c.deleted}
-                        onDragStart={(e) => { setDraggedClipId(c.id); e.dataTransfer.effectAllowed = 'move' }}
-                        onDragEnd={() => { setDraggedClipId(null); setDragOverClipId(null) }}
-                        onDragOver={(e) => { if (draggedClipId) { e.preventDefault(); setDragOverClipId(c.id) } }}
-                        onDragLeave={() => setDragOverClipId((id) => (id === c.id ? null : id))}
-                        onDrop={(e) => {
-                          e.preventDefault()
-                          if (draggedClipId) moveClip(draggedClipId, c.id)
-                          setDraggedClipId(null)
-                          setDragOverClipId(null)
-                        }}
-                        title={mode === 'segments' && !c.deleted ? 'Drag to reorder' : undefined}
                         style={{ flexGrow: Math.max(0.3, c.end - c.start) }}
                         className={`relative h-12 rounded-md border overflow-hidden text-[11px] font-semibold transition-colors ${
-                          draggedClipId === c.id
-                            ? 'opacity-40 border-gold-600 bg-gray-900 text-gray-400'
-                            : dragOverClipId === c.id && draggedClipId && draggedClipId !== c.id
-                              ? 'border-gold-400 border-2 bg-gray-900 text-gray-400'
-                              : c.deleted
-                                ? 'opacity-30 border-gray-800 bg-gray-900 text-gray-600 line-through'
-                                : selectedId === c.id
-                                  ? 'border-gold-600 bg-gold-500/20 text-gold-400'
-                                  : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600'
-                        } ${mode === 'segments' && !c.deleted ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                          c.deleted
+                            ? 'opacity-30 border-gray-800 bg-gray-900 text-gray-600 line-through'
+                            : selectedId === c.id
+                              ? 'border-gold-600 bg-gold-500/20 text-gold-400'
+                              : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600'
+                        }`}
                       >
                         {c.thumbnail && <img src={c.thumbnail} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />}
                         <span className="relative flex flex-col items-center justify-center h-full px-1 truncate">
