@@ -24,9 +24,18 @@ import { storage } from '../firebase'
 
 export class VideoStorageError extends Error {}
 
+const STORAGE_PATH_PREFIX = 'content-studio/'
+
 function uniquePath(fileName: string): string {
   const safe = fileName.replace(/[^\w.\- ]+/g, '').trim() || 'file'
-  return `content-studio/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`
+  return `${STORAGE_PATH_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`
+}
+
+/** True for anything this module itself created (always starts with
+ *  STORAGE_PATH_PREFIX) — false for a bare Google Drive file id (an opaque
+ *  token with no slashes) left over from before this migration. */
+function isStoragePath(id: string): boolean {
+  return id.startsWith(STORAGE_PATH_PREFIX)
 }
 
 export interface StorageUploadResult {
@@ -74,8 +83,20 @@ export const uploadVideoFile = uploadVideoBlob
 /**
  * Downloads a file's bytes back from Storage, given the path stored in
  * `raw_drive_id`/`edited_drive_id`/`export_drive_id`/`music_drive_id`.
+ *
+ * Content uploaded before this migration has a real Google Drive file id in
+ * that same column, not a Storage path — those still need to go through
+ * Drive (one popup) since the bytes genuinely live there, not in Storage.
+ * Without this fallback, every piece of content uploaded before today would
+ * simply fail to load at all: the video stays stuck at 0:00/0:00 and every
+ * button that needs the source blob (Interpret instruction included) stays
+ * disabled with no way to fix it short of re-uploading.
  */
 export async function downloadVideoBlob(storagePath: string): Promise<Blob> {
+  if (!isStoragePath(storagePath)) {
+    const { downloadFromDrive } = await import('../googleDrive')
+    return downloadFromDrive(storagePath)
+  }
   try {
     const url = await getDownloadURL(ref(storage, storagePath))
     const res = await fetch(url)
