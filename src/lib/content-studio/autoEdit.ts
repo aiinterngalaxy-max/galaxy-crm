@@ -218,13 +218,19 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpegLike> {
   const ffmpeg = new FFmpeg()
   if (onLog) ffmpeg.on('log', ({ message }) => onLog(message))
 
-  // The multi-threaded core renders several times faster than the
-  // single-threaded default, but only works when SharedArrayBuffer is
-  // available (cross-origin isolated page) — falls back cleanly otherwise.
-  // Only relevant for the in-browser path above; the remote GPU render
-  // server (if reachable) already uses real hardware encoding.
-  const multiThreaded = typeof globalThis !== 'undefined' && !!(globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated
-  const pkg = multiThreaded ? '@ffmpeg/core-mt' : '@ffmpeg/core'
+  // Deliberately always the single-threaded core, not @ffmpeg/core-mt.
+  // The multi-threaded core needs a Worker loaded from a blob: URL (via
+  // toBlobURL) inside a cross-origin-isolated page (COOP/COEP) — that
+  // combination is exactly what caused "Loading the video engine" to hang
+  // forever on this route (confirmed 2026-08-22: the -mt worker's own
+  // internal resource resolution from a blob: URL context doesn't reliably
+  // complete, with no error surfaced — ffmpeg.load() just never resolves).
+  // The COOP header this required is also independently risky: it's the
+  // exact route that previously ran the Google Drive OAuth popup, and
+  // COOP:same-origin is documented to break window.open()-based auth
+  // popups. A slower render that reliably finishes beats a faster one that
+  // sometimes never starts.
+  const pkg = '@ffmpeg/core'
   // jsdelivr, not unpkg: same package, but jsdelivr fronts npm packages with
   // its own global CDN/cache layer built for exactly this (large static
   // package assets), where unpkg has a well-known history of being slow or
@@ -235,9 +241,6 @@ async function loadFFmpeg(onLog?: (line: string) => void): Promise<FFmpegLike> {
   await ffmpeg.load({
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
-    ...(multiThreaded
-      ? { workerURL: await toBlobURL(`${base}/ffmpeg-core.worker.js`, 'text/javascript') }
-      : {}),
   })
   ffmpegSingleton = ffmpeg
   usingRemote = false
