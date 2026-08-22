@@ -29,7 +29,7 @@ import {
   describeAiCommand, describeAiCommandCard, FONT_FAMILIES,
   type EditCommand, type EffectType,
 } from '@/lib/content-studio/aiEditCommands'
-import { uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
+import { uploadVideoBlob, downloadVideoBlob, VideoStorageError } from '@/lib/content-studio/videoStorage'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime, toSrt, toVtt } from '@/lib/content-studio/videoEditShared'
 import { transcribeAudio, analyzeReferenceStyle, analyzeReferenceStyleImage, styleProfileToCommands } from '@/lib/content-studio/videoPlan'
@@ -277,7 +277,7 @@ function toBatchableEffect(cmd: EditCommand, durationSec: number): BatchableEffe
  * clip_segments (joined-clip) fields Section 4 of VideoStudioPage already
  * reads/writes, via the same renderFinal/renderSegments used by Preview and
  * Export there. Text/Captions share the existing job.captions column (each
- * item just carries an extra kind/size field). Music re-uses the same Drive
+ * item just carries an extra kind/size field). Music re-uses the same Storage
  * upload path as raw/edited footage. Review and Publish re-use cmo_content's
  * existing stage/approved/publish_date fields — no parallel status system.
  */
@@ -319,8 +319,8 @@ export function VideoEditWorkspacePage() {
   }, [contentId])
 
   function handleError(err: unknown) {
-    if (err instanceof GoogleDriveError) {
-      setError(`${err.message} (Google Drive access is asked for once per browser session.)`)
+    if (err instanceof VideoStorageError) {
+      setError(err.message)
     } else if (err instanceof AutoEditError) {
       setError(err.message)
     } else {
@@ -348,7 +348,7 @@ export function VideoEditWorkspacePage() {
     if (!job?.edited_drive_id) return
     let cancelled = false
     setSourceLoading(true)
-    downloadFromDrive(job.edited_drive_id)
+    downloadVideoBlob(job.edited_drive_id)
       .then((blob) => {
         if (cancelled) return
         sourceBlobRef.current = blob
@@ -366,7 +366,7 @@ export function VideoEditWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.edited_drive_id])
 
-  /** Swaps the active source to a cached (or, failing that, Drive-fetched)
+  /** Swaps the active source to a cached (or, failing that, Storage-fetched)
    *  blob — used by undo/redo/history-jump when the target snapshot points
    *  at a different video than the one currently loaded. */
   /** The blob for a source key, fetching and caching it if this session
@@ -374,10 +374,10 @@ export function VideoEditWorkspacePage() {
   async function getSourceBlob(sourceKey: string): Promise<Blob> {
     const cached = sourceBlobCache.current.get(sourceKey)
     if (cached) return cached
-    // Only reachable if the key is a real Drive id whose blob fell out of
+    // Only reachable if the key is a real Storage path whose blob fell out of
     // this session's cache (e.g. a page reload) — a local-* key always
     // has its blob cached at creation time, since nothing else can produce one.
-    const fetched = await downloadFromDrive(sourceKey)
+    const fetched = await downloadVideoBlob(sourceKey)
     sourceBlobCache.current.set(sourceKey, fetched)
     return fetched
   }
@@ -635,7 +635,7 @@ export function VideoEditWorkspacePage() {
   /** Pushes a source-level change — a new rendered video (an AI crop/zoom/
    *  pan/speed/loop), replacing the clip timeline with one fresh whole-video
    *  clip and swapping the player/export source to match. Purely local:
-   *  no Drive upload, no DB write — same "stays local until Save" rule the
+   *  no Storage upload, no DB write — same "stays local until Save" rule the
    *  Music panel already follows for a picked-but-unsaved file. */
   async function commitNewSource(blob: Blob, newDuration: number, label: string, effectTypes?: string[], effectStack?: EditCommand[], bakedTrim?: boolean) {
     const sourceKey = `local-${Date.now()}`
@@ -960,7 +960,7 @@ export function VideoEditWorkspacePage() {
     if (musicFile) return musicFile
     if (musicBlobRef.current) return musicBlobRef.current
     if (!job?.music_drive_id) return null
-    const blob = await downloadFromDrive(job.music_drive_id)
+    const blob = await downloadVideoBlob(job.music_drive_id)
     musicBlobRef.current = blob
     return blob
   }
@@ -1052,7 +1052,7 @@ export function VideoEditWorkspacePage() {
         patch.music_view_url = ''
         patch.music_name = ''
       } else if (musicFile) {
-        const { driveFileId, driveViewUrl } = await uploadBlobToDrive(musicFile, musicFile.name)
+        const { driveFileId, driveViewUrl } = await uploadVideoBlob(musicFile, musicFile.name)
         patch.music_drive_id = driveFileId
         patch.music_view_url = driveViewUrl
         patch.music_name = musicFile.name
@@ -1060,13 +1060,13 @@ export function VideoEditWorkspacePage() {
 
       // An AI crop/zoom/pan/speed/loop result lives only in memory
       // (sourceBlobCache) until now — this is the one point it actually
-      // becomes a Drive file and a DB row, same moment a picked music file
-      // does. Re-keys the cache/history to the real Drive id afterward so a
+      // becomes a Storage file and a DB row, same moment a picked music file
+      // does. Re-keys the cache/history to the real Storage path afterward so a
       // second Save (or an Undo back to this point) doesn't re-upload it.
       if (currentSourceKey && currentSourceKey !== job.edited_drive_id) {
         const pendingBlob = sourceBlobCache.current.get(currentSourceKey)
         if (pendingBlob) {
-          const { driveFileId, driveViewUrl } = await uploadBlobToDrive(pendingBlob, `${content?.title ?? 'video'} (edited).mp4`)
+          const { driveFileId, driveViewUrl } = await uploadVideoBlob(pendingBlob, `${content?.title ?? 'video'} (edited).mp4`)
           patch.edited_drive_id = driveFileId
           patch.edited_view_url = driveViewUrl
           sourceBlobCache.current.set(driveFileId, pendingBlob)
@@ -1435,7 +1435,7 @@ export function VideoEditWorkspacePage() {
    * Executes every pending command in order. crop/zoom/pan/speed/loop are
    * "hard-bake" operations — they re-render the actual source video (same
    * as Regenerate/Change footage elsewhere in this workspace) via the new
-   * autoEdit.ts functions, upload the result to Drive, and point the job at
+   * autoEdit.ts functions, upload the result to Storage, and point the job at
    * it. Doing that CLEARS clips/history rather than trying to remap old
    * clip boundaries onto a video whose duration or content just changed
    * (loop and windowed speed both change duration) — the existing
@@ -1698,12 +1698,12 @@ export function VideoEditWorkspacePage() {
           }
         }
 
-        // Local only — no Drive upload, no DB write, same as picking a music
+        // Local only — no Storage upload, no DB write, same as picking a music
         // file: it becomes real (uploaded, saved) when the operator clicks
         // Save, not the moment ffmpeg finishes. This is also what makes the
         // result properly undoable through the same history/undo() as every
         // other edit, and what keeps the original upload (raw_drive_id,
-        // untouched by any of this) and every earlier save's Drive file
+        // untouched by any of this) and every earlier save's Storage file
         // intact rather than replaced on every single AI instruction.
         // The label and effectTypes describe what the operator just asked
         // for, NOT the replayed stack — on a replay `ordered` also contains

@@ -4,7 +4,7 @@ import { ArrowLeft, Play, Pencil, Send, ChevronDown } from 'lucide-react'
 import type { ContentRow, VideoJob } from '@/types/content-studio'
 import { ensureVideoJob, updateVideoJob, updateContent, getContent, deleteContent } from '@/lib/content-studio/queries'
 import { autoEditRemoveSilence, joinClips, renderFinal, renderSegments, AutoEditError, type AutoEditProgress, type ClipInput, type SegmentTrim, type CaptionPosition, type TimedCaption } from '@/lib/content-studio/autoEdit'
-import { uploadToDrive, uploadBlobToDrive, downloadFromDrive, GoogleDriveError } from '@/lib/googleDrive'
+import { uploadVideoFile, uploadVideoBlob, downloadVideoBlob, VideoStorageError } from '@/lib/content-studio/videoStorage'
 import { useViewer } from '@/lib/content-studio/viewer-context'
 import { parseJsonField, type ClipSegmentRecord, fmtTime } from '@/lib/content-studio/videoEditShared'
 import { getSocialPreview, previewImageSrc, type SocialPreview } from '@/lib/content-studio/socialPreview'
@@ -151,7 +151,7 @@ export function VideoStudioPage() {
   const rawPreviewUrlRef = useRef('')
 
   // The raw File and the just-edited Blob stay in memory for this session so
-  // Regenerate and Export don't need to re-download from Drive every time —
+  // Regenerate and Export don't need to re-download the file every time —
   // only a page that was reloaded (rawFile is null) has to fetch it back first.
   const rawFileRef = useRef<File | null>(null)
   const editedBlobRef = useRef<Blob | null>(null)
@@ -269,8 +269,8 @@ export function VideoStudioPage() {
   }, [job?.id])
 
   function handleError(err: unknown) {
-    if (err instanceof GoogleDriveError) {
-      setError(`${err.message} (Google Drive access is asked for once per browser session.)`)
+    if (err instanceof VideoStorageError) {
+      setError(err.message)
     } else if (err instanceof AutoEditError) {
       setError(err.message)
     } else {
@@ -449,8 +449,8 @@ export function VideoStudioPage() {
       setPreview(combined)
 
       const { driveFileId, driveViewUrl } = !needsProcessing
-        ? await uploadToDrive(entries[0].file, (f) => setUploadPct(Math.round(f * 100)))
-        : await uploadBlobToDrive(combined, name)
+        ? await uploadVideoFile(entries[0].file, entries[0].file.name, (f) => setUploadPct(Math.round(f * 100)))
+        : await uploadVideoBlob(combined, name)
 
       // Only worth recording when there's more than one clip — a segment
       // list of one doesn't offer anything the plain trim_start/trim_end
@@ -501,7 +501,7 @@ export function VideoStudioPage() {
   async function getRawBlob(j: VideoJob): Promise<Blob> {
     if (rawFileRef.current) return rawFileRef.current
     if (!j.raw_drive_id) throw new Error('No raw footage on this job.')
-    return downloadFromDrive(j.raw_drive_id)
+    return downloadVideoBlob(j.raw_drive_id)
   }
 
   async function generate(j: VideoJob, sourceOverride?: Blob) {
@@ -520,7 +520,7 @@ export function VideoStudioPage() {
       editedBlobRef.current = edited
       setPreview(edited)
 
-      const { driveFileId, driveViewUrl } = await uploadBlobToDrive(edited, `${content.title} (edited).mp4`)
+      const { driveFileId, driveViewUrl } = await uploadVideoBlob(edited, `${content.title} (edited).mp4`)
       await persist({
         status: 'Generated',
         edited_drive_id: driveFileId,
@@ -603,7 +603,7 @@ export function VideoStudioPage() {
     setEditProgress(null)
     try {
       const base = editedBlobRef.current
-        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+        ?? (job.edited_drive_id ? await downloadVideoBlob(job.edited_drive_id) : null)
       if (!base) throw new Error('No auto-edited footage to preview yet.')
       const rendered = await renderFinal(
         base,
@@ -642,7 +642,7 @@ export function VideoStudioPage() {
     setEditProgress(null)
     try {
       const base = editedBlobRef.current
-        ?? (job.edited_drive_id ? await downloadFromDrive(job.edited_drive_id) : null)
+        ?? (job.edited_drive_id ? await downloadVideoBlob(job.edited_drive_id) : null)
       if (!base) throw new Error('No auto-edited footage to preview yet.')
       const rendered = await renderSegments(
         base,
@@ -670,7 +670,7 @@ export function VideoStudioPage() {
     setEditProgress(null)
     try {
       await persist({ status: 'Exporting', error: '' })
-      const source = editedBlobRef.current ?? (await downloadFromDrive(job.edited_drive_id))
+      const source = editedBlobRef.current ?? (await downloadVideoBlob(job.edited_drive_id))
       const finalBlob = clipSegments?.length
         ? await renderSegments(
             source,
@@ -690,7 +690,7 @@ export function VideoStudioPage() {
             setEditProgress,
           )
       setPreview(finalBlob)
-      const { driveFileId, driveViewUrl } = await uploadBlobToDrive(finalBlob, `${content.title} (final).mp4`)
+      const { driveFileId, driveViewUrl } = await uploadVideoBlob(finalBlob, `${content.title} (final).mp4`)
       await persist({ status: 'Exported', export_drive_id: driveFileId, export_view_url: driveViewUrl })
     } catch (err) {
       await updateVideoJob(job.id, { status: 'Failed', error: errText(err) }).catch(() => {})
@@ -948,7 +948,7 @@ export function VideoStudioPage() {
               )}
 
               <a href={job.raw_view_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-gray-600 hover:text-gray-300 hover:underline">
-                View in Google Drive
+                View original file
               </a>
             </div>
           ) : (
@@ -1396,7 +1396,7 @@ export function VideoStudioPage() {
               <p className="text-sm text-gray-500">
                 {job?.edited_view_url ? (
                   <a href={job.edited_view_url} target="_blank" rel="noreferrer" className="text-gold-500 hover:underline">
-                    View in Drive
+                    View file
                   </a>
                 ) : (
                   'No preview available yet.'
@@ -1436,7 +1436,7 @@ export function VideoStudioPage() {
                 rel="noreferrer"
                 className="mt-3 inline-block text-sm font-semibold text-gold-500 hover:underline"
               >
-                ↓ Open final video in Google Drive
+                ↓ Open final video
               </a>
             )}
           </section>
