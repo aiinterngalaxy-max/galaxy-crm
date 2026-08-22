@@ -1479,24 +1479,24 @@ function ProjectHeader({
 
           <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
             <div className="flex items-center gap-1.5">
-              <dt className="text-gray-600">Status:</dt>
+              <dt className="text-white">Status:</dt>
               <dd><StatusStrip status={status} approved={approved} /></dd>
             </div>
             {editor && (
               <div className="flex items-center gap-1.5">
-                <dt className="text-gray-600">Editor:</dt>
+                <dt className="text-white">Editor:</dt>
                 <dd className="text-white font-medium">{editor}</dd>
               </div>
             )}
             {content?.platform && (
               <div className="flex items-center gap-1.5">
-                <dt className="text-gray-600">Platform:</dt>
+                <dt className="text-white">Platform:</dt>
                 <dd className="text-white font-medium">{content.platform}</dd>
               </div>
             )}
             {content?.format && (
               <div className="flex items-center gap-1.5">
-                <dt className="text-gray-600">Format:</dt>
+                <dt className="text-white">Format:</dt>
                 <dd className="text-white font-medium">{content.format}</dd>
               </div>
             )}
