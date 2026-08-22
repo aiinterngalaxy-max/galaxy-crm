@@ -44,6 +44,7 @@ export const VEHICLES: Vehicle[] = [
   { name: '40 Seater AC Bus',            category: 'Bus',             type: 'bus',       seats: 40, minKmPerDay: 300, ratePerKm: 52, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 18300, localRate: 8500 },
   { name: '45 Seater AC Bus',            category: 'Bus',             type: 'bus',       seats: 45, minKmPerDay: 300, ratePerKm: 55, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 19200, localRate: 9500 },
   { name: '49 Seater AC Bus',            category: 'Bus',             type: 'bus',       seats: 49, minKmPerDay: 300, ratePerKm: 55, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 19200, localRate: 9500 },
+  { name: '49 Seater Non-AC Bus',        category: 'Bus',             type: 'bus',       seats: 49, minKmPerDay: 300, ratePerKm: 50, permitPerDay: 2000, driverAllowancePerDay: 700, perDayRate: 17000, localRate: 8500 },
   { name: '54 Seater AC Volvo Bus',      category: 'Eicher',          type: 'bus',       seats: 54, minKmPerDay: 300, ratePerKm: 57, permitPerDay: 2500, driverAllowancePerDay: 700, perDayRate: 20300, localRate: 10500 },
   { name: '58 Seater AC Volvo Bus',      category: 'Eicher',          type: 'bus',       seats: 58, minKmPerDay: 300, ratePerKm: 68, permitPerDay: 2500, driverAllowancePerDay: 700, perDayRate: 23600, localRate: 12000 },
 ]
